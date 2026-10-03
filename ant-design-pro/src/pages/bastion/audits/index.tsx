@@ -421,8 +421,8 @@ const ChainBadge: React.FC<{
                         color: '#1f2937',
                       }}
                     >
-                      {verifyErrors.sample.map((e, i) => (
-                        <li key={i}>
+                      {verifyErrors.sample.map((e) => (
+                        <li key={e.id}>
                           <Text code>#{e.id}</Text> — {e.reason}
                         </li>
                       ))}
@@ -432,7 +432,7 @@ const ChainBadge: React.FC<{
               }
             />
           ) : null}
-          {verify && verify.ok && !verifyErrors ? (
+          {verify?.ok && !verifyErrors ? (
             <Alert
               showIcon
               type="success"
@@ -515,7 +515,7 @@ const AuditsPage: React.FC = () => {
       else message.warning('检出哈希异常，详情见上方卡片');
     } catch (e) {
       setChain((s) => ({ ...s, verifying: false }));
-      message.error('哈希校验失败：' + ((e as Error)?.message ?? '未知错误'));
+      message.error(`哈希校验失败：${(e as Error)?.message ?? '未知错误'}`);
     }
   }, []);
 
@@ -936,7 +936,7 @@ const AuditsPage: React.FC = () => {
             />
 
             <Divider
-              orientation="left"
+              titlePlacement="start"
               style={{ margin: '8px 0 12px' }}
               orientationMargin={0}
             >
@@ -969,7 +969,7 @@ const AuditsPage: React.FC = () => {
                   <Col xs={24} sm={18}>
                     <HashCell
                       value={detail.prevHash}
-                      label={`prev_hash · ${detail.id - 1 ?? 'genesis'}`}
+                      label={`prev_hash · ${detail.prevHash ? detail.id - 1 : 'genesis'}`}
                     />
                     {!detail.prevHash ? (
                       <Tag
@@ -1021,7 +1021,7 @@ const AuditsPage: React.FC = () => {
             </Card>
 
             <Divider
-              orientation="left"
+              titlePlacement="start"
               style={{ margin: '4px 0 12px' }}
               orientationMargin={0}
             >
