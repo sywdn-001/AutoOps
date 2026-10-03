@@ -328,15 +328,32 @@ export type AuditItem = {
   entryHash: string;
 };
 
-export type AuditChainCounts = { total: number; hashed: number; pending: number };
-export type AuditChainHead = { lastId: number | null; lastEntryHash: string };
+/**
+ * 链式哈希计数。
+ * - `pendingPrefix`：链起步**之前**的空哈希行（升级前遗留，合法，不影响健康度）
+ * - `pendingInside`：链**之内**的空哈希行（异常：有人把哈希清空冒充遗留来藏篡改）
+ * - `pending`：`total - hashed`，保留给旧调用方；健康度只看 `pendingInside`
+ */
+export type AuditChainCounts = {
+  total: number;
+  hashed: number;
+  pending: number;
+  pendingPrefix?: number;
+  pendingInside?: number;
+};
+export type AuditChainHead = {
+  lastId: number | null;
+  lastEntryHash: string;
+  /** 链尾**实际**校验通过的 entry_hash（比 lastEntryHash 更可靠：后者只是最后一行存储值） */
+  verifiedHead?: string;
+};
 export type AuditChainStatus = {
   healthy: boolean;
   counts: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainCounts>;
   heads: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainHead>;
 };
 export type AuditChainError = {
-  id: number;
+  id: number | null;
   reason: string;
   expected?: string;
   actual?: string;
@@ -347,6 +364,14 @@ export type AuditChainTableResult = {
   verified: number;
   firstBad: number | null;
   errors: AuditChainError[];
+  /** 链起步前的遗留空哈希行数 */
+  prefix?: number;
+  /** 链内的空哈希行数（异常信号） */
+  pendingInside?: number;
+  /** 链尾校验通过的 entry_hash（可抄作库外锚点） */
+  head?: string;
+  /** 本次是否比对了库外锚点 */
+  anchorChecked?: boolean;
 };
 export type AuditChainVerifyResult = {
   ok: boolean;

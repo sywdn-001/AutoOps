@@ -501,9 +501,12 @@ _ = parse_int
 @bp.get("/audits/chain")
 @permission_required("audit:view")
 def audits_chain_status():
-    """链状态：三张表的总行数、已哈希数、最新 entry_hash、是否全通过的概览。
+    """链状态：三张表的总行数、已哈希数、链尾哈希、是否健康的概览。
 
-    这里只扫「最新 entry_hash 是否能覆盖」，不逐行重算（逐行重算走 /verify）。
+    - ``counts``：``{total, hashed, pending, pendingPrefix, pendingInside}``；
+      ``pendingPrefix`` 是链起步前的合法遗留行，``pendingInside`` 是链内的空哈希行（异常）
+    - ``heads``：``{lastId, lastEntryHash, verifiedHead}``；抄库外锚点请用 ``verifiedHead``
+    - ``healthy`` 只看 ``pendingInside`` + 最新样本 ``prev_hash`` 自洽，不做逐行重算（逐行走 /verify）
     """
     heads = {}
     counts = {}
@@ -519,20 +522,50 @@ def audits_chain_status():
             .scalar()
             or 0
         )
+        # 「链起步前」的遗留行是合法的（升级前数据补不出哈希）；「链内的空哈希行」非法。
+        # 用「第一条已哈希行的 id」把两者切开，不再一律当成 pending。
+        first_hashed_id = (
+            db.session.query(func.min(model.id)).filter(model.entry_hash != "").scalar()
+        )
+        if first_hashed_id is None:
+            # 整表都没有哈希：全部算链起步前的遗留块（是不是被清空过，只有库外锚点能裁决）
+            pending_prefix = total
+        else:
+            pending_prefix = int(
+                db.session.query(func.count(model.id))
+                .filter(model.id < first_hashed_id)
+                .scalar()
+                or 0
+            )
         last = db.session.query(model).order_by(model.id.desc()).first()
+        last_hashed = (
+            db.session.query(model)
+            .filter(model.entry_hash != "")
+            .order_by(model.id.desc())
+            .first()
+        )
         heads[name] = {
             "lastId": last.id if last else None,
             "lastEntryHash": (last.entry_hash or "") if last and getattr(last, "entry_hash", None) else "",
+            # 链尾 = 最后一个**非空** entry_hash。末行哈希被清空时，它才是该抄走的库外锚点
+            "verifiedHead": (last_hashed.entry_hash or "") if last_hashed else "",
         }
-        counts[name] = {"total": total, "hashed": hashed, "pending": total - hashed}
-    # 只有在所有行都已哈希且一条快查样本 entry_hash 自洽的情况下才给 healthy=true
+        counts[name] = {
+            "total": total,
+            "hashed": hashed,
+            "pending": total - hashed,
+            "pendingPrefix": pending_prefix,
+            "pendingInside": max(0, total - hashed - pending_prefix),
+        }
+    # healthy 只对「链内空洞」亮红：链起步前的遗留行不该把完好的链判成不健康
+    # （老库升级完第一眼就全红的话，运维会习惯性忽略这个徽标）
     healthy = True
     for name, model in [
         ("audit_logs", AuditLog),
         ("command_logs", CommandLog),
         ("file_logs", FileLog),
     ]:
-        if counts[name]["pending"] > 0:
+        if counts[name]["pendingInside"] > 0:
             healthy = False
             break
         sample = db.session.query(model).filter(model.entry_hash != "").order_by(model.id.desc()).first()
@@ -562,9 +595,14 @@ def audits_chain_status():
 def audits_chain_verify():
     """逐行重算并校验三张表的哈希链。返回每表的详细错误（最多前 32 条）。
 
-    管理员可带 ``table=audit_logs`` 参数只校验单张表。
+    权限口径：**审计查看权限即可**（`audit:view`）—— 完整性校验是只读的，审计员也该能自证清白；
+    运维专用、能校验单表的调用方用 CLI `tools/verify_audit_chain.py`。
+
+    - `?table=audit_logs|command_logs|file_logs` 只校验单张表
+    - `?expected_head=<hash>` 传入库外锚点比对链尾（对不上即判「被截断」，见 CLI `--print-head`）
     """
     table = (request.args.get("table") or "").strip()
+    expected_head = (request.args.get("expected_head") or "").strip() or None
     mapping = {
         "audit_logs": AuditLog,
         "command_logs": CommandLog,
@@ -573,6 +611,12 @@ def audits_chain_verify():
     if table:
         if table not in mapping:
             return api_error("UNKNOWN_TABLE", f"未知表名：{table}", code=400)
-        result = verify_table_chain(mapping[table])
+        result = verify_table_chain(mapping[table], expected_head=expected_head)
         return api_ok({"ok": result["ok"], "tables": {table: result}})
+    if expected_head:
+        return api_error(
+            "ANCHOR_NEEDS_TABLE",
+            "expected_head 锚点必须与 table= 一起用（每张表的链尾不同）",
+            code=400,
+        )
     return api_ok(verify_all_chains())

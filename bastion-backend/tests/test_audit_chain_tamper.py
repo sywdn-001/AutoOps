@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 
-def test_blanking_the_last_rows_hashes_must_be_reported_as_tampering(app):
+def test_blanking_the_last_rows_hashes_must_be_reported_as_tampering(
+    app, client, admin_headers
+):
     """改字段后把本行两列哈希清空（伪装成「升级前遗留」）→ verify 必须判异常。
 
     验收现场：当前返回 ``{'ok': True, 'total': 5, 'verified': 4}``，篡改被隐藏。
     同一条记录在 ``GET /api/audits/chain`` 里又会因为 pending>0 判「不健康」——
     两条路结论互相矛盾；安全裁决以 verify（也就是 CLI 退出码）为准，所以必须是它红。
+    修好之后：verify 与 /api/audits/chain 必须**同声**说「异常」（界面徽标与 CLI 退出码一致）。
     """
     from app.audit import log_event, verify_table_chain
     from app.extensions import db
@@ -39,6 +42,15 @@ def test_blanking_the_last_rows_hashes_must_be_reported_as_tampering(app):
     assert any(str(victim_id) in str(err) for err in result["errors"]), (
         f"错误列表没点名出问题的行（id={victim_id}）：{result['errors']}"
     )
+    assert result["pending_inside"] == 1, f"链内的空哈希行要单独计数：{result}"
+
+    # 界面上的徽标（也就是管理员第一眼看到的东西）必须与 verify 同声
+    body = client.get("/api/audits/chain", headers=admin_headers).get_json()
+    assert body.get("success") is True, body
+    data = body["data"]
+    counts = data["counts"]["audit_logs"]
+    assert data["healthy"] is False, f"verify 说异常，徽标却判健康：{data}"
+    assert counts.get("pendingInside") == 1, counts
 
 
 def test_legacy_prefix_must_not_make_a_healthy_chain_look_broken(app, client, admin_headers):
@@ -54,6 +66,9 @@ def test_legacy_prefix_must_not_make_a_healthy_chain_look_broken(app, client, ad
     from app.models import AuditLog
 
     with app.app_context():
+        # 先造「升级前」的库：清掉夹具里那几条已哈希的种子行，否则遗留行会落在链**内部**
+        AuditLog.query.delete()
+        db.session.commit()
         for i in range(2):
             db.session.add(
                 AuditLog(

@@ -196,36 +196,42 @@ def test_chain_compute_is_deterministic():
     assert h1 != h4
 
 
-def test_old_records_without_hashes_are_skipped_in_verify(app):
-    """老库迁移补列后，空 entry_hash 的记录 verify 跳过，不报错。"""
+def test_legacy_blank_rows_are_skipped_only_before_the_chain_starts(app):
+    """老库迁移补列后：**链起步之前**的空 entry_hash 行 verify 跳过、不报错。
+
+    语义修订（2026-10，对抗测试驱动）：空哈希行只允许出现在链的前缀 —— 那才是「升级前遗留」。
+    链一旦起步再出现空哈希行（例如有人把某行哈希清空、冒充遗留数据来藏篡改）会被判为异常，
+    见 tests/test_audit_chain_tamper.py::test_blanking_the_last_rows_hashes_must_be_reported_as_tampering。
+    """
     from app.audit import log_event, verify_table_chain
     from app.extensions import db
 
     with app.app_context():
-        log_event("console", "new-one", message="链内新记录")
-
         from app.models import AuditLog
 
-        old1 = AuditLog(
-            category="legacy",
-            action="legacy1",
-            message="legacy row 1",
-            prev_hash="",
-            entry_hash="",
-        )
-        old2 = AuditLog(
-            category="legacy",
-            action="legacy2",
-            message="legacy row 2",
-            prev_hash="",
-            entry_hash="",
-        )
-        db.session.add(old1)
-        db.session.add(old2)
-        log_event("console", "new-two", message="链内新记录-2")
+        # 造一个「升级前」的库：先清掉夹具里那几条已哈希的种子行，再放两行无哈希的老数据
+        AuditLog.query.delete()
+        db.session.commit()
+        for i in range(2):
+            db.session.add(
+                AuditLog(
+                    category="legacy",
+                    action=f"legacy{i}",
+                    result="success",
+                    message=f"legacy row {i}",
+                    prev_hash="",
+                    entry_hash="",
+                )
+            )
         db.session.commit()
 
+        log_event("console", "new-one", message="链内新记录")
+        log_event("console", "new-two", message="链内新记录-2")
+
         result = verify_table_chain(AuditLog)
-        assert result["verified"] >= 2
-        for err in result["errors"]:
-            assert "空 entry_hash" not in err.get("reason", "")
+
+    assert result["ok"] is True, result
+    assert result["prefix"] == 2, result
+    assert result["pending_inside"] == 0, result
+    assert result["verified"] == 2, result
+    assert result["errors"] == [], result

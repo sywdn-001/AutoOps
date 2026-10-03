@@ -323,9 +323,14 @@ const ChainBadge: React.FC<{
                   >).map((key) => {
                     const c = status.counts[key];
                     const h = status.heads[key];
+                    // 健康度看**链内**空洞：升级前遗留的空哈希行（pendingPrefix）是合法的，不该把链判红
+                    const pendingInside =
+                      c.pendingInside ?? c.pending ?? 0;
+                    const pendingPrefix = c.pendingPrefix ?? 0;
                     const ok =
                       verify?.tables?.[key]?.ok ??
-                      (c.pending === 0 && Boolean(h.lastEntryHash));
+                      (pendingInside === 0 &&
+                        Boolean(h.verifiedHead ?? h.lastEntryHash));
                     return (
                       <Col xs={24} sm={8} key={key}>
                         <div
@@ -366,7 +371,13 @@ const ChainBadge: React.FC<{
                               总数 <Text strong>{c.total}</Text>
                             </Text>
                             <Text
-                              type={c.hashed === c.total ? 'success' : 'warning'}
+                              type={
+                                pendingInside > 0
+                                  ? 'danger'
+                                  : c.hashed === c.total
+                                    ? 'success'
+                                    : 'warning'
+                              }
                             >
                               已哈希{' '}
                               <Text strong>
@@ -374,12 +385,21 @@ const ChainBadge: React.FC<{
                                 {c.pending > 0 ? ` / ${c.total}` : ''}
                               </Text>
                             </Text>
+                            {pendingPrefix > 0 ? (
+                              <Text type="secondary">
+                                升级前遗留{' '}
+                                <Text strong>{pendingPrefix}</Text> 行（无哈希 ·
+                                不影响完整性）
+                              </Text>
+                            ) : null}
                           </Space>
                           <div style={{ marginTop: 6 }}>
                             <Text type="secondary" style={{ fontSize: 11 }}>
-                              末尾 id {h.lastId ?? '-'} ·{' '}
+                              链尾 id {h.lastId ?? '-'} ·{' '}
                             </Text>
-                            <HashCell value={h.lastEntryHash} />
+                            <HashCell
+                              value={h.verifiedHead ?? h.lastEntryHash}
+                            />
                           </div>
                         </div>
                       </Col>
@@ -422,8 +442,8 @@ const ChainBadge: React.FC<{
                       }}
                     >
                       {verifyErrors.sample.map((e) => (
-                        <li key={e.id}>
-                          <Text code>#{e.id}</Text> — {e.reason}
+                        <li key={`${e.id ?? 'anchor'}-${e.reason}`}>
+                          <Text code>#{e.id ?? '锚点'}</Text> — {e.reason}
                         </li>
                       ))}
                     </ul>
@@ -437,7 +457,7 @@ const ChainBadge: React.FC<{
               showIcon
               type="success"
               message="全表校验通过"
-              description="三张流水表的链式哈希重算全部自洽，未发现篡改或断裂。"
+              description="三张流水表的链式哈希重算全部自洽，未发现字段篡改、哈希清空或链内断裂。注意链的固有边界：整段删尾行在库内是自洽的，要抓它得比对库外锚点（CLI --print-head / --expect-head）。"
             />
           ) : null}
         </Col>
@@ -1015,7 +1035,9 @@ const AuditsPage: React.FC = () => {
                 >
                   哈希由服务器 SECRET_KEY 派生出的专用 HMAC 密钥计算：本块哈希
                   = HMAC(chain_key, 表名 + 前块哈希 + 规范化字段序列)。
-                  任意行字段、哈希或连接关系被改动，逐行校验都会立即检出。
+                  改字段、清空哈希、动连接关系，逐行校验都会点名到具体行；但链只能证明
+                  「手上这串是连续的」——整段删尾行要拿库外锚点（CLI --print-head /
+                  --expect-head）比对才抓得住。
                 </Paragraph>
               </Space>
             </Card>

@@ -104,8 +104,9 @@ bastion-backend/
 │   ├── live_e2e_check.py       # 真机端到端联调（96 项断言：HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含进站字符画/配色/分隔线随内容）
 │   ├── ui_check.py             # 真实 Chrome(CDP) 逐路由巡检后台 UI（21 项断言：16 个路由 + 登录态守卫 + 品牌痕迹/Logo）
 │   ├── gw_ai_check.py          # 真实 SSH 网关里跑一次 /ask-ai（9 项断言：选真机进会话 → 粘贴形态提问 → 无「AI 出错/HTTP 400」→ 有真实答案 → 回合后终端仍可用）；**选跑，会消耗一次真实模型调用**
-│   └── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
-└── tests/                      # 507 个用例（26 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+│   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
+│   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
+└── tests/                      # 524 个用例（29 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -334,6 +335,38 @@ ssh -p 2222 <堡垒机账号>@<堡垒机IP>
 
 ---
 
+## 七·八、审计链式哈希（防篡改，`app/models.py` + `app/audit.py` + `tools/verify_audit_chain.py`）
+
+三张流水表 `audit_logs` / `command_logs` / `file_logs` 每行挂两个哈希（`prev_hash`、`entry_hash`，64 位小写 hex），**按 `id` 升序单向成链**：
+
+- `entry_hash = HMAC-SHA256(key, table + prev_hash + 规范化字段)`，`key = sha256(b"bastion-audit-chain-v1" + SECRET_KEY)`（`app/models.py` 的 `EntryHashMixin` / `compute_entry_hash()`）；密钥**只从 `SECRET_KEY` 派生、不落库** —— 拿到库也伪造不出新哈希。
+- 字段规范化 `_norm()`：`None`→`""`、`datetime`→`isoformat(timespec="microseconds")`、`bool`→`"1"/"0"`、`dict`/`list`→`json.dumps(ensure_ascii=False, sort_keys=True, separators=(",",":"))`；`name\x02value` 之间用 `\x01` 连接（改成长度前缀更稳，列为后续加固项）。
+- 写库时序（`log_event` / `log_command` / `log_file_op`）：`add()` → `flush()`（拿自增 id）→ `_last_entry_hash(model, before_id=id)` 取**上一条**（`id <` 当前 id）→ 赋两列 → `commit()`。**不能** flush 完直接读「上一行」：自己刚 flush 出来的空 `entry_hash` 会被当先驱，导致第 2 条起 `prev_hash` 全空（有回归用例钉着）。
+- 校验 `verify_table_chain(model, *, secret_key=None, expected_head=None)` 逐行重算，返回 `{ok, total, verified, prefix, pending_inside, first_bad, head, anchor_checked, errors[:32]}`：
+
+| 情况 | 判定 |
+| --- | --- |
+| **链起步前**的空哈希行（老库升级遗留） | 合法：计入 `prefix`，不报错，也不推进 `prev_hash` |
+| **链起步后**再出现空哈希行 | **异常**：计入 `pending_inside`、`first_bad` 指向该行、报「链内出现空 entry_hash（疑似清空哈希冒充升级前遗留）」—— 把哈希清空同样是「改哈希」 |
+| 字段被改 / 连接关系被改 | `entry_hash` 重算不符 或 `prev_hash` 与上一行不符，`first_bad` 点名到行 |
+| 整段删尾行 | **库内自洽、抓不出来**（链只能证明「手上这串连续」）→ 必须比对**库外锚点**：`expected_head` 与 `head` 不符即报「链尾与库外锚点不符（链被截断或表被替换）」 |
+
+- `GET /api/audits/chain`（`audit:view`）给界面用：`counts[表] = {total, hashed, pending, pendingPrefix, pendingInside}`、`heads[表] = {lastId, lastEntryHash, verifiedHead}`（`lastEntryHash` 是最后一行**存储值**，`verifiedHead` 是最后一个**非空**哈希 —— 抄锚点用它），`healthy` **只看 `pendingInside`**（外加最新样本 `prev_hash` 自洽）：老库有遗留行不会让徽标一上线就全红。
+- `POST /api/audits/chain/verify?table=<表>&expected_head=<哈希>`（`audit:view`，只读校验，审计员也该能自证）：`expected_head` 必须与 `table` 搭配，否则 400 `ANCHOR_NEEDS_TABLE`。
+- CLI（离线，不依赖 Flask 会话）：
+
+```bash
+python tools/verify_audit_chain.py                 # 逐表逐行校验，坏链 exit 1；打印「遗留前缀 N, 链内空洞 N」
+python tools/verify_audit_chain.py --print-head    # 打印三张表链尾锚点，抄到库外（异地日志/工单）
+python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核：对不上 exit 1（可重复传）
+```
+
+真实库实测：`[OK] audit_logs: 总行 87, 已哈希 87, 遗留前缀 0, 链内空洞 0, 坏首行 None`（`command_logs` 6/6、`file_logs` 0/0）；`--expect-head audit_logs=deadbeef` → `[FAIL]` + 「库外锚点不符：期望 deadbeef… 实际 99252fe4902d…（链被截断或表被替换）」+ **exit 1**。审计页 `/audit/logs` 顶部有「链完整性」徽标（`✓ CHAIN INTEGRITY · 链式哈希 · 完整可信` + 三表统计 + 「刷新状态」/「逐行校验哈希」），**徽标红 ⇔ `verify.ok=False`，界面与 CLI 必须同声**（对抗测试把两者一起断言）。
+
+配套回归：`tests/test_audit_chain.py`（9 条：新记录两哈希非空且首条 `prev_hash` 为空、长链自洽、改字段/改 `prev_hash` 检出、三表都挂链、`compute_entry_hash` 确定性、遗留前缀语义）、`tests/test_audit_chain_tamper.py`（3 条对抗用例：**清空链尾哈希必须判红且点名行 id**、**老库遗留前缀不得把完好的链判红**（`pendingPrefix`/`pendingInside` 契约）、**截断只对库外锚点可见**）。
+
+---
+
 ## 八、REST API 约定
 
 - 成功：`{"success": true, "message": "...", "data": ...}`
@@ -358,7 +391,8 @@ ssh -p 2222 <堡垒机账号>@<堡垒机IP>
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 507 passed（26 个文件）
+python -m pytest -q                       # 524 passed（29 个文件）
+python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）
 python -m pytest tests/test_idle_sweeper.py -q   # 空闲超时清理
@@ -368,6 +402,10 @@ python -m pytest tests/test_gateway_ai_shell.py -q   # 网关里 /ask-ai 的行�
 python -m pytest tests/test_ai_line_split.py tests/test_webterm_ai.py -q   # /ask-ai 行分流状态机（网关与网页终端共用）+ 网页终端入口
 python -m pytest tests/test_gateway_clear.py -q   # 连接目标机后自动清屏（且裸回车不落库）
 python -m pytest tests/test_client_version.py -q   # SSH 握手两端版本（网关页 + 账号连接测试）
+
+python tools/verify_audit_chain.py                # 审计链式哈希离线校验：逐表逐行重算，坏链 exit 1（打印「遗留前缀 N, 链内空洞 N」）
+python tools/verify_audit_chain.py --print-head   # 抄链尾锚点：三张表的真链尾哈希，写进异地日志/工单
+python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核库外锚点：对不上 exit 1（链被截断或表被替换）
 
 python tools/live_e2e_check.py            # 真机联调：96 项断言（HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含网关进站字符画/配色/分隔线随内容）
 python tools/live_e2e_check.py --admin-password <当前管理员口令>   # 改过默认口令后这样跑

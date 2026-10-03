@@ -310,14 +310,27 @@ CHAIN_TABLES: list[tuple[str, type]] = [
 ]
 
 
-def verify_table_chain(model_cls, *, secret_key: str | None = None):
-    """逐条按 id 升序验证一条链。返回 ``(ok, total, verified, first_bad, errors)``。
+def verify_table_chain(  # noqa: C901
+    model_cls,
+    *,
+    secret_key: str | None = None,
+    expected_head: str | None = None,
+):
+    """逐条按 id 升序验证一条链。返回 ``(ok, total, verified, prefix, pending_inside, head, first_bad, errors)``。
 
     - ``ok``: 是否完整通过（没有坏记录）
     - ``total``: 表总行数
     - ``verified``: 实际上参与链式哈希校验的行数（即 ``entry_hash != ""`` 的行）
+    - ``prefix``: 链**起步之前**的空哈希行数 —— 升级前遗留数据，合法，不报错
+    - ``pending_inside``: 链**起步之后**出现的空哈希行数 —— 非法：把某行的哈希清空再冒充
+      「升级前遗留」是藏篡改的常用手法（清掉尾行哈希后，库内自洽的校验会判 clean）
+    - ``head``: 链尾（最后一个非空 ``entry_hash``）
+    - ``expected_head``: 库外锚点（CLI 每天抄走的那串）；对不上即判截断，errors 里点名「锚点」
     - ``first_bad``: 首个坏记录的 ``id`` 或 ``None``
     - ``errors``: 最多前 32 条错误（``{id, reason, expected, actual}``）
+
+    边界（诚实声明）：整张表**一行都没有哈希**时，它与「升级前的纯遗留表」在库内不可区分，
+    需要 ``expected_head`` 锚点才能裁决 —— 别把「库内自洽」当成「没被截断」。
     """
     from .models import compute_entry_hash  # noqa: E402
 
@@ -326,14 +339,33 @@ def verify_table_chain(model_cls, *, secret_key: str | None = None):
     errors: list[dict] = []
     total = 0
     verified = 0
+    prefix = 0
+    pending_inside = 0
     first_bad = None
+    chain_started = False
     prev_hash = ""
     for row in db.session.query(model_cls).order_by(model_cls.id).yield_per(2000):
         total += 1
         current_entry = (row.entry_hash or "") if hasattr(row, "entry_hash") else ""
         if not current_entry:
-            # 老数据：既无 prev 也无 entry，视为链之前的遗留块（不报错）
+            if chain_started:
+                # 链一旦起步，任何空 entry_hash 都是异常：要么被清空（藏篡改），要么被插了伪造的遗留行
+                pending_inside += 1
+                errors.append(
+                    {
+                        "id": row.id,
+                        "reason": "链内出现空 entry_hash（疑似清空哈希冒充升级前遗留）",
+                        "expected": "非空 entry_hash",
+                        "actual": "",
+                    }
+                )
+                if first_bad is None:
+                    first_bad = row.id
+            else:
+                # 链起步之前的遗留块：既无 prev 也无 entry，合法
+                prefix += 1
             continue
+        chain_started = True
         verified += 1
         if (row.prev_hash or "") != prev_hash:
             reason = "prev_hash 不匹配（与上一条 entry_hash 不符）"
@@ -370,25 +402,52 @@ def verify_table_chain(model_cls, *, secret_key: str | None = None):
         prev_hash = current_entry
         if len(errors) >= 32:
             break
+    head = prev_hash
+    anchor_checked = expected_head is not None
+    if anchor_checked and (expected_head or "") != head:
+        # 库内自洽看不出「被砍掉尾巴」，只有库外锚点能裁决截断
+        errors.append(
+            {
+                "id": None,
+                "reason": "链尾与库外锚点不符（链被截断或表被替换）",
+                "expected": expected_head or "",
+                "actual": head,
+            }
+        )
     ok = len(errors) == 0
     return {
         "ok": ok,
         "total": total,
         "verified": verified,
+        "prefix": prefix,
+        "pending_inside": pending_inside,
+        "head": head,
+        "anchor_checked": anchor_checked,
         "first_bad": first_bad,
         "errors": errors,
     }
 
 
-def verify_all_chains(*, secret_key: str | None = None) -> dict:
-    """一次性验证三张审计流水表。返回 ``{ok, tables: {name: result}, head_hashes}``。"""
+def verify_all_chains(
+    *,
+    secret_key: str | None = None,
+    expected_heads: dict[str, str] | None = None,
+) -> dict:
+    """一次性验证三张审计流水表。返回 ``{ok, tables: {name: result}, heads}``。
+
+    ``expected_heads`` 是「库外锚点」字典（表名 → 上次抄走的链尾哈希），传了就比对链尾。
+    """
     if secret_key is None:
         secret_key = _secret_key()
     tables: dict[str, dict] = {}
     head: dict[str, dict] = {}
     all_ok = True
     for name, model in CHAIN_TABLES:
-        res = verify_table_chain(model, secret_key=secret_key)
+        res = verify_table_chain(
+            model,
+            secret_key=secret_key,
+            expected_head=(expected_heads or {}).get(name),
+        )
         tables[name] = res
         if not res["ok"]:
             all_ok = False
@@ -401,5 +460,7 @@ def verify_all_chains(*, secret_key: str | None = None) -> dict:
         head[name] = {
             "lastId": last.id if last else None,
             "lastEntryHash": last.entry_hash if last and getattr(last, "entry_hash", None) else "",
+            # 链尾 = 最后一个「非空 entry_hash」，锚点比对与 / --print-head 都以它为准
+            "verifiedHead": res["head"],
         }
     return {"ok": all_ok, "tables": tables, "heads": head}
