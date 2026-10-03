@@ -6,7 +6,8 @@
  * 并可对账号发起真实 SSH 连通性测试（`POST /api/hosts/<id>/accounts/<aid>/test`）。
  *
  * 后端契约要点（bastion-backend/app/api/hosts.py）：
- * - 协议当前只支持 ssh（ALLOWED_PROTOCOLS），认证方式只支持 password / key；
+ * - 协议支持 ssh（网页终端 / SSH 网关）与 rdp（Windows 远程桌面，走浏览器里的 WebRDP），
+ *   认证方式只支持 password / key；
  * - 主机 / 账号 / 分组的写接口都是 admin_required（host:manage）；
  * - 删除主机或账号时若还有在线会话，后端返回 409，这里直接展示它的 message；
  * - 账号口令与私钥以 Fernet 加密落库，仅具备 host:manage 权限时回显。
@@ -44,7 +45,14 @@ import {
 } from 'antd';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BoolTag, CopyText, MonoCell, TimeCell } from '@/components/Bastion';
+import {
+  BoolTag,
+  CopyText,
+  MonoCell,
+  OsTag,
+  ProtocolTag,
+  TimeCell,
+} from '@/components/Bastion';
 import {
   AUTH_TYPE_OPTIONS,
   HOST_STATUS_META,
@@ -90,8 +98,13 @@ type AccountFormValues = {
   description?: string;
 };
 
-/** 后端当前只接受 ssh（ALLOWED_PROTOCOLS） */
-const PROTOCOL_OPTIONS = [{ label: 'SSH', value: 'ssh' }];
+/**
+ * 后端接受 ssh（网页终端 / SSH 网关）与 rdp（Windows 远程桌面，走浏览器里的 WebRDP）
+ */
+const PROTOCOL_OPTIONS = [
+  { label: 'SSH（Linux / Unix 命令行）', value: 'ssh' },
+  { label: 'RDP（Windows 远程桌面）', value: 'rdp' },
+];
 
 const OS_TYPE_OPTIONS = [
   { label: 'Linux', value: 'linux' },
@@ -285,7 +298,9 @@ const Hosts: React.FC = () => {
         content: (
           <div>
             <p>
-              <CloudServerOutlined style={{ color: '#2E7BFF', marginRight: 6 }} />
+              <CloudServerOutlined
+                style={{ color: '#2E7BFF', marginRight: 6 }}
+              />
               服务器版本：{result.serverVersion || '-'}
             </p>
             <p>
@@ -378,8 +393,8 @@ const Hosts: React.FC = () => {
       search: false,
       render: (_, row) => (
         <Space size={4}>
-          <Tag>{row.protocol.toUpperCase()}</Tag>
-          <Tag color="blue">{row.osType}</Tag>
+          <ProtocolTag protocol={row.protocol} />
+          <OsTag osType={row.osType} />
         </Space>
       ),
     },
@@ -430,7 +445,7 @@ const Hosts: React.FC = () => {
       key: 'option',
       valueType: 'option',
       fixed: 'right',
-      width: 220,
+      width: 300,
       render: (_, row) => {
         const nodes: React.ReactNode[] = [];
         if (canViewAccount) {

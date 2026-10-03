@@ -9,9 +9,9 @@ import {
   DisconnectOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FolderOpenOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
-  FolderOpenOutlined,
   HomeOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
@@ -39,8 +39,8 @@ import ConsoleStatusBar from './components/ConsoleStatusBar';
 import TerminalPane, { type TerminalHandle } from './components/TerminalPane';
 import './console.css';
 import {
-  clampFontSize,
   buildFileConsoleUrl,
+  clampFontSize,
   consoleWindowFeatures,
   MAX_FONT_SIZE,
   MIN_FONT_SIZE,
@@ -296,11 +296,15 @@ const TerminalConsolePage = () => {
     }
     let remain = CLOSE_COUNTDOWN_SECONDS;
     const tick = () => {
-      write(`\r\x1b[K\x1b[33m[堡垒机] 本窗口将在 ${remain} 秒后自动关闭…\x1b[0m`);
+      write(
+        `\r\x1b[K\x1b[33m[堡垒机] 本窗口将在 ${remain} 秒后自动关闭…\x1b[0m`,
+      );
       getHandle()?.scrollToBottom();
       if (remain <= 0) {
         countdownTimer.current = undefined;
-        write('\r\x1b[K\x1b[33m[堡垒机] 倒计时结束，正在关闭本窗口…\x1b[0m\r\n');
+        write(
+          '\r\x1b[K\x1b[33m[堡垒机] 倒计时结束，正在关闭本窗口…\x1b[0m\r\n',
+        );
         getHandle()?.scrollToBottom();
         window.setTimeout(() => {
           window.close();
@@ -400,7 +404,9 @@ const TerminalConsolePage = () => {
     if (opened) {
       opened.focus();
     } else {
-      message.warning('浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。');
+      message.warning(
+        '浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。',
+      );
     }
   }, [hostId, accountId, session?.hostName, urlTitle]);
 
@@ -665,7 +671,8 @@ const TerminalConsolePage = () => {
         </ul>
         <p className="bastion-shortcut-tip">
           在终端里点右键还能复制、粘贴、全选、清空屏幕与调整字号。退出会话请点工具栏「断开」，
-          断开后终端会显示 10 秒倒计时并自动关闭本窗口；倒计时结束前点「重新连接」可以继续使用本窗口。
+          断开后终端会显示 10
+          秒倒计时并自动关闭本窗口；倒计时结束前点「重新连接」可以继续使用本窗口。
         </p>
       </Modal>
     </div>

@@ -157,6 +157,7 @@ export const JsonBlock: React.FC<{ value?: unknown; empty?: string }> = ({
 
 export { JsonCards, JsonCell, RawJson, parseMaybeJson } from './jsonCards';
 export { repairTruncatedJson, splitToolMessage } from './jsonText';
+export { OsDot, OsTag, ProtocolTag, osLabel, osMeta } from './osMeta';
 
 /** 终端回放/输出展示块 */
 export const OutputBlock: React.FC<{

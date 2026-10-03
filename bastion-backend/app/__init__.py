@@ -62,6 +62,12 @@ def _register_error_handlers(app: Flask) -> None:
     def _method_not_allowed(err):
         return api_error("请求方法不被允许", 405, code="METHOD_NOT_ALLOWED")
 
+    @app.errorhandler(413)
+    def _payload_too_large(err):
+        # 录像上传会先撞到这里（MAX_CONTENT_LENGTH 是最后一道兜底），
+        # 必须回 JSON 信封，否则前端只看到一个 HTML 错误页。
+        return api_error("上传内容超过服务端允许的大小限制", 413, code="TOO_LARGE")
+
     @app.errorhandler(500)
     def _server_error(err):  # pragma: no cover
         db.session.rollback()
@@ -205,6 +211,7 @@ def seed_data(app: Flask) -> None:
                 "command:view_all",
                 "audit:view",
                 "terminal:use",
+                "rdp:use",
                 "file:use",
                 "filepolicy:view",
             ],
@@ -345,6 +352,14 @@ def create_app(config_object=None, *, create_tables: bool = True, seed: bool = T
         from . import idle_sweeper
 
         idle_sweeper.start(app)
+
+    # WebRDP（Windows 远程桌面）隧道：RDCleanPath 用 WebSocket，但走的是「原始 WSGI 升级」
+    # 而不是 Socket.IO。中间件必须包在 socketio.init_app 之后的最外层，才能在 engine.io
+    # 之前按路径分流（见 app/rdp/proxy.py 与 engineio 的 _websocket_wsgi 的写法）。
+    from .rdp.hooks import build_hooks
+    from .rdp.proxy import RdpWebSocketMiddleware
+
+    app.wsgi_app = RdpWebSocketMiddleware(app.wsgi_app, hooks_factory=lambda: build_hooks(app))
 
     _app = app
     return app

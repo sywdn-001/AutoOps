@@ -21,7 +21,7 @@ from ..utils import (
 
 bp = Blueprint("hosts", __name__, url_prefix="/api/hosts")
 
-ALLOWED_PROTOCOLS = {"ssh"}
+ALLOWED_PROTOCOLS = {"ssh", "rdp"}
 ALLOWED_AUTH_TYPES = {"password", "key"}
 
 

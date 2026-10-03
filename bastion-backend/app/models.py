@@ -1164,3 +1164,68 @@ def _iso(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+# --------------------------------------------------------------------------
+# 远程桌面录像域
+# --------------------------------------------------------------------------
+
+class RdpRecording(db.Model):
+    """一次 Windows 远程桌面（WebRDP）会话的浏览器端录像。
+
+    录像由浏览器用 ``canvas.captureStream()`` + ``MediaRecorder`` 录成 webm，
+    会话结束时 POST 上来，落盘到 ``Config.RDP_RECORDING_DIR``。库里只存元数据 +
+    服务端生成的 uuid 文件名 —— **绝不用请求里的任何字符串拼路径**。
+
+    ``username`` 是堡垒机登录人（决定「谁录的」，普通用户只能看自己的），
+    ``account_username`` 是那台资产上被登录的账号。
+    """
+
+    __tablename__ = "rdp_recordings"
+    __table_args__ = (
+        db.Index("ix_rdp_recordings_created_at", "created_at"),
+        db.Index("ix_rdp_recordings_host", "host_id"),
+        db.Index("ix_rdp_recordings_session", "session_id"),
+        db.Index("ix_rdp_recordings_username", "username"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    #: 关联的会话记录（上传时可选；会话行被清理后这里留 NULL 并不影响回看）
+    session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"))
+    host_id = db.Column(db.Integer, db.ForeignKey("hosts.id"))
+    host_name = db.Column(db.String(64), default="")
+    host_address = db.Column(db.String(128), default="")
+    #: 堡垒机登录人（上传者），普通用户的可见性就按它过滤
+    username = db.Column(db.String(64), default="")
+    #: 被登录的资产账号
+    account_username = db.Column(db.String(64), default="")
+    #: 服务端生成的 uuid 文件名（不含目录），磁盘上的真实文件名
+    filename = db.Column(db.String(128), nullable=False)
+    size_bytes = db.Column(db.BigInteger, default=0, nullable=False)
+    duration_seconds = db.Column(db.Integer, default=0)
+    mime_type = db.Column(db.String(64), default="video/webm")
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    started_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "sessionId": self.session_id,
+            "hostId": self.host_id,
+            "hostName": self.host_name,
+            "hostAddress": self.host_address,
+            "username": self.username,
+            "accountUsername": self.account_username,
+            "filename": self.filename,
+            "sizeBytes": self.size_bytes or 0,
+            "durationSeconds": self.duration_seconds or 0,
+            "mimeType": self.mime_type,
+            "width": self.width,
+            "height": self.height,
+            "startedAt": _iso(self.started_at),
+            "createdAt": _iso(self.created_at),
+            # 相对路径，前端 <video src> 直接可用；也便于反向代理换域名
+            "url": f"/api/rdp/recordings/{self.id}/file",
+        }

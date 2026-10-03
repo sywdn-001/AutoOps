@@ -223,7 +223,17 @@ def grant_accounts(user: User, grant: Grant) -> list[HostAccount]:
     return list(grant.host.accounts)
 
 
-def accessible_targets(user: User) -> list[dict]:
+def target_protocol(entry: dict) -> str:
+    """条目对应的连接协议（`ssh` / `rdp`），空值按 `ssh` 处理。
+
+    交互式 shell（网关菜单、网页终端、一次性执行）只支持 `ssh`；协议为 `rdp` 的
+    Windows 主机只出现在「远程桌面」入口里 —— 这就是「TUI 里不显示 WebRDP 目标」
+    的实现口径。
+    """
+    return (getattr(entry.get("host"), "protocol", "") or "ssh").strip().lower()
+
+
+def accessible_targets(user: User, *, protocols: tuple[str, ...] | None = None) -> list[dict]:
     """网关菜单 / Web 终端选单：用户当前可访问的主机与账号。
 
     注意：返回的是**内部原始条目**（含 `host` ORM 对象，`address` 已拼上端口，
@@ -232,6 +242,9 @@ def accessible_targets(user: User) -> list[dict]:
 
     超级管理员额外获得「全部启用主机」（授权表里已有的主机保留其账号范围，
     没有授权记录的主机按全部账号列出），与 :func:`_superuser_access` 的口径一致。
+
+    `protocols` 非空时按连接协议过滤（例如终端类入口传 `("ssh",)`，远程桌面入口传
+    `("rdp",)`）。
     """
     merged: dict[int, dict] = {}
     for grant in active_grants(user):
@@ -308,7 +321,11 @@ def accessible_targets(user: User) -> list[dict]:
                 "maxSessions": 0,
             }
 
-    return sorted(merged.values(), key=lambda e: e["hostName"])
+    items = sorted(merged.values(), key=lambda e: e["hostName"])
+    if protocols is not None:
+        allowed = {item.strip().lower() for item in protocols}
+        items = [entry for entry in items if target_protocol(entry) in allowed]
+    return items
 
 
 def current_session_count(user_id: int, grant_id: int | None = None) -> int:
@@ -340,6 +357,7 @@ def serialize_target(entry: dict) -> dict:
         "groupName": entry["groupName"],
         "description": entry["description"],
         "osType": host.os_type,
+        "protocol": (getattr(host, "protocol", "") or "ssh"),
         "canSftp": entry["canSftp"],
         "canUpload": entry["canUpload"],
         "canDownload": entry["canDownload"],

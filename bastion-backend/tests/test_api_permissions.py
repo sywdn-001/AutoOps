@@ -253,7 +253,16 @@ def test_terminal_targets_needs_a_real_grant_to_expose_its_shape(
     assert item["address"] == "10.0.0.9"
     assert item["port"] == 22
     assert "osType" in item and item["osType"] == "linux"
-    assert item["accounts"] == [{"id": account_id, "name": "root", "username": "root"}]
+    assert item["accounts"] == [
+        {
+            "id": account_id,
+            "name": "root",
+            "username": "root",
+            # 2026-10 起终端目标里每个账号都带 authType：网页终端入口页要靠它
+            # 把「密钥」账号从远程桌面（RDP）的可选账号里滤掉（口令账号才给选）。
+            "authType": "password",
+        }
+    ]
 
     check = client.post(f"/api/terminal/targets/{host_id}/check", headers=headers)
     assert check.status_code == 200, check.get_data(as_text=True)

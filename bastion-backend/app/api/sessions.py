@@ -32,6 +32,7 @@ from ..utils import (
     parse_int,
     purge_before,
 )
+from .rdp import RDP_PROTOCOL
 
 log = logging.getLogger("bastion.api.sessions")
 
@@ -422,23 +423,45 @@ def get_command(command_id: int):
 
 
 @bp.get("/terminal/targets")
-@permission_required("terminal:use")
+@permission_required("terminal:use", "rdp:use")
 def terminal_targets():
-    """当前账号有权访问的主机菜单（网关与网页终端共用）。"""
+    """当前账号有权访问的主机菜单（网页终端入口，**ssh 与 rdp 合并在同一张列表里**）。
+
+    历史上的终端选单只列 ssh 主机，Windows 远程桌面（`protocol="rdp"`）另有一个入口页；
+    现在两者合并：同一个列表、同一颗「连接」按钮，按主机的 `protocol` 决定打开字符终端
+    还是远程桌面窗口（`/terminal/console` 或 `/rdp/console`）。
+
+    谁能看到哪一类，取决于权限码而不是页面：有 `terminal:use`（且账号没被禁用网页终端）
+    才返回 ssh 主机，有 `rdp:use` 才返回 rdp 主机；两类都没有就是空列表。
+    """
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
-    if not actor.webterm_enabled:
+    protocols: list[str] = []
+    if has_permission(actor, "terminal:use") and actor.webterm_enabled:
+        protocols.append("ssh")
+    if has_permission(actor, "rdp:use"):
+        protocols.append(RDP_PROTOCOL)
+    if not protocols:
         return api_ok([], "当前账号已被禁用网页终端")
-    targets = accessible_targets(actor)
+    targets = accessible_targets(actor, protocols=tuple(protocols))
     return api_ok([_target_payload(item) for item in targets])
 
 
 def _target_payload(entry: dict) -> dict:
-    """把内部条目转成对外结构（终端选单：账号只暴露 id/name/username，不外传凭据）。"""
+    """把内部条目转成对外结构（终端选单：账号只暴露 id/name/username/authType，不外传凭据）。
+
+    `authType` 要留着：远程桌面（rdp）只认口令账号，前端据此在合并列表里把
+    「密钥账号」的机器标成不可连接，而不是等用户点了以后才报错。
+    """
     payload = serialize_target(entry)
     payload["accounts"] = [
-        {"id": item["id"], "name": item["name"], "username": item["username"]}
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "username": item["username"],
+            "authType": item.get("authType", "password"),
+        }
         for item in payload["accounts"]
     ]
     return payload
@@ -451,11 +474,20 @@ def check_target(host_id: int):
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
-    targets = accessible_targets(actor)
+    targets = accessible_targets(actor, protocols=("ssh",))
     target = next((item for item in targets if item["hostId"] == host_id), None)
     if target is None:
         from ..access import find_access
 
+        if any(item["hostId"] == host_id for item in accessible_targets(actor)):
+            return api_ok(
+                {
+                    "allowed": False,
+                    "reason": "该主机是 Windows 远程桌面（RDP）主机，网页终端只跑字符会话；"
+                    "请回资产列表点「连接」，会自动用远程桌面窗口打开",
+                    "accounts": [],
+                }
+            )
         resolved = find_access(actor, host_id=host_id, require_login=True)
         reason = "你没有该主机的访问权限"
         if resolved is not None:

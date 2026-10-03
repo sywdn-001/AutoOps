@@ -42,6 +42,9 @@ import type {
   PolicyItem,
   PolicyRuleItem,
   RiskLevel,
+  RdpRecording,
+  RdpSessionInfo,
+  RdpTarget,
   RoleItem,
   SessionItem,
   SettingsPayload,
@@ -541,6 +544,80 @@ export const terminalApi = {
         method: 'POST',
         data: { accountId },
       }),
+    ),
+};
+
+// ---------------------------------------------------------------- WebRDP（Windows 远程桌面）
+
+export const rdpApi = {
+  targets: () => unwrap(request<ApiData<RdpTarget[]>>('/api/rdp/targets', { method: 'GET' })),
+  /**
+   * 换一张一次性连接票据。真正的隧道是 WebSocket（`/api/rdp/ws?ticket=…`），
+   * 由浏览器里的 ironrdp-wasm 直连；这里只负责拿票据、目标机地址与账号口令。
+   */
+  create: (hostId: number, accountId?: number) =>
+    unwrap(
+      request<ApiData<RdpSessionInfo>>('/api/rdp/sessions', {
+        method: 'POST',
+        data: { hostId, accountId },
+      }),
+    ),
+  /**
+   * 上传一段远程桌面录像。
+   *
+   * 录像在**浏览器侧**录（`canvas.captureStream()` + `MediaRecorder`），会话结束时把 blob
+   * 交给后端落盘；后端建 `RdpRecording` 行并写 `rdp_recording_saved` 审计。
+   */
+  uploadRecording: (
+    blob: Blob,
+    meta: {
+      filename: string;
+      sessionId?: number | null;
+      hostId: number;
+      durationSeconds: number;
+      startedAt?: string;
+      width?: number;
+      height?: number;
+    },
+  ) => {
+    const data = new FormData();
+    data.append('file', blob, meta.filename);
+    data.append('hostId', String(meta.hostId));
+    if (meta.sessionId) {
+      data.append('sessionId', String(meta.sessionId));
+    }
+    data.append('durationSeconds', String(Math.max(0, Math.round(meta.durationSeconds))));
+    if (meta.startedAt) {
+      data.append('startedAt', meta.startedAt);
+    }
+    if (meta.width && meta.height) {
+      data.append('width', String(meta.width));
+      data.append('height', String(meta.height));
+    }
+    return unwrap(
+      request<ApiData<RdpRecording>>('/api/rdp/recordings', { method: 'POST', data }),
+    );
+  },
+  /** 录像列表（分页信封）：普通用户只能看到自己上传的，`session:view_all`/`audit:view` 能看全部 */
+  recordings: (params: PageParams = {}) =>
+    request<ApiList<RdpRecording>>('/api/rdp/recordings', {
+      method: 'GET',
+      params: pageParams(params),
+    }),
+  removeRecording: (id: number) =>
+    unwrap(request<ApiData<null>>(`/api/rdp/recordings/${id}`, { method: 'DELETE' })),
+  /**
+   * 签一张回放票据（10 分钟、可重复使用）。
+   *
+   * `<video>` 带不了 `Authorization` 头，而录像可能几百 MB、不能整包拉成 blob 再播，
+   * 所以后端签发一个 `?ticket=` 一次性票据，让浏览器边流边放（支持 Range 拖进度条）。
+   */
+  recordingTicket: (id: number) =>
+    unwrap(
+      request<ApiData<{ ticket: string; path: string; expiresIn: number }>>(
+        `/api/rdp/recordings/${id}/ticket`,
+        { method: 'POST' },
+      ),
     ),
 };
 

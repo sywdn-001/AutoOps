@@ -46,6 +46,7 @@ ALL_PERMISSIONS = [
     "setting:view",
     "setting:manage",
     "terminal:use",
+    "rdp:use",
     "file:use",
     "filepolicy:view",
     "filepolicy:manage",

@@ -74,7 +74,7 @@ bastion-backend/
 │   ├── __init__.py             # create_app / 蓝图注册 / 种子数据
 │   ├── config.py               # 配置（含 TestConfig）
 │   ├── extensions.py           # db / jwt / cors / socketio
-│   ├── models.py               # 18 张表 + to_dict（含 AI 三张：ai_conversations / ai_messages / ai_tool_calls）
+│   ├── models.py               # 19 张表 + to_dict（含 AI 三张 + rdp_recordings：ai_conversations / ai_messages / ai_tool_calls）
 │   ├── security.py             # 权限码、口令哈希、@admin_required、@permission_required
 │   ├── schema_sync.py          # 轻量 schema 同步（无 Alembic：只做 ADD COLUMN 的加法迁移）
 │   ├── access.py               # 授权解析：时间窗、账号绑定、可达主机、会话配额
@@ -88,16 +88,17 @@ bastion-backend/
 │   ├── ssh_client.py           # paramiko 连接（口令/私钥/跳板参数）
 │   ├── utils.py                # 分页、时间解析、响应封装
 │   ├── crypto.py               # Fernet 加解密
-│   ├── api/                    # 16 个蓝图，99 条路径 / 129 个 (路径, 方法) 接口组合
+│   ├── api/                    # 16 个蓝图，107 条路径 / 138 个 (路径, 方法) 接口组合
 │   │   ├── auth.py users.py roles.py hosts.py grants.py
 │   │   ├── policies.py file_policies.py files.py
-│   │   ├── sessions.py audits.py settings.py ai.py
+│   │   ├── sessions.py audits.py settings.py ai.py rdp.py
 │   │   └── __init__.py         # register_blueprints（新增蓝图必须登记！）
 │   ├── ai/                     # AI 运维：tools.py（113 个声明式工具）+ client.py（DeepSeek 流式）+ prompt.py（含 ai-card 协议）+ service.py（回合编排/审批/审计）+ line_split.py（/ask-ai 行分流状态机，网关与网页终端共用）
 │   ├── files/                  # SFTP 文件管理器：service.py（会话/操作/策略双闸）+ __init__.py
 │   ├── gateway/                # SSH 网关服务端（paramiko ServerInterface）+ ai_shell.py（会话内 /ask-ai）
 │   ├── terminal/               # 会话桥：bridge(命令识别) + recorder(录像)
 │   └── webterm/                # Socket.IO 网页终端事件
+│   └── rdp/                    # Windows 远程桌面（WebRDP）：cleanpath.py（RDCleanPath 的 X.224/TLS/凭据封包，X.224 的 length 是小端）+ proxy.py（RdpWebSocketMiddleware 字节中继 + 120 秒一次性票据；中继是单线程 + 非阻塞 TLS（setblocking(False)、recv 只认 SSLWantReadError、send 遇 SSLWantWriteError 就 select 等可写）—— OpenSSL 的 SSL 对象不是线程安全的，两个线程并发读写会出现「sendall() 成功但字节没上线」的中继假死；而「读线程 + select + 锁」又会死锁，所以整个中继只用一个线程、一把锁都不用）+ hooks.py（会话记录与审计收口）
 ├── tools/
 │   ├── demo_ssh_target.py      # 假 Linux 演示目标机（真实 SSH 协议栈 + tty 行规程 + exec 请求 + 转义序列过滤 TtyEscapeFilter + SFTP 子系统，默认 127.0.0.1:2200）
 │   ├── sftp_backend.py         # 演示用 SFTP 服务端（文件后端 + 子系统安装）
@@ -106,7 +107,7 @@ bastion-backend/
 │   ├── gw_ai_check.py          # 真实 SSH 网关里跑一次 /ask-ai（9 项断言：选真机进会话 → 粘贴形态提问 → 无「AI 出错/HTTP 400」→ 有真实答案 → 回合后终端仍可用）；**选跑，会消耗一次真实模型调用**
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
 │   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
-└── tests/                      # 524 个用例（29 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+└── tests/                      # 604 个用例（31 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -123,9 +124,9 @@ bastion-backend/
 | 命令策略 | `CommandPolicy` + `CommandRule` | `command_policies` / `command_rules` | 在这台机器上**能执行什么命令、不能执行什么命令** |
 | 文件策略 | `FilePolicy` + `FileRule` | `file_policies` / `file_rules` | 在这台机器上**哪些路径能做哪些文件操作**（上传/下载/编辑/删除…），与授权开关**同时成立才放行** |
 
-### 4.2 权限码（35 个，`app/security.py`）
+### 4.2 权限码（36 个，`app/security.py`）
 
-`dashboard:view`、`host:view|manage`、`account:view|manage`、`group:view|manage`、`grant:view|manage`、`policy:view|manage`、`user:view|manage`、`role:view|manage`、`session:view`、`session:view_all`、`session:replay`、`session:terminate`、`command:view`、`command:view_all`、`audit:view`、`terminal:use`、**`file:use`**、**`filepolicy:view`**、**`filepolicy:manage`**、`setting:view|manage`、**AI 一套（7 个，与人类权限分开）**：**`ai:view`、`ai:use`、`ai:view_all`、`ai:tool`、`ai:tool_write`、`ai:tool_exec`、`ai:manage`**。
+`dashboard:view`、`host:view|manage`、`account:view|manage`、`group:view|manage`、`grant:view|manage`、`policy:view|manage`、`user:view|manage`、`role:view|manage`、`session:view`、`session:view_all`、`session:replay`、`session:terminate`、`command:view`、`command:view_all`、`audit:view`、`terminal:use`、**`rdp:use`**、**`file:use`**、**`filepolicy:view`**、**`filepolicy:manage`**、`setting:view|manage`、**AI 一套（7 个，与人类权限分开）**：**`ai:view`、`ai:use`、`ai:view_all`、`ai:tool`、`ai:tool_write`、`ai:tool_exec`、`ai:manage`**。
 
 内置角色：
 
@@ -148,6 +149,8 @@ bastion-backend/
 `can_login`、`can_sftp`、`can_upload`、`can_download`、**`can_file_write`**、`can_port_forward`、`can_webterm`、时间窗（`time_start`/`time_end`/`weekdays`/`expire_at`，支持跨零点）、`max_sessions`、`policy_id`（冻结式：会话建立时快照策略，事后改策略不影响已建会话）、**`file_policy_id`（绑定文件策略；留空走系统默认文件策略，判定时实时读取、不冻结 —— 管理员改完授权/策略对**已打开**的文件窗口立即生效）**。
 
 **两层判定（必须同时成立）**：授权开关决定「能不能做这个动作」（`can_sftp` 没开连窗口都进不去、`can_upload`/`can_download`/`can_file_write` 分别管上传、下载与改动），文件策略决定「这条路径上允不允许」。任一不过即拒绝，且拒绝也写审计。
+
+**Windows 远程桌面（WebRDP）的准入**：与终端完全同源 —— `rdp:use` 权限码 + 该主机的授权（账号/时段/星期/过期/并发上限）+ `can_webterm`；另加两条协议约束：主机 `Host.protocol` 必须是 `rdp`、账号必须是口令认证（私钥账号不给远程桌面）。反向地，交互式 shell 与网页终端只认 `protocol=ssh`，所以 Windows 主机不会出现在网关菜单里。
 
 **账号解析纪律**：未指定账号 → 精确账号授权优先，否则整机授权 + 该主机第一个可用账号；显式指定账号 → 只认绑定该账号的授权或覆盖整机的通配授权，**绝不静默替换成另一个账号**（有专门回归测试）。
 
@@ -367,6 +370,58 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 
 ---
 
+## 七·九、Windows 远程桌面（WebRDP，`app/rdp/` + `app/api/rdp.py`）
+
+前七节的网页终端只给 Linux 机器开 shell。这一节让**浏览器直接连 Windows 机器的 3389**，而身份、授权、审计一样不少：**浏览器侧**跑第三方库 `ironrdp-wasm`（Rust 的 IronRDP 编成 WASM，RDP 协议栈全在客户端，画面画进 `<canvas>`），**堡垒机侧**只做 RDCleanPath 字节中继 —— 口令、票据、授权、留痕都留在堡垒机。
+
+### 模块（`app/rdp/`）
+
+| 文件 | 行 | 干什么 |
+| --- | --- | --- |
+| `cleanpath.py` | 369 | RDCleanPath 的 X.224 / TLS / 凭据封包与解包：`perform_handshake()` 按协商结果决定是否起 TLS，解析服务器证书与 `selectedProtocol`。**坑：X.224 的 length 字段是小端**，写反了包就是废包 |
+| `proxy.py` | 533 | `RdpWebSocketMiddleware`（在 `app.wsgi_app` 外再包一层，**必须在 `socketio.init_app` 之后**）接住 `/api/rdp/ws` 的升级请求，做浏览器 ↔ 网关 ↔ 目标机 3389 的字节中继；`RdpTicketStore`（`TICKET_TTL_SECONDS = 120`，用一次即作废）；`build_hooks()` 把会话记录与审计挂到同一套 `session_service` / 审计上 |
+| `hooks.py` | 141 | `_open_session()` / `_close_session()`：**跨 app context 的收口**。开会话时只把记录 **id** 交给网关，绝不交出 ORM 实例 —— `_run()` 结束会 `db.session.remove()`，实例随即 detach，收口时再碰它必抛 `DetachedInstanceError`（线上就这样丢过一条 `rdp_session_close`） |
+| `__init__.py` | 48 | 导出 |
+
+### 接口（`rdp` 蓝图，7 条；`/api/rdp/ws` 是 WebSocket，走中间件不进 `url_map`）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/rdp/targets` | 我能远程桌面的主机：`accessible_targets(actor, protocols=("rdp",))` |
+| `POST` | `/api/rdp/sessions` | `{hostId, accountId?}` → `{ticket, wsPath, expiresIn, host, account, credential}`；准入 = `rdp:use` + 授权（账号/时段/星期/过期/并发上限）+ `can_webterm` + 主机 `protocol=rdp` + 口令认证 |
+
+**为什么口令要下发给浏览器**：NLA/CredSSP 必须在 RDP 客户端一侧算 NTLM 应答，而客户端就是浏览器里的 ironrdp-wasm，所以接口把该账号的资产口令随一次性票据一起下发，并**专门写一条 `rdp_credential_reveal` 审计**留痕。这是「口令集中托管、操作员不知道目标机口令」这个模型的必然代价；要口令绝不出服务器，得改成服务端 RDP 客户端（guacd / FreeRDP 把位图流回浏览器），本项目当前不做。
+
+### 会话录像与回看（需求⑤）
+
+「谁登录了哪台 Windows 机器、远程操作全过程」要能事后回看。录像**在浏览器侧录**：控制台把 `<canvas>` 交给 `canvas.captureStream(12)`，再用 `MediaRecorder` 按 webm 分片，会话结束时一次性上传；后端落盘 + 建 `rdp_recordings` 行 + 写审计。为什么不在服务端录？网关只是字节中继、看不到画面 —— 画面是 WASM 在浏览器里解出来的。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/rdp/recordings` | multipart：`file` + `hostId`（必需，且必须是当前账号可远程桌面的主机，否则 403）+ `sessionId?` / `durationSeconds` / `startedAt` / `width` / `height` / `accountUsername?`；容器只收 `video/webm`、`video/x-matroska`（或 `application/octet-stream`）；文件名由服务端 uuid 生成，请求里的任何字符串都不参与拼路径；超过 `RDP_RECORDING_MAX_MB` 回 413 |
+| `GET` | `/api/rdp/recordings` | 分页列表；有 `session:view_all` 或 `audit:view` 看全部，否则只看自己上传的；支持 `hostId` / `sessionId` / `keyword` |
+| `GET` | `/api/rdp/recordings/<id>/file` | 录像本体，支持 `Range`（206 / 416）与 `Content-Disposition: inline`；**`<video>` 带不了 `Authorization` 头，所以这个接口同时接受 `?ticket=`** |
+| `POST` | `/api/rdp/recordings/<id>/ticket` | 签一张 10 分钟的回放票据（JWT，`scope=rdp-recording` 且绑定这一条录像），**并在这一步写 `rdp_recording_viewed`** —— 播放器一次回看会发很多次 Range 请求，审计只留一条 |
+| `DELETE` | `/api/rdp/recordings/<id>` | 仅管理员：先删盘上文件再删行，写 `rdp_recording_deleted` |
+
+审计三段：`rdp_recording_saved`（谁存了哪台机器的录像、体积、时长）→ `rdp_recording_viewed`（谁回看了哪条）→ `rdp_recording_deleted`。配置项：`RDP_RECORDING_DIR`（默认 `instance/rdp_recordings`）、`RDP_RECORDING_MAX_MB`（默认 512；实测码率约 16 KB/s，够 9 小时）。回看入口在「审计中心 · 远程桌面录像」（`/audit/recordings`）。
+
+### 审计四段（都可查、可回放定位）
+
+`rdp_ticket`（申请票据）→ `rdp_credential_reveal`（口令下发）→ `rdp_session_open`（会话建立，`detail` 里带协商结果与服务器证书）→ `rdp_session_close`（断开原因、`bytesFromClient` / `bytesFromServer`、时长）。会话行落 `sessions` 表（`protocol='rdp'`、`source='web'`），`idle_sweeper` 对 rdp 会话同样生效：空闲超时或堡垒机重启都会收口，不会留挂着不闭的会话。
+
+### 协议隔离
+
+主机表 `Host.protocol` 取 `ssh` / `rdp`（默认 `ssh`）。`app/access.py` 的 `target_protocol()` 判协议；`accessible_targets(user, protocols=("ssh",))` 是 **SSH 网关/TUI 菜单**唯一的主机来源 —— 所以 Windows 主机不会出现在字符菜单里（堡垒机账号登录后的 TUI 只列 Linux）。**网页终端入口页是唯一把两类主机合在一起的地方**（需求⑥）：`GET /api/terminal/targets` 按权限码决定包含 `ssh` 还是 `rdp`（`terminal:use` / `rdp:use` 任一即可进这个页面），条目回传 `protocol`，前端据此决定弹终端窗口还是远程桌面窗口，列表里不额外标注。前端按 `protocol` 渲染操作系统图标（`src/components/Bastion/osMeta.tsx`），主机列表与终端选择列表看到的都是真实系统。
+
+### 回归
+
+`tests/test_rdp_gateway.py`（41 例）：RDCleanPath 封包/解包（含 X.224 小端 length）、`X224_CC_HYBRID_EX` 协商、票据 TTL 与一次性、WebSocket 中继、`_open_session` / `_close_session` 跨 app context 的会话记录与审计收口（断言 `status=closed`、字节数、`end_reason`、`ended_at` 与 open/close 两条审计都在），以及网页终端列表「两类主机合并 + 按权限码分协议」。隧道用例带 **30 秒看门狗**：卡住时先 `faulthandler.dump_traceback(all_threads=True)` 打出所有线程的栈和现场（`server.received` / `ws.sent`）再 `fail`，绝不无限挂住测试会话。
+
+`tests/test_rdp_recording.py`（39 例）：录像上传的 mime/体积/权限/主机准入校验、列表可见性（`session:view_all` / `audit:view` 看全部，否则只看自己）、`Range` 206 与 416、`Content-Disposition: inline`、三段审计，以及回放票据 —— 10 分钟有效、绑定单条录像（拿 A 的票拉 B 必 401）、过期/换 `scope`/拿登录 token 冒充一律 401、签票只写一条 `rdp_recording_viewed`。
+
+---
+
 ## 八、REST API 约定
 
 - 成功：`{"success": true, "message": "...", "data": ...}`
@@ -391,7 +446,7 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 524 passed（29 个文件）
+python -m pytest -q                       # 604 passed（31 个文件）
 python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）
@@ -400,6 +455,8 @@ python -m pytest tests/test_integration_ssh.py -q   # 真实 SSH 协议栈端到
 python -m pytest tests/test_ai_tools.py tests/test_ai_api.py -q   # AI 工具目录 / 对话接口与敏感操作审批
 python -m pytest tests/test_gateway_ai_shell.py -q   # 网关里 /ask-ai 的行缓冲、流式渲染与口令确认
 python -m pytest tests/test_ai_line_split.py tests/test_webterm_ai.py -q   # /ask-ai 行分流状态机（网关与网页终端共用）+ 网页终端入口
+python -m pytest tests/test_rdp_gateway.py -q   # Windows 远程桌面（WebRDP）：RDCleanPath 封包/解包、票据 TTL 与一次性、WebSocket 中继、会话记录与审计收口
+python -m pytest tests/test_rdp_recording.py -q # 远程桌面录像：上传/列表/Range 回放/三段审计 + 回放票据（10 分钟、绑定单条录像、各类伪造 401）
 python -m pytest tests/test_gateway_clear.py -q   # 连接目标机后自动清屏（且裸回车不落库）
 python -m pytest tests/test_client_version.py -q   # SSH 握手两端版本（网关页 + 账号连接测试）
 

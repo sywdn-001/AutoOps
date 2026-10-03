@@ -1,0 +1,157 @@
+/* AutoOps Windows 远程桌面（WebRDP）样式
+ *
+ * 控制台窗口是 layout:false 的独立页，自己铺满视口并走深色底（灰阶文字：强调 #e6edf3 /
+ * 正文 #cbd5e1 / 次要 #94a3b8 / 弱化 #64748b），与网页终端控制台保持同一套观感；
+ * 入口列表页（网页终端）是正常浅色页面，只用文件末尾那两个列表排版类。
+ */
+
+.bastion-rdp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  background: #0d1117;
+  color: #94a3b8;
+  overflow: hidden;
+}
+
+/* 全屏时包住整个控制台（含工具条）：工具条留着才退得出去全屏 */
+.bastion-rdp:fullscreen {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* 工具条 */
+.bastion-rdp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: #0f172a;
+  border-bottom: 1px solid #1f2937;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+/* 收起状态：只留一条细带 + 展开按钮，把整屏让给桌面画面 */
+.bastion-rdp-bar.is-collapsed {
+  min-height: 24px;
+  padding: 0 8px;
+  flex-wrap: nowrap;
+}
+
+.bastion-rdp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.bastion-rdp-bar .ant-typography {
+  color: #94a3b8;
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+}
+
+.bastion-rdp-bar .ant-btn {
+  color: #94a3b8;
+  border-color: #334155;
+  background: transparent;
+}
+
+.bastion-rdp-bar .ant-btn:hover:not(:disabled) {
+  color: #e6edf3;
+  border-color: #475569;
+  background: #1e293b;
+}
+
+.bastion-rdp-bar .ant-btn-dangerous {
+  color: #ff7875;
+  border-color: #7f1d1d;
+}
+
+/* 失败提示：深色底上的告警卡片，避免浅色白卡糊在深色页面上 */
+.bastion-rdp-alert {
+  margin: 8px 12px 0;
+  background: #2a1215;
+  border: 1px solid #58181c;
+}
+
+.bastion-rdp-alert .ant-alert-message {
+  color: #ffa39e;
+}
+
+.bastion-rdp-alert .ant-alert-description {
+  color: #d8b4b4;
+}
+
+/* 桌面舞台：画布始终铺满它，尺寸由 JS 同步给被控主机（分辨率跟随窗口） */
+.bastion-rdp-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05080f;
+  overflow: hidden;
+}
+
+.bastion-rdp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  outline: none;
+  box-shadow: 0 0 0 1px #1f2937;
+}
+
+.bastion-rdp-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(5, 8, 15, 0.72);
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+/* 资产列表（入口页，与网页终端列表页共用同一套排版） */
+.bastion-launcher-host {
+  font-weight: 600;
+}
+
+.bastion-launcher-addr {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.bastion-launcher-note {
+  margin-bottom: 12px;
+}
+
+/* 录像列表与回放（审计中心 · 远程桌面录像） */
+.bastion-rdp-rec-id {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-weight: 600;
+}
+
+.bastion-rdp-video {
+  width: 100%;
+  max-height: 68vh;
+  background: #000;
+  border-radius: 6px;
+}

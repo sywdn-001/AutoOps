@@ -604,7 +604,10 @@ def on_targets(data=None):
     if user is None:
         emit("terminal:error", {"message": "账号状态异常"})
         return
-    entries = [serialize_target(entry) for entry in accessible_targets(user)]
+    # 网页终端只列 ssh 主机；Windows 远程桌面（protocol="rdp"）走 /api/rdp/* 独立入口。
+    entries = [
+        serialize_target(entry) for entry in accessible_targets(user, protocols=("ssh",))
+    ]
     emit(
         "terminal:targets",
         {

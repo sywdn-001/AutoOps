@@ -987,7 +987,11 @@ def _serve_channel(app, transport, channel, server, client_ip, host_key):
     while True:
         if not _channel_alive(channel):
             return
-        entries = [serialize_target(entry) for entry in accessible_targets(user)]
+        # 菜单只列 ssh 主机：Windows 远程桌面（protocol="rdp"）不在这里出现，
+        # 它走浏览器端的 /rdp 入口（`app/api/rdp.py`）。
+        entries = [
+            serialize_target(entry) for entry in accessible_targets(user, protocols=("ssh",))
+        ]
         live_count = _live_count(user.id)
         # 终端可能在菜单停留期间被拖动改变宽度，每轮都取最新的 PTY 列数
         menu_width = server.window[0] or cols

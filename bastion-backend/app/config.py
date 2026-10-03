@@ -16,6 +16,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 INSTANCE_DIR = Path(os.environ.get("BASTION_INSTANCE_DIR") or (BASE_DIR / "instance"))
 TRANSCRIPT_DIR = INSTANCE_DIR / "transcripts"
+#: Windows 远程桌面（WebRDP）会话录像落盘目录，与终端录像同源（同在 instance 下）
+RDP_RECORDING_DIR = Path(
+    os.environ.get("BASTION_RDP_RECORDING_DIR") or (INSTANCE_DIR / "rdp_recordings")
+)
 
 
 def load_dotenv(path: Path | None = None) -> int:
@@ -95,6 +99,7 @@ class Config:
     BASE_DIR = BASE_DIR
     INSTANCE_DIR = INSTANCE_DIR
     TRANSCRIPT_DIR = TRANSCRIPT_DIR
+    RDP_RECORDING_DIR = RDP_RECORDING_DIR
 
     # --- 会话与签名 -----------------------------------------------------
     SECRET_KEY = os.environ.get("BASTION_SECRET_KEY") or _get_or_create(
@@ -125,7 +130,11 @@ class Config:
     # --- Web 控制台 -----------------------------------------------------
     JSON_AS_ASCII = False
     CORS_ORIGINS = os.environ.get("BASTION_CORS_ORIGINS", "*")
-    MAX_CONTENT_LENGTH = 8 * 1024 * 1024
+    #: 会话录像的单文件上限（MB），由上传接口自己校验（超限回 413 信封）
+    RDP_RECORDING_MAX_MB = int(os.environ.get("BASTION_RDP_RECORDING_MAX_MB", "512"))
+    #: 请求体总上限：默认 8MB 会挡掉录像上传，故按录像上限放宽并多留 8MB 余量。
+    #: 业务侧的大小校验在接口里做（见 app/api/rdp.py），这里只是最后一道兜底。
+    MAX_CONTENT_LENGTH = (RDP_RECORDING_MAX_MB + 8) * 1024 * 1024
 
     # --- 启动参数与内置管理员 -------------------------------------------
     HOST = os.environ.get("BASTION_HOST", "0.0.0.0")

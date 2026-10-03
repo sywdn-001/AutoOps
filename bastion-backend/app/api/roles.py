@@ -61,6 +61,7 @@ PERMISSION_GROUPS = [
             ("setting:view", "查看系统设置"),
             ("setting:manage", "修改系统设置"),
             ("terminal:use", "使用网页终端 / SSH 网关"),
+            ("rdp:use", "使用 Windows 远程桌面（WebRDP）"),
             ("file:use", "使用文件管理器（SFTP 浏览与上传下载）"),
         ],
     },

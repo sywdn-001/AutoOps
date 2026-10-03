@@ -456,6 +456,12 @@ export type TerminalTarget = {
   groupName: string;
   description: string;
   osType: string;
+  /**
+   * 连接协议：`ssh` = 字符终端（`/terminal/console`），`rdp` = Windows 远程桌面
+   * （`/rdp/console`）。**已合并进同一张「可访问资产」列表**：同一个入口、同一颗
+   * 「连接」按钮，按协议决定弹哪种窗口，所以页面上不再有「远程桌面」专栏。
+   */
+  protocol: string;
   canSftp: boolean;
   canUpload: boolean;
   canDownload: boolean;
@@ -464,7 +470,7 @@ export type TerminalTarget = {
   policyName: string;
   filePolicyName: string;
   maxSessions: number;
-  accounts: { id: number; name: string; username: string }[];
+  accounts: { id: number; name: string; username: string; authType?: string }[];
 };
 
 export type TargetCheckResult = {
@@ -659,4 +665,56 @@ export type FileLogOptions = {
   riskLevels: { value: string; label: string }[];
   usernames: string[];
   hosts: string[];
+};
+
+// ---------------------------------------------------------------- WebRDP（Windows 远程桌面）
+
+/**
+ * `/api/rdp/targets` 的一条记录。
+ *
+ * 与网页终端的目标同形状（后端同一个 `serialize_target()`），差别只在协议：
+ * 只有 `protocol === 'rdp'` 的主机会出现在这里。
+ */
+export type RdpTarget = TerminalTarget;
+
+/**
+ * `POST /api/rdp/sessions` 的返回：一次性票据 + WebSocket 地址 + 该账号口令。
+ *
+ * 口令为什么在前端：CredSSP/NLA 必须在 RDP 客户端（浏览器里的 ironrdp-wasm）侧计算，
+ * 服务端无法代算。这条通道后端会单独写一条 `rdp_credential_reveal` 审计。
+ */
+export type RdpSessionInfo = {
+  ticket: string;
+  expiresIn: number;
+  wsPath: string;
+  protocol: string;
+  host: RdpTarget;
+  account: { id: number; name: string; username: string };
+  credential: { username: string; password: string; domain: string };
+};
+
+/**
+ * 一条远程桌面录像（`RdpRecording`）：谁、在哪台 Windows 机器上、录了多久、多大。
+ *
+ * 录像由**浏览器侧**录制（`canvas.captureStream()` + `MediaRecorder`），会话结束时
+ * 上传到堡垒机落盘；`url` 是回放地址（后端支持 Range，所以 `<video>` 能拖动进度条）。
+ */
+export type RdpRecording = {
+  id: number;
+  sessionId?: number | null;
+  hostId: number;
+  hostName: string;
+  hostAddress: string;
+  /** 堡垒机登录人（谁在操作） */
+  username: string;
+  /** 被登录的资产账号（登的是哪台机器上的谁） */
+  accountUsername: string;
+  sizeBytes: number;
+  durationSeconds: number;
+  mimeType: string;
+  width?: number | null;
+  height?: number | null;
+  startedAt?: string | null;
+  createdAt: string;
+  url: string;
 };

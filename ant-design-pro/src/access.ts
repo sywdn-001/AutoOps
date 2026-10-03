@@ -32,6 +32,8 @@ export default function access(
       has('command:view') ||
       has('file:use') ||
       has('filepolicy:view') ||
+      // 远程桌面录像也在审计中心里，录过像的人得能找到自己的回看入口
+      has('rdp:use') ||
       has('audit:view'),
     /** 资产：主机 / 账号 / 分组 */
     canHostView: has('host:view'),
@@ -60,6 +62,16 @@ export default function access(
     canAuditView: has('audit:view'),
     /** 网页终端 */
     canTerminalUse: has('terminal:use'),
+    /**
+     * 网页终端入口页（Linux 字符终端 + Windows 远程桌面已合并到同一页）：
+     * 只有其中一种权限的账号也要能进这一页。
+     */
+    canTerminalLauncher: has('terminal:use') || has('rdp:use'),
+    /** Windows 远程桌面（WebRDP）：能不能开远程桌面窗口 */
+    canRdpUse: has('rdp:use'),
+    /** 远程桌面录像（审计中心）：审计人员看全部，普通用户只看得到自己上传的 */
+    canRdpRecordings:
+      has('audit:view') || has('session:view_all') || has('rdp:use'),
     /** 文件管理器（SFTP）：能不能开窗口，与「能改哪些路径」由后端策略决定 */
     canFileUse: has('file:use'),
     /** 文件策略（哪条路径上能做哪些操作） */

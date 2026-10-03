@@ -36,7 +36,8 @@ export default [
     path: '/terminal',
     name: '网页终端',
     icon: 'CodeOutlined',
-    access: 'canTerminalUse',
+    // 字符终端与 Windows 远程桌面共用一个入口页，所以两种权限有一个就显示菜单
+    access: 'canTerminalLauncher',
     component: './bastion/terminal',
   },
   {
@@ -58,6 +59,18 @@ export default [
     layout: false,
     hideInMenu: true,
     component: './bastion/files/console',
+  },
+  {
+    // 远程桌面控制台：网页终端列表点「连接」后**新开标签页**进来，一个标签页一条 RDP 会话，
+    // 同样不带后台框架、不进菜单。
+    // 注意：远程桌面没有独立的列表菜单 —— Windows 主机和 Linux 主机一起列在「网页终端」里，
+    // 点「连接」时按主机的 protocol 决定弹哪种窗口（见 src/pages/bastion/terminal/index.tsx）。
+    path: '/rdp/console',
+    name: '远程桌面控制台',
+    access: 'canRdpUse',
+    layout: false,
+    hideInMenu: true,
+    component: './bastion/rdp/console',
   },
   {
     path: '/assets',
@@ -158,6 +171,14 @@ export default [
         path: '/audit/ai',
         access: 'canAiView',
         component: './bastion/ai/audits',
+      },
+      {
+        // 远程桌面录像：Windows 资产的远程操作全程录像，随时回看（需求⑤）。
+        // 审计人员看得到所有人的录像，普通用户只看得到自己上传的那些（后端按权限过滤）。
+        name: '远程桌面录像',
+        path: '/audit/recordings',
+        access: 'canRdpRecordings',
+        component: './bastion/rdp/recordings',
       },
       {
         name: '操作日志',

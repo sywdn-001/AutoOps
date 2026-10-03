@@ -296,3 +296,7 @@
 .bastion-launcher-warn {
   color: #d46b08;
 }
+
+.bastion-launcher-note {
+  margin-bottom: 12px;
+}
