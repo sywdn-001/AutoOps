@@ -7,7 +7,7 @@ from datetime import timedelta
 from flask import Blueprint, request
 from sqlalchemy import func, or_
 
-from ..audit import log_event
+from ..audit import log_event, verify_all_chains, verify_table_chain
 from ..extensions import db
 from ..models import (
     AuditLog,
@@ -496,3 +496,83 @@ def dashboard_mine():
 
 
 _ = parse_int
+
+
+@bp.get("/audits/chain")
+@permission_required("audit:view")
+def audits_chain_status():
+    """链状态：三张表的总行数、已哈希数、最新 entry_hash、是否全通过的概览。
+
+    这里只扫「最新 entry_hash 是否能覆盖」，不逐行重算（逐行重算走 /verify）。
+    """
+    heads = {}
+    counts = {}
+    for name, model in [
+        ("audit_logs", AuditLog),
+        ("command_logs", CommandLog),
+        ("file_logs", FileLog),
+    ]:
+        total = int(db.session.query(func.count(model.id)).scalar() or 0)
+        hashed = int(
+            db.session.query(func.count(model.id))
+            .filter(model.entry_hash != "")
+            .scalar()
+            or 0
+        )
+        last = db.session.query(model).order_by(model.id.desc()).first()
+        heads[name] = {
+            "lastId": last.id if last else None,
+            "lastEntryHash": (last.entry_hash or "") if last and getattr(last, "entry_hash", None) else "",
+        }
+        counts[name] = {"total": total, "hashed": hashed, "pending": total - hashed}
+    # 只有在所有行都已哈希且一条快查样本 entry_hash 自洽的情况下才给 healthy=true
+    healthy = True
+    for name, model in [
+        ("audit_logs", AuditLog),
+        ("command_logs", CommandLog),
+        ("file_logs", FileLog),
+    ]:
+        if counts[name]["pending"] > 0:
+            healthy = False
+            break
+        sample = db.session.query(model).filter(model.entry_hash != "").order_by(model.id.desc()).first()
+        if sample is None:
+            continue
+        # 只用样本做快速自洽：prev_hash 对上一条的 entry_hash
+        prev = (
+            db.session.query(model)
+            .filter(model.id < sample.id)
+            .order_by(model.id.desc())
+            .first()
+        )
+        if sample.prev_hash != ((prev.entry_hash or "") if prev else ""):
+            healthy = False
+            break
+    return api_ok(
+        {
+            "healthy": healthy,
+            "counts": counts,
+            "heads": heads,
+        }
+    )
+
+
+@bp.post("/audits/chain/verify")
+@permission_required("audit:view")
+def audits_chain_verify():
+    """逐行重算并校验三张表的哈希链。返回每表的详细错误（最多前 32 条）。
+
+    管理员可带 ``table=audit_logs`` 参数只校验单张表。
+    """
+    table = (request.args.get("table") or "").strip()
+    mapping = {
+        "audit_logs": AuditLog,
+        "command_logs": CommandLog,
+        "file_logs": FileLog,
+    }
+    if table:
+        if table not in mapping:
+            return api_error("UNKNOWN_TABLE", f"未知表名：{table}", code=400)
+        result = verify_table_chain(mapping[table])
+        return api_ok({"ok": result["ok"], "tables": {table: result}})
+    return api_ok(verify_all_chains())

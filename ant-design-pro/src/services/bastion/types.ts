@@ -324,6 +324,34 @@ export type AuditItem = {
   detail: Record<string, unknown>;
   ip: string;
   userAgent: string;
+  prevHash: string;
+  entryHash: string;
+};
+
+export type AuditChainCounts = { total: number; hashed: number; pending: number };
+export type AuditChainHead = { lastId: number | null; lastEntryHash: string };
+export type AuditChainStatus = {
+  healthy: boolean;
+  counts: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainCounts>;
+  heads: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainHead>;
+};
+export type AuditChainError = {
+  id: number;
+  reason: string;
+  expected?: string;
+  actual?: string;
+};
+export type AuditChainTableResult = {
+  ok: boolean;
+  total: number;
+  verified: number;
+  firstBad: number | null;
+  errors: AuditChainError[];
+};
+export type AuditChainVerifyResult = {
+  ok: boolean;
+  tables: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainTableResult>;
+  heads?: Record<'audit_logs' | 'command_logs' | 'file_logs', AuditChainHead>;
 };
 
 export type DashboardOverview = {

@@ -13,7 +13,13 @@ from typing import Any
 from flask import current_app, g
 
 from .extensions import db
-from .models import AuditLog, CommandLog, FileLog, SessionRecord
+from .models import (
+    AuditLog,
+    CommandLog,
+    FileLog,
+    SessionRecord,
+    compute_entry_hash,
+)
 
 logger = logging.getLogger("bastion.audit")
 
@@ -26,6 +32,36 @@ def get_app():
         from . import get_current_app
 
         return get_current_app()
+
+
+def _secret_key() -> str:
+    app = get_app()
+    return str(app.config.get("SECRET_KEY", ""))
+
+
+def _last_entry_hash(model_cls, *, before_id: int | None = None) -> str:
+    """取上一条（id < before_id）的 entry_hash；before_id 为 None 时取表尾。
+
+    必须通过 ORM query 查询，这样可以看到当前 session 中 flush 过但尚未 commit 的记录。
+    """
+    query = db.session.query(model_cls)
+    if before_id is not None:
+        query = query.filter(model_cls.id < before_id)
+    last = query.order_by(model_cls.id.desc()).first()
+    entry = getattr(last, "entry_hash", "") if last is not None else ""
+    return entry or ""
+
+
+def _assign_chain_hashes(entry, table: str) -> None:
+    """给刚 flush 的记录计算 prev_hash / entry_hash，并写回实体。"""
+    secret = _secret_key()
+    prev_hash = _last_entry_hash(type(entry), before_id=entry.id)
+    fields = entry.chain_fields()
+    entry_hash = compute_entry_hash(
+        table=table, fields=fields, prev_hash=prev_hash, secret_key=secret
+    )
+    entry.prev_hash = prev_hash or ""
+    entry.entry_hash = entry_hash
 
 
 def _actor_from_request():
@@ -77,6 +113,8 @@ def log_event(
             user_agent=(user_agent or "")[:255],
         )
         db.session.add(entry)
+        db.session.flush()
+        _assign_chain_hashes(entry, "audit_logs")
         db.session.commit()
     except Exception:  # pragma: no cover - 审计不能反噬业务
         db.session.rollback()
@@ -135,10 +173,10 @@ def log_command(
                 session.max_risk_level or "low", 0
             ):
                 session.max_risk_level = record.risk_level
+        db.session.flush()
+        _assign_chain_hashes(record, "command_logs")
         if commit:
             db.session.commit()
-        else:
-            db.session.flush()
         return record
     except Exception:  # pragma: no cover
         db.session.rollback()
@@ -212,10 +250,10 @@ def log_file_op(
                 session.max_risk_level = record.risk_level
             if size:
                 session.bytes_out = (session.bytes_out or 0) + int(size)
+        db.session.flush()
+        _assign_chain_hashes(record, "file_logs")
         if commit:
             db.session.commit()
-        else:
-            db.session.flush()
         return record
     except Exception:  # pragma: no cover
         db.session.rollback()
@@ -256,3 +294,112 @@ def close_session(
     except Exception:  # pragma: no cover
         db.session.rollback()
         logger.exception("关闭会话记录失败 sid=%s", getattr(session, "sid", "?"))
+
+
+# --------------------------------------------------------------------------
+# 链式哈希验证：verify_chain 是幂等的，老记录即使 prev_hash/entry_hash
+# 为空也当作「链起点之前的历史数据块」。
+# --------------------------------------------------------------------------
+
+from .models import AuditLog, CommandLog, FileLog  # noqa: E402
+
+CHAIN_TABLES: list[tuple[str, type]] = [
+    ("audit_logs", AuditLog),
+    ("command_logs", CommandLog),
+    ("file_logs", FileLog),
+]
+
+
+def verify_table_chain(model_cls, *, secret_key: str | None = None):
+    """逐条按 id 升序验证一条链。返回 ``(ok, total, verified, first_bad, errors)``。
+
+    - ``ok``: 是否完整通过（没有坏记录）
+    - ``total``: 表总行数
+    - ``verified``: 实际上参与链式哈希校验的行数（即 ``entry_hash != ""`` 的行）
+    - ``first_bad``: 首个坏记录的 ``id`` 或 ``None``
+    - ``errors``: 最多前 32 条错误（``{id, reason, expected, actual}``）
+    """
+    from .models import compute_entry_hash  # noqa: E402
+
+    if secret_key is None:
+        secret_key = _secret_key()
+    errors: list[dict] = []
+    total = 0
+    verified = 0
+    first_bad = None
+    prev_hash = ""
+    for row in db.session.query(model_cls).order_by(model_cls.id).yield_per(2000):
+        total += 1
+        current_entry = (row.entry_hash or "") if hasattr(row, "entry_hash") else ""
+        if not current_entry:
+            # 老数据：既无 prev 也无 entry，视为链之前的遗留块（不报错）
+            continue
+        verified += 1
+        if (row.prev_hash or "") != prev_hash:
+            reason = "prev_hash 不匹配（与上一条 entry_hash 不符）"
+            errors.append(
+                {
+                    "id": row.id,
+                    "reason": reason,
+                    "expected": prev_hash,
+                    "actual": row.prev_hash or "",
+                }
+            )
+            if first_bad is None:
+                first_bad = row.id
+        fields = row.chain_fields()
+        expected = compute_entry_hash(
+            table=model_cls.__tablename__,
+            fields=fields,
+            prev_hash=row.prev_hash or "",
+            secret_key=secret_key,
+        )
+        if expected != current_entry:
+            reason = "entry_hash 校验失败（字段被篡改）"
+            errors.append(
+                {
+                    "id": row.id,
+                    "reason": reason,
+                    "expected": expected,
+                    "actual": current_entry,
+                }
+            )
+            if first_bad is None:
+                first_bad = row.id
+        # 无论本条是否损坏，下一条 prev 都取本条存储的 entry_hash（不是期望的）
+        prev_hash = current_entry
+        if len(errors) >= 32:
+            break
+    ok = len(errors) == 0
+    return {
+        "ok": ok,
+        "total": total,
+        "verified": verified,
+        "first_bad": first_bad,
+        "errors": errors,
+    }
+
+
+def verify_all_chains(*, secret_key: str | None = None) -> dict:
+    """一次性验证三张审计流水表。返回 ``{ok, tables: {name: result}, head_hashes}``。"""
+    if secret_key is None:
+        secret_key = _secret_key()
+    tables: dict[str, dict] = {}
+    head: dict[str, dict] = {}
+    all_ok = True
+    for name, model in CHAIN_TABLES:
+        res = verify_table_chain(model, secret_key=secret_key)
+        tables[name] = res
+        if not res["ok"]:
+            all_ok = False
+        # 表头信息（最后一条 id/hash）
+        last = (
+            db.session.query(model)
+            .order_by(model.id.desc())
+            .first()
+        )
+        head[name] = {
+            "lastId": last.id if last else None,
+            "lastEntryHash": last.entry_hash if last and getattr(last, "entry_hash", None) else "",
+        }
+    return {"ok": all_ok, "tables": tables, "heads": head}

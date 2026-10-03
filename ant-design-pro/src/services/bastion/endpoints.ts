@@ -9,6 +9,8 @@ import { createResource, getToken, pageParams, unwrap } from './client';
 import type {
   ApiData,
   ApiList,
+  AuditChainStatus,
+  AuditChainVerifyResult,
   AuditItem,
   CommandItem,
   DashboardMine,
@@ -480,6 +482,15 @@ export const auditApi = {
     ),
   purge: (payload: PurgePayload) =>
     unwrap(request<ApiData<PurgeResult>>('/api/audits/delete', { method: 'POST', data: payload })),
+  chainStatus: () =>
+    unwrap(request<ApiData<AuditChainStatus>>('/api/audits/chain', { method: 'GET' })),
+  chainVerify: (table?: 'audit_logs' | 'command_logs' | 'file_logs') =>
+    unwrap(
+      request<ApiData<AuditChainVerifyResult>>('/api/audits/chain/verify', {
+        method: 'POST',
+        params: table ? { table } : undefined,
+      }),
+    ),
 };
 
 export const dashboardApi = {
