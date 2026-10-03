@@ -1,0 +1,26 @@
+/**
+ * AI 卡片（```ai-card）样式 —— 跟着 `cards.tsx` 走，谁渲染卡片谁就带上它。
+ *
+ * 对话页与审计页共用同一份卡片渲染，样式必须一起共用：审计看到的卡片得和当时用户
+ * 看到的长得一样。因此这里自带 `--ai-fill`，不依赖 `ai.css` 里 `.bastion-ai-page`
+ * 的变量定义（审计页没有那个类，缺变量会让卡片底色消失）。
+ *
+ * 约定沿用 `ai.css`：在平面上做布局，不做盒子 —— 一层浅底色、无描边、无阴影。
+ */
+.bastion-ai-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bastion-ai-card {
+  --ai-fill: rgba(148, 163, 184, 0.14);
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--ai-fill);
+}
+
+.bastion-ai-card-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}

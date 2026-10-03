@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="AutoOps 堡垒机">
+  <title>AutoOps 堡垒机</title>
+  <desc>几何盾牌 + 终端提示符，代表统一运维入口与命令级审计。</desc>
+  <defs>
+    <linearGradient id="autoops-shield" x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2E7BFF" />
+      <stop offset="1" stop-color="#12B8C8" />
+    </linearGradient>
+  </defs>
+  <!-- 外层盾牌：全部直线段构成的几何轮廓 -->
+  <path d="M32 4 L58 14 L58 32 L32 60 L6 32 L6 14 Z" fill="url(#autoops-shield)" />
+  <!-- 内层切面：留出等宽边线，形成几何层次 -->
+  <path d="M32 12.5 L50 19.5 L50 31.5 L32 50.5 L14 31.5 L14 19.5 Z" fill="#0B1021" />
+  <!-- 提示符 >_ -->
+  <path d="M23 27 L30 33.5 L23 40" fill="none" stroke="#7FE3FF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M35.5 40 L45 40" fill="none" stroke="#7FE3FF" stroke-width="3.6" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,150 @@
+{
+  "name": "ant-design-pro",
+  "version": "6.0.3",
+  "private": true,
+  "description": "An out-of-box UI solution for enterprise applications",
+  "repository": "git@github.com:ant-design/ant-design-pro.git",
+  "scripts": {
+    "analyze": "cross-env ANALYZE=1 max build",
+    "build": "max build",
+    "deploy": "cross-env CI=true max build && gh-pages -d dist",
+    "dev": "cross-env UMI_ENV=dev MOCK=none max dev",
+    "i18n-remove": "node scripts/i18n-remove.js",
+    "lint": "npm run biome:lint && npm run tsc",
+    "lint-staged": "lint-staged",
+    "biome:lint": "biome lint",
+    "biome": "biome check --write",
+    "openapi": "max openapi",
+    "prepare": "npx husky && max setup",
+    "preview": "max preview --port 8000",
+    "preview:build": "max build && max preview --port 8000",
+    "record": "cross-env NODE_ENV=development UMI_ENV=test max record --scene=login",
+    "simple": "node scripts/simple.js",
+    "start": "cross-env UMI_ENV=dev max dev",
+    "start:no-mock": "cross-env MOCK=none max dev",
+    "start:pre": "cross-env UMI_ENV=pre MOCK=none max dev",
+    "start:test": "cross-env UMI_ENV=test MOCK=none max dev",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "doctor": "react-doctor .",
+    "tsc": "tsc --noEmit"
+  },
+  "browserslist": [
+    "defaults"
+  ],
+  "dependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "@ant-design/plots": "^2.6.8",
+    "@ant-design/pro-components": "^3.1.14-2",
+    "@ant-design/x": "^2.9.0",
+    "@ant-design/x-markdown": "^2.9.0",
+    "@ant-design/x-sdk": "^2.9.0",
+    "@tanstack/react-query": "^5.101.2",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "antd": "^6.6.0",
+    "antd-style": "^4.1.0",
+    "china-division": "^2.7.0",
+    "clsx": "^2.1.1",
+    "d3": "^7.9.0",
+    "dayjs": "^1.11.21",
+    "highlight.js": "^11.11.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "socket.io-client": "^4.8.1",
+    "topojson-client": "^3.1.0"
+  },
+  "devDependencies": {
+    "@ant-design/cli": "^6.6.0",
+    "@biomejs/biome": "^2.5.3",
+    "@commitlint/cli": "^21.2.1",
+    "@commitlint/config-conventional": "^21.2.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/d3": "^7.4.3",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-helmet": "^6.1.11",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-specification": "^1.0.5",
+    "@umijs/lint": "^4.7.3",
+    "@umijs/max": "^4.7.3",
+    "@umijs/max-plugin-openapi": "^2.0.3",
+    "@umijs/request-record": "^1.1.4",
+    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/ui": "4.1.10",
+    "cross-env": "^10.1.0",
+    "express": "^5.2.1",
+    "geojson": "^0.5.0",
+    "gh-pages": "^6.3.0",
+    "happy-dom": "^20.11.2",
+    "husky": "^9.1.7",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.3.0",
+    "mockjs": "^1.1.0",
+    "react-doctor": "^0.9.11",
+    "swagger-ui-dist": "^5.32.8",
+    "tailwindcss": "^4.3.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "@umijs/plugins": {
+      "@ant-design/pro-components": "$@ant-design/pro-components",
+      "axios": "^1.19.0"
+    },
+    "@umijs/lint": {
+      "@babel/core": "^7.29.6"
+    },
+    "@utoo/pack": {
+      "send": "^0.19.0"
+    },
+    "dva-immer": {
+      "immer": "^9.0.6"
+    },
+    "cosmiconfig": {
+      "js-yaml": "^4.3.1"
+    },
+    "postcss": "^8.5.23"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "create-umi": {
+    "ignoreScript": [
+      "docker*",
+      "functions*",
+      "site",
+      "generateMock"
+    ],
+    "ignoreDependencies": [
+      "netlify*",
+      "serverless"
+    ],
+    "ignore": [
+      ".dockerignore",
+      ".git",
+      ".github",
+      ".gitpod.yml",
+      "CODE_OF_CONDUCT.md",
+      "Dockerfile",
+      "Dockerfile.*",
+      "lambda",
+      "LICENSE",
+      "netlify.toml",
+      "README.*.md",
+      "azure-pipelines.yml",
+      "docker",
+      "CNAME",
+      "create-umi"
+    ]
+  }
+}

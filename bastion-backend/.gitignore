@@ -1,0 +1,6 @@
+# 本地密钥与运行产物
+.env
+instance/
+__pycache__/
+*.pyc
+.pytest_cache/

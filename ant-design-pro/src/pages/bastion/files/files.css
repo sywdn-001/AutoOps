@@ -1,0 +1,227 @@
+/* AutoOps 文件管理器（SFTP）样式：与终端控制台同一套窗口形态与配色 */
+
+.bastion-files-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  background: #0d1117;
+  color: #94a3b8;
+  overflow: hidden;
+}
+
+.bastion-files-centered {
+  align-items: center;
+  justify-content: center;
+}
+
+/* 工具条 */
+.bastion-files-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  background: #0f172a;
+  border-bottom: 1px solid #1f2937;
+  color: #94a3b8;
+  flex: 0 0 auto;
+}
+
+.bastion-files-toolbar .ant-btn {
+  color: #94a3b8;
+}
+
+.bastion-files-toolbar .ant-btn:hover {
+  color: #e6edf3;
+  background: #1e293b;
+}
+
+.bastion-files-toolbar .ant-btn-dangerous {
+  color: #ff7875;
+}
+
+.bastion-files-title {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+  color: #e6edf3;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-inline-start: 4px;
+}
+
+.bastion-files-spacer {
+  flex: 1;
+}
+
+.bastion-files-chip {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* 路径条 */
+.bastion-files-pathbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #111827;
+  border-bottom: 1px solid #1f2937;
+  flex: 0 0 auto;
+}
+
+.bastion-files-crumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+}
+
+.bastion-files-crumb button {
+  border: 0;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+}
+
+.bastion-files-crumb button:hover {
+  color: #e6edf3;
+  text-decoration: underline;
+}
+
+/* 选择操作条 */
+.bastion-files-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: #0b1220;
+  border-bottom: 1px solid #1f2937;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+/* 表格区 */
+.bastion-files-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #0d1117;
+  padding: 0 8px 8px;
+}
+
+.bastion-files-body .ant-table {
+  background: transparent;
+  font-size: 12px;
+}
+
+.bastion-files-body .ant-table-thead > tr > th {
+  background: #0f172a;
+  color: #94a3b8;
+  border-bottom: 1px solid #1f2937;
+}
+
+.bastion-files-body .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #161f2e;
+  color: #cbd5e1;
+}
+
+.bastion-files-body .ant-table-tbody > tr.ant-table-row:hover > td,
+.bastion-files-body .ant-table-tbody > tr.ant-table-row > td.ant-table-cell-row-hover {
+  background: #111c2e;
+}
+
+.bastion-files-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+}
+
+.bastion-files-name-dir button {
+  border: 0;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+
+.bastion-files-name-dir button:hover {
+  color: #e6edf3;
+  text-decoration: underline;
+}
+
+.bastion-files-muted {
+  color: #64748b;
+}
+
+.bastion-files-denied {
+  color: #ff7875;
+  font-size: 11px;
+}
+
+/* 底部状态条 */
+.bastion-files-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: #64748b;
+  background: #0f172a;
+  border-top: 1px solid #1f2937;
+  flex: 0 0 auto;
+}
+
+.bastion-files-statusbar-right {
+  margin-inline-start: auto;
+}
+
+.bastion-files-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
+  margin-inline-end: 6px;
+}
+
+.bastion-files-dot-offline {
+  background: #64748b;
+}
+
+/* 关闭倒计时浮层 */
+.bastion-files-closing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100vh;
+  background: #0d1117;
+  color: #94a3b8;
+}
+
+.bastion-files-editor {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+}

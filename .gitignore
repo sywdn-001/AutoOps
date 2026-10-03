@@ -1,0 +1,25 @@
+# ── 依赖与构建产物（可再生成，不入库）──
+ant-design-pro/node_modules/
+ant-design-pro/dist/
+ant-design-pro/src/.umi/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── 运行时状态与密钥（数据是状态，不是代码；密钥更不能入库）──
+bastion-backend/instance/
+bastion-backend/.env
+
+# ── 第三方参考资料：各自是独立 git 仓库，不要嵌进本仓库 ──
+.references/
+
+# ── 临时文件 / 日志 / 缓存 ──
+*.log
+*.zip
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+Thumbs.db

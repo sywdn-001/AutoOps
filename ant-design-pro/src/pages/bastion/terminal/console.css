@@ -1,0 +1,298 @@
+/* AutoOps 网页终端样式（对齐 JumpServer luna 控制台的排版口径） */
+
+/* 控制台页：一个窗口一条会话，整页铺满视口（路由 layout: false） */
+.bastion-console-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  background: #0d1117;
+  color: #94a3b8;
+  overflow: hidden;
+}
+
+.bastion-console-centered {
+  align-items: center;
+  justify-content: center;
+}
+
+/* 工作区全屏 / 纯净模式 */
+.bastion-console-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.bastion-console-focus .bastion-statusbar {
+  display: none;
+}
+
+/* 工具条 */
+.bastion-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  background: #0f172a;
+  border-bottom: 1px solid #1f2937;
+  color: #94a3b8;
+  flex: 0 0 auto;
+}
+
+.bastion-toolbar .ant-btn {
+  color: #94a3b8;
+}
+
+.bastion-toolbar .ant-btn:hover {
+  color: #e6edf3;
+  background: #1e293b;
+}
+
+.bastion-toolbar .ant-btn-dangerous {
+  color: #ff7875;
+}
+
+.bastion-toolbar-asset {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+  color: #e6edf3;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-inline-start: 4px;
+}
+
+.bastion-toolbar-spacer {
+  flex: 1;
+}
+
+.bastion-toolbar-chip {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* 终端区 */
+.bastion-terminal-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #0b1021;
+}
+
+.bastion-terminal-host {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+}
+
+.bastion-terminal-host .xterm {
+  height: 100%;
+}
+
+.bastion-terminal-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #64748b;
+}
+
+.bastion-terminal-empty-title {
+  font-size: 15px;
+  color: #94a3b8;
+}
+
+/* 搜索浮层（深色底：文字一律走灰阶，不能沿用 antd 的黑色文字色，否则在深色上几乎看不见） */
+.bastion-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #111827;
+  border-bottom: 1px solid #1f2937;
+  flex: 0 0 auto;
+}
+
+/* 输入框：allowClear 会包一层 .ant-input-affix-wrapper，内层 input 本身是
+   `color: inherit; background: transparent`（antd 的 :where(...).ant-input-affix-wrapper > input.ant-input
+   特异性高于「父类 + .ant-input」），所以颜色/底色必须同时写在 wrapper 与内层 input 上。 */
+.bastion-searchbar .ant-input,
+.bastion-searchbar .ant-input-affix-wrapper {
+  width: 260px;
+  background: #0b1220;
+  border-color: #1f2937;
+  color: #cbd5e1;
+}
+
+.bastion-searchbar .ant-input-affix-wrapper > input.ant-input,
+.bastion-searchbar .ant-input-affix-wrapper > textarea.ant-input {
+  width: 100%;
+  background: #0b1220;
+  color: #cbd5e1;
+}
+
+.bastion-searchbar .ant-input:hover,
+.bastion-searchbar .ant-input:focus,
+.bastion-searchbar .ant-input-affix-wrapper:hover,
+.bastion-searchbar .ant-input-affix-wrapper.ant-input-affix-wrapper-focused {
+  border-color: #334155;
+  box-shadow: none;
+}
+
+.bastion-searchbar .ant-input::placeholder,
+.bastion-searchbar .ant-input-affix-wrapper > input.ant-input::placeholder {
+  color: #64748b;
+}
+
+.bastion-searchbar .ant-input-clear-icon {
+  color: #64748b;
+}
+
+.bastion-searchbar .ant-checkbox-wrapper {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.bastion-searchbar .ant-btn-default {
+  background: #111c2e;
+  border-color: #1f2937;
+  color: #94a3b8;
+}
+
+.bastion-searchbar .ant-btn-default:hover {
+  border-color: #334155;
+  color: #e6edf3;
+}
+
+.bastion-searchbar .ant-btn-text {
+  color: #94a3b8;
+}
+
+.bastion-searchbar .ant-btn-text:hover {
+  color: #cbd5e1;
+  background: #1f2937;
+}
+
+/* 底部状态条 */
+.bastion-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: #64748b;
+  background: #0f172a;
+  border-top: 1px solid #1f2937;
+  flex: 0 0 auto;
+}
+
+.bastion-statusbar-left,
+.bastion-statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bastion-statusbar-right {
+  margin-inline-start: auto;
+}
+
+.bastion-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.bastion-status-dot-offline {
+  background: #64748b;
+}
+
+.bastion-status-count-ok {
+  color: #22c55e;
+}
+
+.bastion-status-count-pending {
+  color: #f59e0b;
+}
+
+.bastion-status-count-failed {
+  color: #ef4444;
+}
+
+.bastion-status-duration {
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+}
+
+.bastion-status-asset {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  color: #cbd5e1;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 快捷键说明 */
+.bastion-shortcut-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bastion-shortcut-list li {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.bastion-shortcut-list code {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+  color: #0f172a;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.bastion-shortcut-tip {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.7;
+}
+
+/* 资产列表（入口页） */
+.bastion-launcher-host {
+  font-weight: 600;
+}
+
+.bastion-launcher-addr {
+  font-family:
+    "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.bastion-launcher-warn {
+  color: #d46b08;
+}

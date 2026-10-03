@@ -1,0 +1,426 @@
+/**
+ * AI 运维页样式。
+ *
+ * 两条约定：
+ * 1. **这里只管布局与中性色，组件配色交给 antd**。正文颜色一律继承主题、用 opacity 分层；
+ *    中性灰只用于分隔线与极浅底色，统一取 slate-400 半透明 —— 浅色主题下是浅灰、深色主题下
+ *    是深灰，两边都看得清，也不会出现用户说的「纯白一片」。`#1677ff` 只做语义色
+ *    （当前项 / 可点），绿红只在 antd 的 Tag/Alert 里出现。
+ * 2. **在平面上做布局，不做盒子**。整页不再「卡片套卡片」：PageContainer 走 ghost，
+ *    左侧列表只有一条右侧分隔线，右侧对话区靠间距 + 细分隔线 + 浅底色分区；
+ *    只有表单、气泡、抽屉这类真正的组件才保留边框和圆角。
+ */
+.bastion-ai-page {
+  /* 中性色：slate-400 半透明。白底上是浅灰、深色底上是深灰，两种主题都成立 */
+  --ai-line: rgba(148, 163, 184, 0.3);
+  --ai-fill: rgba(148, 163, 184, 0.14);
+  --ai-fill-strong: rgba(148, 163, 184, 0.22);
+  /* 语义色：只表示「当前 / 可点」 */
+  --ai-accent: #1677ff;
+}
+
+/* ==================== 页面骨架：左列表 + 右对话，两栏平铺到底 ==================== */
+.bastion-ai {
+  display: flex;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden; /* 左右两栏各管各的滚动，页面本身不再滚 */
+}
+
+/* 左侧对话列表：贴页全高的平铺列 —— 没有外壳、没有圆角、没有阴影、没有浮层留白，
+   只有一条右侧分隔线（用户要的「直接落地」） */
+.bastion-ai-side {
+  flex: 0 0 272px;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--ai-line);
+}
+
+.bastion-ai-side-head {
+  flex: 0 0 auto;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--ai-line);
+}
+
+.bastion-ai-side-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Conversations 默认是一列「圆角 + 四周留白」的悬浮条目，这里按回平面：
+   条目贴满侧栏宽度、彼此只隔一条细线，当前项用左侧强调条 + 淡淡高亮。
+
+   注意：下面每条都带 `.bastion-ai-page` 前缀。antd 的 cssinjs 把 hashId 包在 `:where()` 里
+   （hashPriority 默认 low），所以 antd / @ant-design/x 的规则**只按组件类算权重**：
+   x 自己的 `.ant-conversations .ant-conversations-item` 已经是 (0,2,0)、
+   `.ant-bubble-list .ant-bubble-start:not(...):not(...)` 是 (0,4,0)。
+   覆盖它必须写得**严格更具体**，否则会输/打成平手去比样式注入顺序 —— 那是不可靠的。 */
+.bastion-ai-page .bastion-ai-side-list .ant-conversations {
+  padding: 0;
+  gap: 0;
+  overflow: visible; /* 滚动交给 .bastion-ai-side-list，避免两层滚动条 */
+}
+
+.bastion-ai-page .bastion-ai-side-list .ant-conversations-item {
+  height: auto;
+  min-height: 46px;
+  padding: 8px 12px 8px 9px; /* 3px 强调条 + 9px = 与「新建对话」左边缘对齐 */
+  border-radius: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--ai-line);
+}
+
+.bastion-ai-page .bastion-ai-side-list .ant-conversations-item:last-child {
+  border-bottom: none;
+}
+
+.bastion-ai-page
+  .bastion-ai-side-list
+  .ant-conversations-item:not(.ant-conversations-item-disabled):hover {
+  background: var(--ai-fill);
+}
+
+.bastion-ai-page .bastion-ai-side-list .ant-conversations-item-active,
+.bastion-ai-page .bastion-ai-side-list .ant-conversations-item-active:hover {
+  background: var(--ai-fill-strong);
+  border-left-color: var(--ai-accent);
+}
+
+.bastion-ai-page .bastion-ai-side-list .ant-conversations-label {
+  width: 100%;
+  min-width: 0;
+}
+
+.bastion-ai-empty {
+  margin-top: 32px;
+}
+
+.bastion-ai-conv-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.bastion-ai-conv-title,
+.bastion-ai-conv-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bastion-ai-conv-meta {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+/* 右侧对话区：一个高内容区 + 底部固定输入框，同样没有外壳 */
+.bastion-ai-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bastion-ai-stream {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 页面用满：只留左右呼吸感，不再有「外壳 16px + 内衬 16px」两层留白 */
+  padding: 0 32px;
+}
+
+.bastion-ai-bubbles {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Bubble 默认给 AI 气泡留 15% 右侧空白、并且是「不撑满」的对齐方式；
+   这里让助手正文铺满整栏（更像文档式输出，也更大气），用户气泡保持右侧小块。
+   x 的选择器是 `.ant-bubble-list .ant-bubble-start:not(.ant-bubble-divider):not(.ant-bubble-system)`
+   （(0,4,0)），所以下面镜像它的 `:not()` 再加一层前缀，才能稳稳盖住 15%。 */
+.bastion-ai-page .bastion-ai-bubbles
+  .ant-bubble-start:not(.ant-bubble-divider):not(.ant-bubble-system) {
+  align-self: stretch;
+  padding-inline-end: 0;
+}
+
+.bastion-ai-page
+  .bastion-ai-bubbles
+  .ant-bubble-end:not(.ant-bubble-divider):not(.ant-bubble-system) {
+  padding-inline-start: 8%;
+}
+
+.bastion-ai-page .bastion-ai-bubbles .ant-bubble-start .ant-bubble-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 列表自带的内边距与外层 padding 二选一，避免又多出 8px */
+.bastion-ai-page .bastion-ai-bubbles .ant-bubble-list-scroll-content {
+  padding-inline: 0;
+}
+
+.bastion-ai-loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  opacity: 0.7;
+}
+
+.bastion-ai-welcome {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 16px 64px;
+  text-align: center;
+}
+
+.bastion-ai-welcome-icon {
+  font-size: 52px;
+  opacity: 0.28;
+}
+
+.bastion-ai-welcome-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.bastion-ai-welcome-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  max-width: 760px;
+}
+
+.bastion-ai-hint {
+  cursor: pointer;
+  padding: 6px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.bastion-ai-hint:hover {
+  border-color: var(--ai-accent);
+  color: var(--ai-accent);
+}
+
+.bastion-ai-input {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 32px 18px;
+  border-top: 1px solid var(--ai-line);
+}
+
+.bastion-ai-stop {
+  align-self: flex-end;
+}
+
+/* ---------------- 单条气泡 ---------------- */
+.bastion-ai-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bastion-ai-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bastion-ai-collar {
+  margin-bottom: -8px;
+}
+
+.bastion-ai-collapse-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.bastion-ai-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.bastion-ai-meta {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.bastion-ai-error {
+  margin-top: 4px;
+}
+
+.bastion-ai-disabled {
+  margin-bottom: 12px;
+}
+
+/* ---------------- Markdown ---------------- */
+.bastion-ai-markdown {
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.bastion-ai-markdown :where(p) {
+  margin: 0 0 8px;
+}
+
+.bastion-ai-markdown :where(ul, ol) {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.bastion-ai-markdown :where(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--ai-fill);
+  overflow: auto;
+}
+
+/* 卡片是从 ```ai-card 代码块里渲染出来的，外层 <pre> 必须让位，否则会多出一个代码框 */
+.bastion-ai-markdown :where(pre):has(> .bastion-ai-card) {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.bastion-ai-card-pending {
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.bastion-ai-code {
+  font-family: Consolas, Monaco, "Courier New", monospace;
+}
+
+.bastion-ai-reasoning {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--ai-fill);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* ---------------- 工具调用：不再是一个个描边小盒子，改成「左强调线 + 细线分隔」 ---------------- */
+.bastion-ai-tools {
+  display: flex;
+  flex-direction: column;
+}
+
+.bastion-ai-tool {
+  padding: 10px 0 12px 12px;
+  border-left: 2px solid var(--ai-line);
+  border-bottom: 1px solid var(--ai-line);
+}
+
+.bastion-ai-tools .bastion-ai-tool:last-child {
+  border-bottom: none;
+}
+
+.bastion-ai-tool-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bastion-ai-tool-desc,
+.bastion-ai-tool-summary {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.bastion-ai-tool-args,
+.bastion-ai-tool-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--ai-fill);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* ---------------- AI 卡片：样式跟着组件走，见 cards.css ---------------- */
+
+/* ---------------- 工具目录抽屉 ---------------- */
+.bastion-ai-tool-search {
+  margin-bottom: 8px;
+}
+
+.bastion-ai-tool-tip {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.bastion-ai-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.bastion-ai-tool-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bastion-ai-tool-item-desc {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+/* ---------------- 敏感操作确认 ---------------- */
+.bastion-ai-confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.bastion-ai-confirm-form {
+  margin-top: 16px;
+}
+
+/* 后端拒绝原因（功能性错误提示）就地显示在表单下面 */
+.bastion-ai-confirm-error {
+  margin-bottom: 12px;
+}
