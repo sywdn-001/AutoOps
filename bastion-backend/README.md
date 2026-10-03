@@ -101,7 +101,7 @@ bastion-backend/
 ├── tools/
 │   ├── demo_ssh_target.py      # 假 Linux 演示目标机（真实 SSH 协议栈 + tty 行规程 + exec 请求 + 转义序列过滤 TtyEscapeFilter + SFTP 子系统，默认 127.0.0.1:2200）
 │   ├── sftp_backend.py         # 演示用 SFTP 服务端（文件后端 + 子系统安装）
-│   ├── live_e2e_check.py       # 真机端到端联调（96 项断言：HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含进站字符画/配色/分隔线随内容）
+│   ├── live_e2e_check.py       # 真机端到端联调（97 项断言：HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含进站字符画/配色/分隔线随内容；项数随数据状态微变）
 │   ├── ui_check.py             # 真实 Chrome(CDP) 逐路由巡检后台 UI（21 项断言：16 个路由 + 登录态守卫 + 品牌痕迹/Logo）
 │   ├── gw_ai_check.py          # 真实 SSH 网关里跑一次 /ask-ai（9 项断言：选真机进会话 → 粘贴形态提问 → 无「AI 出错/HTTP 400」→ 有真实答案 → 回合后终端仍可用）；**选跑，会消耗一次真实模型调用**
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
@@ -407,7 +407,7 @@ python tools/verify_audit_chain.py                # 审计链式哈希离线校�
 python tools/verify_audit_chain.py --print-head   # 抄链尾锚点：三张表的真链尾哈希，写进异地日志/工单
 python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核库外锚点：对不上 exit 1（链被截断或表被替换）
 
-python tools/live_e2e_check.py            # 真机联调：96 项断言（HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含网关进站字符画/配色/分隔线随内容）
+python tools/live_e2e_check.py            # 真机联调：97 项断言（HTTP + Socket.IO + SSH 网关 + SFTP 文件管理器 + AI 工具目录/客户端版本，含网关进站字符画/配色/分隔线随内容）
 python tools/live_e2e_check.py --admin-password <当前管理员口令>   # 改过默认口令后这样跑
 python tools/ui_check.py                  # 真实 Chrome(CDP) 逐路由巡检后台 UI：21 项断言（16 个路由 + 登录态守卫 + 品牌痕迹/Logo）
 python tools/console_check.py             # 真实 Chrome(CDP) 驱动网页终端与文件管理器：33 项断言（一个 window.open 弹窗 = 一条会话，含断开倒计时与自动关窗；工具条「文件管理」再弹一个独立文件窗口）
