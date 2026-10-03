@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -49,6 +52,66 @@ def to_aware_utc(value: datetime | None) -> datetime | None:
 
 def gen_sid() -> str:
     return uuid.uuid4().hex
+
+
+# --------------------------------------------------------------------------
+# 审计链式哈希
+# --------------------------------------------------------------------------
+
+CHAIN_SEP = "\x01"
+CHAIN_KV = "\x02"
+
+
+def chain_key(secret_key: str) -> bytes:
+    """派生链式哈希专属 HMAC 密钥（基于应用 SECRET_KEY，HKDF-lite）。"""
+    base = (secret_key or "").encode("utf-8") or b"bastion-audit-chain"
+    return hashlib.sha256(b"bastion-audit-chain-v1" + base).digest()
+
+
+def _norm(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.isoformat(timespec="microseconds")
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.hex()
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _serialize_fields(fields: list[tuple[str, object]]) -> str:
+    return CHAIN_SEP.join(name + CHAIN_KV + _norm(value) for name, value in fields)
+
+
+def _hmac_hex(key: bytes, message: str) -> str:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def compute_entry_hash(
+    *,
+    table: str,
+    fields: list[tuple[str, object]],
+    prev_hash: str,
+    secret_key: str,
+) -> str:
+    """计算单条记录的 entry_hash。"""
+    msg = "table" + CHAIN_KV + table + CHAIN_SEP + "prev" + CHAIN_KV + (prev_hash or "") + CHAIN_SEP + _serialize_fields(fields)
+    return _hmac_hex(chain_key(secret_key), msg)
 
 
 class TimestampMixin:
@@ -657,6 +720,34 @@ class CommandLog(db.Model):
     exit_status = db.Column(db.Integer)
     truncated = db.Column(db.Boolean, default=False, nullable=False)
 
+    prev_hash = db.Column(db.String(64), default="")
+    entry_hash = db.Column(db.String(64), default="", index=True)
+
+    def chain_fields(self) -> list[tuple[str, object]]:
+        return [
+            ("id", self.id),
+            ("session_id", self.session_id),
+            ("sid", self.sid),
+            ("seq", self.seq),
+            ("user_id", self.user_id),
+            ("username", self.username),
+            ("host_id", self.host_id),
+            ("host_name", self.host_name),
+            ("command", self.command),
+            ("output_hash", hashlib.sha256((self.output or "").encode("utf-8")).hexdigest()),
+            ("output_len", len(self.output or "")),
+            ("action", self.action),
+            ("risk_level", self.risk_level),
+            ("matched_rule_id", self.matched_rule_id),
+            ("matched_rule_pattern", self.matched_rule_pattern),
+            ("reason", self.reason),
+            ("started_at", self.started_at),
+            ("ended_at", self.ended_at),
+            ("duration_ms", self.duration_ms),
+            ("exit_status", self.exit_status),
+            ("truncated", self.truncated),
+        ]
+
     def to_dict(self, with_output: bool = True, output_limit: int = 4000) -> dict:
         output = self.output or ""
         truncated = self.truncated
@@ -683,6 +774,8 @@ class CommandLog(db.Model):
             "durationMs": self.duration_ms or 0,
             "exitStatus": self.exit_status,
             "truncated": truncated,
+            "prevHash": self.prev_hash or "",
+            "entryHash": self.entry_hash or "",
         }
         if with_output:
             data["output"] = output
@@ -733,6 +826,36 @@ class FileLog(db.Model):
     ended_at = db.Column(db.DateTime)
     duration_ms = db.Column(db.Integer, default=0)
 
+    prev_hash = db.Column(db.String(64), default="")
+    entry_hash = db.Column(db.String(64), default="", index=True)
+
+    def chain_fields(self) -> list[tuple[str, object]]:
+        return [
+            ("id", self.id),
+            ("session_id", self.session_id),
+            ("sid", self.sid),
+            ("seq", self.seq),
+            ("user_id", self.user_id),
+            ("username", self.username),
+            ("host_id", self.host_id),
+            ("host_name", self.host_name),
+            ("operation", self.operation),
+            ("path", self.path),
+            ("target_path", self.target_path),
+            ("action", self.action),
+            ("risk_level", self.risk_level),
+            ("matched_rule_id", self.matched_rule_id),
+            ("matched_rule_pattern", self.matched_rule_pattern),
+            ("reason", self.reason),
+            ("result", self.result),
+            ("message", self.message),
+            ("size", self.size),
+            ("file_count", self.file_count),
+            ("started_at", self.started_at),
+            ("ended_at", self.ended_at),
+            ("duration_ms", self.duration_ms),
+        ]
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -758,6 +881,8 @@ class FileLog(db.Model):
             "startedAt": _iso(self.started_at),
             "endedAt": _iso(self.ended_at),
             "durationMs": self.duration_ms or 0,
+            "prevHash": self.prev_hash or "",
+            "entryHash": self.entry_hash or "",
         }
 
 
@@ -789,6 +914,28 @@ class AuditLog(db.Model):
     ip = db.Column(db.String(64), default="")
     user_agent = db.Column(db.String(255), default="")
 
+    prev_hash = db.Column(db.String(64), default="")
+    entry_hash = db.Column(db.String(64), default="", index=True)
+
+    def chain_fields(self) -> list[tuple[str, object]]:
+        return [
+            ("id", self.id),
+            ("ts", self.ts),
+            ("category", self.category),
+            ("action", self.action),
+            ("actor_id", self.actor_id),
+            ("actor_username", self.actor_username),
+            ("actor_role", self.actor_role),
+            ("target_type", self.target_type),
+            ("target_id", self.target_id),
+            ("target_name", self.target_name),
+            ("result", self.result),
+            ("message", self.message),
+            ("detail", self.detail),
+            ("ip", self.ip),
+            ("user_agent", self.user_agent),
+        ]
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -806,6 +953,8 @@ class AuditLog(db.Model):
             "detail": self.detail or {},
             "ip": self.ip,
             "userAgent": self.user_agent,
+            "prevHash": self.prev_hash or "",
+            "entryHash": self.entry_hash or "",
         }
 
 

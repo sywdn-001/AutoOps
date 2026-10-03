@@ -32,6 +32,14 @@
 | 12 | AI 工具**单独一套权限**，可按用户分配 | 追加 7 个权限码：`ai:view` / `ai:use` / `ai:view_all` / `ai:tool` / `ai:tool_write` / `ai:tool_exec` / `ai:manage`；没有 `ai:use` 连对话都不给开，没有 `ai:tool_exec` 则所有「在目标机执行命令」的工具被过滤；`tools_for_permission()` 按权限裁剪工具清单，前端「AI 能用什么」抽屉展示的就是**这个人**实际可用的工具 | `tests/test_ai_tools.py`（`tools_for_permission` 裁剪）、`tests/test_gateway_ai_shell.py`（无 `ai:use` 直接拒绝）、`tests/test_api_permissions.py` |
 | 13 | SSH 里连上机器后可随时 `/ask-ai <问题>`，**不输出可交互控件**，但 Shell 中 Markdown 要流式渲染 | `app/gateway/ai_shell.py`：网关维护「影子行缓冲」判断当前行是否 `/ask-ai`，命中时补发 `Ctrl-U` 抹掉该行且**不转发回车**（目标机永远不会把它当命令执行）；`TerminalMarkdown` 把 Markdown 就地重绘（`\r\x1b[K` 原地刷新、标题/列表/代码/表格上色、围栏转暗色横线、卡片降级 ASCII）；确认环节是纯文本提示 + 掩码输入；网关进程内 `_mint_token()` 临时签发 2 小时 JWT 供工具调用 | `tests/test_gateway_ai_shell.py`（**46 例**：命令识别、影子行/Ctrl-U 不误判、粘贴标记与跨 chunk 转义、Markdown 渲染、卡片降级、确认与拒绝、上下文落库 `source="shell"`）；行分流状态机已抽成 `app/ai/line_split.py`（`LineShadow`），**网页终端同样支持 `/ask-ai`**（`tests/test_ai_line_split.py` 34 例 + `tests/test_webterm_ai.py` 6 例）；真机 paramiko 实测（`/ask-ai` 前后按键转发、工具调用、敏感操作签批、原始输出 9991 字节原地重绘） |
 
+### 一·六、扩展需求：审计防篡改（三张流水表链式哈希）
+
+审计记录本身也要能被证明「没被动过」：三张流水表（`audit_logs` / `command_logs` / `file_logs`）逐行挂链，密钥由 `SECRET_KEY` 派生、不落库；校验既能逐行走接口/CLI，也能在审计页一眼看到徽标。
+
+| # | 需求 | 实现 | 验证证据 |
+| --- | --- | --- | --- |
+| 14 | 审计记录**防篡改**：改字段、改哈希、清哈希、删记录都要能发现 | `app/models.py` 的 `EntryHashMixin` / `compute_entry_hash()`：`entry_hash = HMAC-SHA256(key, table + prev_hash + 规范化字段)`，`prev_hash` 指向上一条的 `entry_hash`（创世为空串）；`app/audit.py` 的 `log_event` / `log_command` / `log_file_op` 在 `flush()` 之后、`commit()` 之前算哈希，`_last_entry_hash(before_id)` 按 `id <` 取上一条（否则会把自己 flush 出来的空哈希当成前驱、第 2 条起 `prev_hash` 全空）；`verify_table_chain()` 逐行重算，并区分 `prefix`（链起步前的合法遗留）与 `pending_inside`（链内空洞）；`GET /api/audits/chain` 暴露 `pendingPrefix`/`pendingInside`/`verifiedHead`，`healthy` 只看链内空洞 | 审计页「链完整性」徽标（徽标红 ⇔ `verify.ok=False` 必须同声）+ `POST /api/audits/chain/verify` + `python tools/verify_audit_chain.py`；`tests/test_audit_chain.py`（9）、`tests/test_audit_chain_tamper.py`（3）；截图 [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) |
+
 ---
 
 ## 二、快速开始
@@ -270,7 +278,8 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 
 | 类别 | 结果 |
 | --- | --- |
-| 后端单元 + 接口 + 权限测试 | `python -m pytest -q` → **507 passed（26 个文件）, exit 0** |
+| 后端单元 + 接口 + 权限测试 | `python -m pytest -q` → **524 passed（29 个文件）, exit 0** |
+| **审计链式哈希（三张流水表 · 防篡改）** | `tests/test_audit_chain.py`（9）+ `tests/test_audit_chain_tamper.py`（3）全绿：`audit_logs`/`command_logs`/`file_logs` 每行按 id 单向挂 `prev_hash`/`entry_hash`（HMAC-SHA256，密钥从 `SECRET_KEY` 派生，**不写库**），改字段 / 改哈希 / 动连接关系都能**点名到具体行**；**链起步前的空哈希行是合法遗留**（`pendingPrefix`，老库升级后徽标不会一上线就全红）、**链内的空哈希行是异常**（`pendingInside`，「改完字段再把两列哈希清空」冒充遗留照样判红），`GET /api/audits/chain` 的 `healthy` 只看后者 —— **界面徽标与 CLI 退出码必须同声**（对抗测试里两者一起断言）；链的固有边界写进代码、CLI 与界面文案：整段删尾行在库内自洽，要抓它得比对**库外锚点**（`python tools/verify_audit_chain.py --print-head` 抄锚点 / `--expect-head TABLE=HASH` 复核，对不上 exit 1）。CLI 在真实库上实测：`[OK] audit_logs: 总行 87, 已哈希 87, 遗留前缀 0, 链内空洞 0, 坏首行 None`；`--expect-head audit_logs=deadbeef` → `[FAIL]` + 「库外锚点不符：期望 deadbeef… 实际 99252fe4902d…（链被截断或表被替换）」、**exit 1** |
 | 文件管理器单元 + 接口（真 paramiko SFTP 服务端） | `tests/test_files_service.py`（14）与 `tests/test_files_api.py`（13）全绿：列目录/读/写（带 mtime 冲突 409）/上传/下载/归档/新建/重命名/移动/复制/删除/改权限，**双路径校验**（`copy` 到系统目录按目标路径拒绝）、只读授权与默认拒绝策略（`list` 允许但写入拒绝）、`.ssh` 与凭据路径拒绝、被拒操作落 `file_logs`、**授权变更对已开会话立即生效**（`test_grant_changes_apply_to_the_open_session`）、**归档不存在的路径退化成 404 且留一条失败审计**（`test_archive_missing_path_fails_cleanly_and_is_audited`）、**改权限断言 `after` 与随后 `stat` 一致**（不假设平台一定改得动）、**被遗弃的会话会被空闲清理收口**（`test_abandoned_file_session_is_reaped_by_idle_sweeper`）、**失败审计文案统一用中文框住、异常原文一字不改**（`_human_error()`：「修改文件权限失败：Permission denied」，回归 `test_failure_audit_message_is_framed_in_chinese_but_keeps_the_raw_error`） |
 | 会话空闲超时（`app/idle_sweeper.py`） | `tests/test_idle_sweeper.py`（3）全绿：只断开 `last_active` 超时的会话、`timeout<=0` 视为不清理、`timeout_seconds()` 真读参数设置；**真机验证**：`PUT session_idle_timeout=20` → 以 `e2e-ops` 开一条文件会话 → 75 秒后 `/api/files/sessions` 为空，会话记录 `status=terminated` / `endReason="空闲超时自动断开"` |
 | 参数设置（`/api/settings`） | `tests/test_settings_api.py`（5）全绿：`default_policy_id` 允许留空、指向不存在的策略仍 400、必填整型留空仍 400「必须是整数」、**改设置必须写审计**（`update_settings` 与 `AuditLog.action="update_settings"`）、同值再提交提示「设置无变化」 |
@@ -309,6 +318,7 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 | [ai-audit-tool-calls.png](docs/screenshots/ai-audit-tool-calls.png) | AI 对话审计 ·「工具调用」面：**入参列不再是 `<pre>` 里的一坨 JSON**，而是键值卡片（表格直接内联），结果列在摘要下给出「查看输出」入口 |
 | [ai-audit-tool-card.png](docs/screenshots/ai-audit-tool-card.png) | 对话详情里最长的 `role="tool"` 消息（`list_ai_tools`，原始 63909 字符、落库被截到 8048）：现在渲染成「工具名 + 成功」标题 + 键值卡片 + 嵌套 `groups` 表格 + **「后端已截断，这里按完整条目渲染」**标注 + 逐层「原始 JSON」入口——用户报的那堵 JSON 墙消失 |
 | [audit-events-zh.png](docs/screenshots/audit-events-zh.png) | 概览「最近审计事件」：**给人看的用中文直白描述**（`AI 调用工具 list_hosts：成功（共 4 条）`、`用户 admin 向 AI 提问：列出所有纳管主机`、`admin 登录成功（console）`），**给系统看的保持英文**（`ai` / `ai_tool_call` / `ai_chat` / `auth` / `login`） |
+| [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) | 审计中心 ·「链完整性」徽标（实拍）：`✓ CHAIN INTEGRITY · 链式哈希 · 完整可信` + 三张流水表的总数/已哈希/链尾哈希 + 点「逐行校验哈希」后的「全表校验通过」结论，并**把链的固有边界写在界面上**（整段删尾行要靠库外锚点：`CLI --print-head / --expect-head`）；徽标红 ⇔ `verify.ok=False`，界面与 CLI 同一个结论 |
 
 已修复并在测试中固化的真实缺陷（节选，均带回归用例）：
 
@@ -354,6 +364,9 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 
 - **连上目标机后终端里还残留上一屏（用户实测反馈：「太乱了」）**：会话建立时只写了横幅与欢迎语，目标机自己的上一屏（登录前的提示符、上一次会话的滚屏）还在视口里。改为**会话就绪后先清屏再重画**（`\x1b[2J\x1b[H` + 上下文 + 横幅），网关与网页终端两条入口同一措辞；清屏后补一个**裸回车**触发远端提示符重绘 —— 裸回走在 `ShellBridge.feed_input()` 的 Enter 分支之前就 `return`（`bridge.py` 里空行在任何 `_start_command()`/`evaluate_policy()` 之前返回），所以**不落 CommandLog、不进策略引擎**，回归用例断言 `CommandLog` 计数为 0。
 - **演示目标机把粘贴标记当命令字符（真缺陷，真机揪出）**：终端里粘贴 `/ask-ai 你好` 时客户端会带上 bracketed paste 的 `ESC[200~`/`ESC[201~`，演示目标机把它们当普通字符写进行缓冲 → 下一条命令变成 `-bash: [201~echo: command not found`。给演示目标机新增 `TtyEscapeFilter`（CSI/SS3/OSC 状态机，转义序列先吃掉再写缓冲；截断、超长、不支持的序列安全放弃，**绝不吞掉回车**），3 条用例固化。
+- **链式哈希的「空哈希一律跳过」给了篡改者一件隐形斗篷（真缺陷，对抗测试揪出）**：`verify_table_chain()` 把空 `entry_hash` 的行无条件当「老库升级遗留」跳过 → **改完字段再把该行两列哈希一起清空**，校验照样返回 `{'ok': True, 'total': 5, 'verified': 4, 'first_bad': None}`，而界面用的 `GET /api/audits/chain` 又因为 `pending>0` 判它不健康 —— **同一个事实，CLI 说干净、徽标说红**，而运维只看退出码。修法：引入 `chain_started`，空哈希**只在链起步前**合法（计入 `prefix`）；链起步后再出现就计 `pending_inside`、`first_bad` 点名该行的 id、报「链内出现空 entry_hash（疑似清空哈希冒充升级前遗留）」，`healthy` 与 CLI 退出码只看 `pendingInside`，并用对抗用例把「徽标红 ⇔ `verify.ok=False`」钉在同一处断言里。
+- **老库的遗留空哈希让完整性徽标「一上线就全红」（真缺陷，对抗测试揪出）**：`counts.pending = total - hashed` 被直接当成健康判据，而老数据行的哈希永远补不上 → 只要库里有历史记录，`healthy` 恒 `false`，用户看到的就是「产品刚上线就声称自己被篡改了」（恰好是「老数据兼容、不能一上线即红」要避免的情形）。改为区分 `pendingPrefix`（链前遗留，容忍）与 `pendingInside`（链内空洞，异常），`healthy` 只看后者，徽标另显示「升级前遗留 N 行（无哈希 · 不影响完整性）」。
+- **链只能证明「手上这串是连续的」：整段删尾行在库内自洽（结构性边界，已补库外锚点）**：删掉最后 N 行后 `verify` 依旧 `ok=True` —— 这是链式哈希的固有边界（不是实现 bug），但产品必须给出可操作的答案：CLI 新增 `--print-head`（抄三张表的真链尾哈希到库外：异地日志/工单）与 `--expect-head TABLE=HASH`（复核，对不上 **exit 1**），接口加 `expected_head` 参数（缺 `table` 时 400 `ANCHOR_NEEDS_TABLE`），`verify_table_chain()` 增 `anchor_checked`，并把边界原话写进审计页的校验结论与详情抽屉文案（不再含糊地说「任何改动都能立即检出」）。
 
 AIOps（AI 运维）相关的真实缺陷，同样都带回归用例：
 
