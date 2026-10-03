@@ -224,17 +224,17 @@ const ChainBadge: React.FC<{
     <Card
       bordered={false}
       style={{
-        boxShadow: '0 1px 4px rgba(15, 23, 42, 0.06)',
+        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
         borderRadius: 12,
-        background: healthy
-          ? 'linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 50%, #eff6ff 100%)'
-          : 'linear-gradient(135deg, #fef2f2 0%, #fff7ed 50%, #fff1f2 100%)',
+        border: '1px solid #e6f0ff',
+        background:
+          'linear-gradient(180deg, #f5f9ff 0%, #ffffff 52%, #ffffff 100%)',
         marginBottom: 16,
         overflow: 'hidden',
       }}
       styles={{
         body: {
-          padding: xs ? 16 : 24,
+          padding: xs ? 16 : 20,
           position: 'relative' as const,
         },
       }}
@@ -242,14 +242,13 @@ const ChainBadge: React.FC<{
       <div
         style={{
           position: 'absolute',
-          right: -40,
-          top: -40,
-          width: 180,
-          height: 180,
+          right: -60,
+          top: -70,
+          width: 200,
+          height: 200,
           borderRadius: '50%',
-          background: healthy
-            ? 'radial-gradient(circle at center, rgba(16,185,129,0.18) 0%, rgba(16,185,129,0) 70%)'
-            : 'radial-gradient(circle at center, rgba(244,63,94,0.16) 0%, rgba(244,63,94,0) 70%)',
+          background:
+            'radial-gradient(circle at center, rgba(22, 119, 255, 0.07) 0%, rgba(22, 119, 255, 0) 70%)',
           pointerEvents: 'none',
         }}
       />
@@ -259,7 +258,7 @@ const ChainBadge: React.FC<{
         justify="space-between"
         style={{ position: 'relative' }}
       >
-        <Col xs={24} md={10} lg={8}>
+        <Col xs={24} md={10} lg={9}>
           <Space size={16} align="center">
             <div
               style={{
@@ -270,11 +269,11 @@ const ChainBadge: React.FC<{
                 alignItems: 'center',
                 justifyContent: 'center',
                 background: healthy
-                  ? 'linear-gradient(135deg, #10b981 0%, #0ea5e9 100%)'
-                  : 'linear-gradient(135deg, #f43f5e 0%, #f97316 100%)',
+                  ? 'linear-gradient(135deg, #1677ff 0%, #69b1ff 100%)'
+                  : 'linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)',
                 boxShadow: healthy
-                  ? '0 8px 20px rgba(16,185,129,0.35)'
-                  : '0 8px 20px rgba(244,63,94,0.32)',
+                  ? '0 6px 16px rgba(22, 119, 255, 0.28)'
+                  : '0 6px 16px rgba(255, 77, 79, 0.24)',
                 color: '#fff',
                 fontSize: 26,
                 fontFamily:
@@ -289,7 +288,7 @@ const ChainBadge: React.FC<{
                 style={{
                   fontSize: 11,
                   letterSpacing: 2,
-                  color: healthy ? '#047857' : '#be123c',
+                  color: healthy ? '#1677ff' : '#cf1322',
                   fontWeight: 600,
                 }}
               >
@@ -299,14 +298,14 @@ const ChainBadge: React.FC<{
                 level={4}
                 style={{
                   margin: '2px 0 0 0',
-                  color: healthy ? '#065f46' : '#881337',
+                  color: healthy ? '#0f172a' : '#cf1322',
                   fontWeight: 700,
                 }}
               >
                 {healthy ? '链式哈希 · 完整可信' : '链式哈希 · 存在异常'}
               </Title>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                HMAC-SHA256 · 每张流水表独立挂链 · 可随时校验完整性
+                HMAC-SHA256 · 每表独立挂链 · 可随时校验
               </Text>
             </div>
           </Space>
@@ -335,17 +334,13 @@ const ChainBadge: React.FC<{
                       <Col xs={24} sm={8} key={key}>
                         <div
                           style={{
+                            height: '100%',
                             padding: '12px 14px',
                             borderRadius: 10,
-                            background: ok
-                              ? 'rgba(255,255,255,0.7)'
-                              : 'rgba(255,255,255,0.9)',
+                            background: '#ffffff',
                             border: `1px solid ${
-                              ok
-                                ? 'rgba(16,185,129,0.25)'
-                                : 'rgba(244,63,94,0.25)'
+                              ok ? '#e6f0ff' : 'rgba(255, 77, 79, 0.28)'
                             }`,
-                            backdropFilter: 'blur(6px)',
                           }}
                         >
                           <Space
@@ -354,9 +349,12 @@ const ChainBadge: React.FC<{
                             style={{ marginBottom: 6 }}
                           >
                             <Badge
-                              status={ok ? 'success' : 'error'}
+                              status={ok ? 'processing' : 'error'}
                               text={
-                                <Text strong style={{ fontSize: 13 }}>
+                                <Text
+                                  strong
+                                  style={{ fontSize: 13, color: '#0f172a' }}
+                                >
                                   {TABLE_LABEL[key]}
                                 </Text>
                               }
@@ -371,13 +369,14 @@ const ChainBadge: React.FC<{
                               总数 <Text strong>{c.total}</Text>
                             </Text>
                             <Text
-                              type={
-                                pendingInside > 0
-                                  ? 'danger'
-                                  : c.hashed === c.total
-                                    ? 'success'
-                                    : 'warning'
-                              }
+                              style={{
+                                color:
+                                  pendingInside > 0
+                                    ? '#cf1322'
+                                    : c.hashed === c.total
+                                      ? '#1677ff'
+                                      : '#d48806',
+                              }}
                             >
                               已哈希{' '}
                               <Text strong>
@@ -395,11 +394,13 @@ const ChainBadge: React.FC<{
                           </Space>
                           <div style={{ marginTop: 6 }}>
                             <Text type="secondary" style={{ fontSize: 11 }}>
-                              链尾 id {h.lastId ?? '-'} ·{' '}
+                              链尾 id {h.lastId ?? '-'}
                             </Text>
-                            <HashCell
-                              value={h.verifiedHead ?? h.lastEntryHash}
-                            />
+                            <div style={{ marginTop: 2 }}>
+                              <HashCell
+                                value={h.verifiedHead ?? h.lastEntryHash}
+                              />
+                            </div>
                           </div>
                         </div>
                       </Col>
@@ -455,7 +456,7 @@ const ChainBadge: React.FC<{
           {verify?.ok && !verifyErrors ? (
             <Alert
               showIcon
-              type="success"
+              type="info"
               message="全表校验通过"
               description="三张流水表的链式哈希重算全部自洽，未发现字段篡改、哈希清空或链内断裂。注意链的固有边界：整段删尾行在库内是自洽的，要抓它得比对库外锚点（CLI --print-head / --expect-head）。"
             />
@@ -471,13 +472,8 @@ const ChainBadge: React.FC<{
               onClick={onVerify}
               loading={verifying}
               style={{
-                background: healthy
-                  ? 'linear-gradient(135deg, #10b981 0%, #0ea5e9 100%)'
-                  : 'linear-gradient(135deg, #f43f5e 0%, #f97316 100%)',
                 border: 'none',
-                boxShadow: healthy
-                  ? '0 6px 14px rgba(16,185,129,0.35)'
-                  : '0 6px 14px rgba(244,63,94,0.32)',
+                boxShadow: '0 6px 14px rgba(22, 119, 255, 0.22)',
               }}
             >
               逐行校验哈希
@@ -961,17 +957,17 @@ const AuditsPage: React.FC = () => {
               orientationMargin={0}
             >
               <Text strong style={{ fontSize: 13 }}>
-                🔗 链式哈希
+                链式哈希
               </Text>
             </Divider>
 
             <Card
               size="small"
-              bordered
+              bordered={false}
               style={{
                 borderRadius: 10,
-                background:
-                  'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                border: '1px solid #e6f0ff',
+                background: '#f7faff',
               }}
               styles={{ body: { padding: '14px 16px' } }}
             >
@@ -1021,7 +1017,7 @@ const AuditsPage: React.FC = () => {
                       </Tag>
                     ) : (
                       <Tag
-                        color="success"
+                        color="blue"
                         style={{ marginLeft: 8, borderRadius: 4 }}
                       >
                         HMAC-SHA256

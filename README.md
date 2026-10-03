@@ -38,7 +38,7 @@
 
 | # | 需求 | 实现 | 验证证据 |
 | --- | --- | --- | --- |
-| 14 | 审计记录**防篡改**：改字段、改哈希、清哈希、删记录都要能发现 | `app/models.py` 的 `EntryHashMixin` / `compute_entry_hash()`：`entry_hash = HMAC-SHA256(key, table + prev_hash + 规范化字段)`，`prev_hash` 指向上一条的 `entry_hash`（创世为空串）；`app/audit.py` 的 `log_event` / `log_command` / `log_file_op` 在 `flush()` 之后、`commit()` 之前算哈希，`_last_entry_hash(before_id)` 按 `id <` 取上一条（否则会把自己 flush 出来的空哈希当成前驱、第 2 条起 `prev_hash` 全空）；`verify_table_chain()` 逐行重算，并区分 `prefix`（链起步前的合法遗留）与 `pending_inside`（链内空洞）；`GET /api/audits/chain` 暴露 `pendingPrefix`/`pendingInside`/`verifiedHead`，`healthy` 只看链内空洞 | 审计页「链完整性」徽标（徽标红 ⇔ `verify.ok=False` 必须同声）+ `POST /api/audits/chain/verify` + `python tools/verify_audit_chain.py`；`tests/test_audit_chain.py`（9）、`tests/test_audit_chain_tamper.py`（3）；截图 [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) |
+| 14 | 审计记录**防篡改**：改字段、改哈希、清哈希、删记录都要能发现 | `app/models.py` 的 `EntryHashMixin` / `compute_entry_hash()`：`entry_hash = HMAC-SHA256(key, table + prev_hash + 规范化字段)`，`prev_hash` 指向上一条的 `entry_hash`（创世为空串）；`app/audit.py` 的 `log_event` / `log_command` / `log_file_op` 在 `flush()` 之后、`commit()` 之前算哈希，`_last_entry_hash(before_id)` 按 `id <` 取上一条（否则会把自己 flush 出来的空哈希当成前驱、第 2 条起 `prev_hash` 全空）；`verify_table_chain()` 逐行重算，并区分 `prefix`（链起步前的合法遗留）与 `pending_inside`（链内空洞）；`GET /api/audits/chain` 暴露 `pendingPrefix`/`pendingInside`/`verifiedHead`，`healthy` 只看链内空洞 | 审计页「链完整性」徽标（徽标红 ⇔ `verify.ok=False` 必须同声）+ `POST /api/audits/chain/verify` + `python tools/verify_audit_chain.py`；`tests/test_audit_chain.py`（9）、`tests/test_audit_chain_tamper.py`（3）；截图 [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) / [audit-chain-detail.png](docs/screenshots/audit-chain-detail.png)。**观感口径**：徽标与详情抽屉统一蓝白（`colorPrimary #1677ff` 一系：卡片白底 + `#e6f0ff` 描边 + 淡蓝渐变头、正常态用 `Badge status="processing"` 与蓝色数字，只有「链异常/危险」才出红——状态色仍按语义走，不为好看牺牲告警） |
 
 ---
 
@@ -318,7 +318,8 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 | [ai-audit-tool-calls.png](docs/screenshots/ai-audit-tool-calls.png) | AI 对话审计 ·「工具调用」面：**入参列不再是 `<pre>` 里的一坨 JSON**，而是键值卡片（表格直接内联），结果列在摘要下给出「查看输出」入口 |
 | [ai-audit-tool-card.png](docs/screenshots/ai-audit-tool-card.png) | 对话详情里最长的 `role="tool"` 消息（`list_ai_tools`，原始 63909 字符、落库被截到 8048）：现在渲染成「工具名 + 成功」标题 + 键值卡片 + 嵌套 `groups` 表格 + **「后端已截断，这里按完整条目渲染」**标注 + 逐层「原始 JSON」入口——用户报的那堵 JSON 墙消失 |
 | [audit-events-zh.png](docs/screenshots/audit-events-zh.png) | 概览「最近审计事件」：**给人看的用中文直白描述**（`AI 调用工具 list_hosts：成功（共 4 条）`、`用户 admin 向 AI 提问：列出所有纳管主机`、`admin 登录成功（console）`），**给系统看的保持英文**（`ai` / `ai_tool_call` / `ai_chat` / `auth` / `login`） |
-| [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) | 审计中心 ·「链完整性」徽标（实拍）：`✓ CHAIN INTEGRITY · 链式哈希 · 完整可信` + 三张流水表的总数/已哈希/链尾哈希 + 点「逐行校验哈希」后的「全表校验通过」结论，并**把链的固有边界写在界面上**（整段删尾行要靠库外锚点：`CLI --print-head / --expect-head`）；徽标红 ⇔ `verify.ok=False`，界面与 CLI 同一个结论 |
+| [audit-chain-badge.png](docs/screenshots/audit-chain-badge.png) | 审计中心 ·「链完整性」徽标（实拍，**蓝白配色**：`colorPrimary #1677ff` 一系，正常态一律蓝白、只有异常/危险才出红）：`✓ CHAIN INTEGRITY · 链式哈希 · 完整可信` + 三张流水表的总数/已哈希/链尾哈希 + 点「逐行校验哈希」后的「全表校验通过」结论，并**把链的固有边界写在界面上**（整段删尾行要靠库外锚点：`CLI --print-head / --expect-head`）；徽标红 ⇔ `verify.ok=False`，界面与 CLI 同一个结论 |
+| [audit-chain-detail.png](docs/screenshots/audit-chain-detail.png) | 审计详情抽屉里的「链式哈希」区块（实拍）：前块哈希 / 本块哈希 + `HMAC-SHA256` 标记 + 计算口径与边界说明，抽屉内同为蓝白底（`#f7faff` 底 + `#e6f0ff` 描边），下方「原始详情数据」仍原样可查 |
 
 已修复并在测试中固化的真实缺陷（节选，均带回归用例）：
 
