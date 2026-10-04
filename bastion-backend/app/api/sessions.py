@@ -8,7 +8,7 @@ import os
 from flask import Blueprint, request
 from sqlalchemy import or_
 
-from ..access import accessible_targets, serialize_target
+from ..access import accessible_targets, serialize_target, target_protocol
 from ..audit import close_session, log_command, log_event, new_session
 from ..extensions import db
 from ..models import CommandLog, SessionRecord
@@ -472,12 +472,31 @@ def _target_payload(entry: dict) -> dict:
 @bp.post("/terminal/targets/<int:host_id>/check")
 @permission_required("terminal:use")
 def check_target(host_id: int):
-    """打开终端前的准入校验：返回可用账号与拒绝原因。"""
+    """打开终端前的准入校验：返回可用账号与拒绝原因。
+
+    请求体可带 `protocol`（`ssh` / `winrm`）：一台主机可能有多个字符端点，合并成一行
+    之后「点哪个按钮就校验哪个端点」；不传则取该主机的第一个字符端点。
+    """
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    payload = request.get_json(silent=True) or {}
+    wanted = (payload.get("protocol") or "").strip().lower()
     targets = accessible_targets(actor, protocols=("ssh", "winrm"))
-    target = next((item for item in targets if item["hostId"] == host_id), None)
+    visible = [item for item in targets if item["hostId"] == host_id]
+    if wanted:
+        target = next((item for item in visible if target_protocol(item) == wanted), None)
+        if target is None and visible:
+            # 主机在列表里但没有这个端点：比「没权限」更准确的说法
+            return api_ok(
+                {
+                    "allowed": False,
+                    "reason": f"该主机没有「{wanted}」这个字符端点",
+                    "accounts": [],
+                }
+            )
+    else:
+        target = visible[0] if visible else None
     if target is None:
         from ..access import find_access
 

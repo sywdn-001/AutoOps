@@ -87,12 +87,30 @@ export type PermissionGroup = {
 
 // ---------------------------------------------------------------- 资产域
 
+/**
+ * 一台主机上的一个协议端点。
+ *
+ * 同一台机器可以有多个入口（Linux 走 ssh、Windows 走 winrm、要画面走 rdp），
+ * 端口与 WinRM 认证方式属于**端点**而不是主机，所以挂在端点上。
+ */
+export type HostProtocolItem = {
+  id?: number;
+  hostId?: number;
+  protocol: string;
+  port: number;
+  /** 只对 winrm 端点有意义：ntlm（默认）/ basic（明文，需目标机 AllowUnencrypted） */
+  winrmTransport?: 'ntlm' | 'basic' | string;
+  status: 'active' | 'disabled';
+};
+
 export type HostItem = {
   id: number;
   name: string;
   address: string;
   port: number;
   protocol: string;
+  /** 协议端点表：这台机器可用的入口（列表与表单都按它渲染） */
+  protocols?: HostProtocolItem[];
   /** RDP 安全层偏好：auto（默认，按客户端协商，含 NLA）/ ssl（强制标准 RDP 安全层） */
   rdpSecurity?: 'auto' | 'ssl' | string;
   /** WinRM 认证方式：ntlm（默认）/ basic（明文，需目标机 AllowUnencrypted） */
@@ -467,6 +485,12 @@ export type TerminalTarget = {
    * `ssh`/`winrm` 都弹终端窗口），所以页面上不再有「远程桌面」专栏。
    */
   protocol: string;
+  /**
+   * 一台主机多协议：这**一个端点**的协议与端口（`/api/terminal/targets` 现在
+   * 一个端点返回一条，前端按 `hostId` 合并成一行、行内每个协议一个入口按钮）。
+   */
+  protocols?: string[];
+  endpoints?: HostProtocolItem[];
   canSftp: boolean;
   canUpload: boolean;
   canDownload: boolean;

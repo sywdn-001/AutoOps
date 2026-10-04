@@ -112,6 +112,8 @@ export const buildConsoleUrl = (options: {
   hostId: number;
   accountId: number;
   hostName?: string;
+  /** 一台主机多协议时指定要开哪个端点（ssh / winrm）；不带则由服务端选默认端点 */
+  protocol?: string;
 }): string => {
   const params = new URLSearchParams({
     hostId: String(options.hostId),
@@ -119,6 +121,9 @@ export const buildConsoleUrl = (options: {
   });
   if (options.hostName) {
     params.set('title', options.hostName);
+  }
+  if (options.protocol) {
+    params.set('protocol', options.protocol);
   }
   return `/terminal/console?${params.toString()}`;
 };

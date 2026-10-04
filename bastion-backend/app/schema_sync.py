@@ -20,6 +20,9 @@ import logging
 
 from sqlalchemy import inspect, text
 
+from .extensions import db
+from .models import Host, HostProtocol
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,3 +96,35 @@ def ensure_schema(engine=None) -> list[str]:
                     column.name,
                 )
     return statements
+
+
+def backfill_host_protocols() -> int:
+    """给还没有协议端点的主机按主机级镜像字段补一条端点，返回补了几条。
+
+    「一台主机多协议」（``host_protocols`` 表）上线后，老库里的主机一行端点都没有：
+    ``Host.protocol_endpoints()`` 会退化成只读兜底视图 —— 能列表、能连，但管理员在后台
+    看不到也改不了「这台机器有哪些协议入口」。所以启动时按 ``hosts.protocol`` /
+    ``hosts.port`` / ``hosts.winrm_transport`` 补一条同名端点，之后端点就能正常编辑。
+
+    幂等：已经有端点的机器一律跳过（管理员手工配过的多端点不会被覆盖）。
+    """
+    created = 0
+    for host in Host.query.order_by(Host.id.asc()).all():
+        if list(host.protocols or []):
+            continue
+        protocol = (host.protocol or "ssh").strip().lower() or "ssh"
+        default_port = {"ssh": 22, "rdp": 3389, "winrm": 5985}.get(protocol, 22)
+        db.session.add(
+            HostProtocol(
+                host_id=host.id,
+                protocol=protocol,
+                port=int(host.port or default_port),
+                winrm_transport=host.winrm_transport or "ntlm",
+                status="active",
+            )
+        )
+        created += 1
+    if created:
+        db.session.commit()
+        logger.warning("已为 %d 台主机补上协议端点（一台主机多协议迁移）", created)
+    return created

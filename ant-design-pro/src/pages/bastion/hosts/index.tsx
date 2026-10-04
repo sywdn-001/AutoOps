@@ -33,6 +33,7 @@ import {
 } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
 import {
+  Alert,
   App,
   Button,
   Drawer,
@@ -79,8 +80,13 @@ type HostQuery = {
 type HostFormValues = {
   name: string;
   address: string;
-  port: number;
-  protocol: string;
+  /** 这台机器提供的协议入口（可多选）：ssh / winrm / rdp */
+  protocols: string[];
+  /** 每个协议各自的端口（与 `protocols` 同序动态渲染，提交时拼成端点数组） */
+  protocolPorts?: Record<string, number>;
+  /** 兼容后端镜像字段：主协议 / 主端口（提交时由 `protocols[0]` 推导，表单不直接填） */
+  protocol?: string;
+  port?: number;
   rdpSecurity?: string;
   winrmTransport?: string;
   osType: string;
@@ -229,6 +235,64 @@ const Hosts: React.FC = () => {
     loadGroupOptions();
   };
 
+  /**
+   * 「合并到本机」：把同一台机器的另一条主机记录（同地址、另一个协议）并进来。
+   *
+   * 典型场景：以前 WinRM 与远程桌面各建了一条主机（`win-75` / `win-75-winrm`），
+   * 现在一台主机能挂多个协议端点，管理员把后者并进前者，账号与授权一起搬过去。
+   */
+  const [mergeTarget, setMergeTarget] = useState<HostItem>();
+  const [mergeSources, setMergeSources] = useState<
+    { label: string; value: number }[]
+  >([]);
+  const [mergeLoading, setMergeLoading] = useState(false);
+
+  const openMerge = useCallback(
+    async (row: HostItem) => {
+      setMergeTarget(row);
+      setMergeSources([]);
+      setMergeLoading(true);
+      try {
+        const res = await hostApi.list({ pageSize: 500 });
+        setMergeSources(
+          res.data
+            .filter(
+              (item) => item.id !== row.id && item.address === row.address,
+            )
+            .map((item) => ({
+              label: `${item.name}（${
+                (item.protocols ?? [])
+                  .map((endpoint) => endpoint.protocol)
+                  .join(' / ') || item.protocol
+              }）`,
+              value: item.id,
+            })),
+        );
+      } catch (error) {
+        message.error(fromApiError(error, '同地址主机列表加载失败'));
+      } finally {
+        setMergeLoading(false);
+      }
+    },
+    [message],
+  );
+
+  const submitMerge = async (values: { sourceId: number }) => {
+    if (!mergeTarget) {
+      return false;
+    }
+    try {
+      await hostApi.merge(mergeTarget.id, values.sourceId);
+      message.success('已把选中的主机合并进本机');
+      setMergeTarget(undefined);
+      refreshAll();
+      return true;
+    } catch (error) {
+      message.error(fromApiError(error, '合并主机失败'));
+      return false;
+    }
+  };
+
   const openHostForm = (row?: HostItem) => {
     setEditing(row);
     setHostFormKey((key) => key + 1);
@@ -236,13 +300,31 @@ const Hosts: React.FC = () => {
   };
 
   const submitHost = async (values: HostFormValues): Promise<boolean> => {
+    // 一台主机多协议：表单里是「协议多选 + 每个协议一个端口」，提交时拼成端点数组。
+    // 同时把第一个端点写进 protocol / port / winrmTransport 三个镜像字段（老代码路径要看）。
+    const endpoints = (values.protocols ?? []).map((protocol) => ({
+      protocol,
+      port: Number(
+        values.protocolPorts?.[protocol] ??
+          PROTOCOL_DEFAULT_PORTS[protocol] ??
+          22,
+      ),
+      ...(protocol === 'winrm'
+        ? { winrmTransport: values.winrmTransport ?? 'ntlm' }
+        : {}),
+    }));
+    const primary = endpoints[0];
     const payload: HostPayload = {
       name: values.name,
       address: values.address,
-      port: values.port,
-      protocol: values.protocol,
+      protocols: endpoints,
+      protocol: primary?.protocol,
+      port: primary?.port,
       rdpSecurity: values.rdpSecurity ?? 'auto',
-      winrmTransport: values.winrmTransport ?? 'ntlm',
+      winrmTransport:
+        primary?.protocol === 'winrm'
+          ? (values.winrmTransport ?? 'ntlm')
+          : 'ntlm',
       osType: values.osType,
       groupId: values.groupId ?? null,
       description: values.description ?? '',
@@ -372,14 +454,35 @@ const Hosts: React.FC = () => {
     }
   };
 
+  // 编辑时把端点表铺成表单：协议多选 + 每协议端口。老数据（没有端点行）退回镜像字段。
+  const editingEndpoints = editing
+    ? editing.protocols?.length
+      ? editing.protocols
+      : [
+          {
+            protocol: editing.protocol,
+            port: editing.port,
+            winrmTransport: editing.winrmTransport,
+          },
+        ]
+    : [];
+
   const hostInitialValues: Partial<HostFormValues> = editing
     ? {
         name: editing.name,
         address: editing.address,
-        port: editing.port,
-        protocol: editing.protocol,
+        protocols: editingEndpoints.map((item) => item.protocol),
+        protocolPorts: Object.fromEntries(
+          editingEndpoints.map((item) => [item.protocol, item.port]),
+        ),
+        protocol: editingEndpoints[0]?.protocol ?? editing.protocol,
+        port: editingEndpoints[0]?.port ?? editing.port,
         rdpSecurity: editing.rdpSecurity ?? 'auto',
-        winrmTransport: editing.winrmTransport ?? 'ntlm',
+        winrmTransport:
+          editingEndpoints.find((item) => item.protocol === 'winrm')
+            ?.winrmTransport ??
+          editing.winrmTransport ??
+          'ntlm',
         osType: editing.osType,
         groupId: editing.groupId ?? undefined,
         status: editing.status,
@@ -387,8 +490,10 @@ const Hosts: React.FC = () => {
         description: editing.description,
       }
     : {
-        port: 22,
+        protocols: ['ssh'],
+        protocolPorts: { ssh: 22 },
         protocol: 'ssh',
+        port: 22,
         rdpSecurity: 'auto',
         winrmTransport: 'ntlm',
         osType: 'linux',
@@ -423,28 +528,70 @@ const Hosts: React.FC = () => {
       title: '地址',
       dataIndex: 'address',
       search: false,
-      render: (_, row) => <CopyText text={`${row.address}:${row.port}`} />,
+      render: (_, row) => {
+        const endpoints = row.protocols?.length
+          ? row.protocols
+          : [{ protocol: row.protocol, port: row.port }];
+        return (
+          <Space size={8} wrap>
+            {endpoints.map((item) => (
+              <CopyText
+                key={`${item.protocol}-${item.port}`}
+                text={`${row.address}:${item.port}`}
+              />
+            ))}
+          </Space>
+        );
+      },
     },
     {
       title: '协议/系统',
       dataIndex: 'protocol',
       search: false,
-      render: (_, row) => (
-        <Space size={4}>
-          <ProtocolTag protocol={row.protocol} />
-          <OsTag osType={row.osType} />
-          {row.protocol === 'rdp' && row.rdpSecurity === 'ssl' ? (
-            <Tooltip title="这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）">
-              <Tag color="orange">强制 SSL</Tag>
-            </Tooltip>
-          ) : null}
-          {row.protocol === 'winrm' && row.winrmTransport === 'basic' ? (
-            <Tooltip title="这台主机的 WinRM 认证方式是 Basic（口令明文过网，只在目标机开了 AllowUnencrypted 时才用得上的兜底选项）">
-              <Tag color="orange">Basic 明文</Tag>
-            </Tooltip>
-          ) : null}
-        </Space>
-      ),
+      render: (_, row) => {
+        // 一台主机多协议：端点表里每个协议一个标签（老数据退回镜像字段）
+        const endpoints = row.protocols?.length
+          ? row.protocols
+          : [
+              {
+                protocol: row.protocol,
+                port: row.port,
+                winrmTransport: row.winrmTransport,
+                status: 'active' as const,
+              },
+            ];
+        return (
+          <Space size={4} wrap>
+            {endpoints.map((item) => (
+              <Tooltip
+                key={item.protocol}
+                title={`${item.protocol.toUpperCase()} 端点：${row.address}:${item.port}${
+                  item.status === 'disabled' ? '（已停用）' : ''
+                }`}
+              >
+                <span>
+                  <ProtocolTag protocol={item.protocol} />
+                </span>
+              </Tooltip>
+            ))}
+            <OsTag osType={row.osType} />
+            {endpoints.some((item) => item.protocol === 'rdp') &&
+            row.rdpSecurity === 'ssl' ? (
+              <Tooltip title="这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）">
+                <Tag color="orange">强制 SSL</Tag>
+              </Tooltip>
+            ) : null}
+            {endpoints.some(
+              (item) =>
+                item.protocol === 'winrm' && item.winrmTransport === 'basic',
+            ) ? (
+              <Tooltip title="这台主机的 WinRM 认证方式是 Basic（口令明文过网，只在目标机开了 AllowUnencrypted 时才用得上的兜底选项）">
+                <Tag color="orange">Basic 明文</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
     },
     {
       title: '分组',
@@ -518,6 +665,18 @@ const Hosts: React.FC = () => {
             >
               编辑
             </Button>,
+            <Tooltip
+              key="merge"
+              title="把同一台机器的另一条主机记录（同地址、另一个协议）并进本机：账号、授权与协议端点都会搬过来"
+            >
+              <Button
+                type="link"
+                size="small"
+                onClick={() => void openMerge(row)}
+              >
+                合并
+              </Button>
+            </Tooltip>,
             <Popconfirm
               key="delete"
               title={`确认删除主机「${row.name}」？`}
@@ -671,43 +830,58 @@ const Hosts: React.FC = () => {
           fieldProps={{ placeholder: '192.168.1.10 或 host.example.com' }}
           rules={[{ required: true, message: '请输入主机地址' }]}
         />
-        <ProFormDependency name={['protocol']}>
-          {({ protocol }) => (
-            <ProFormDigit
-              // key 让协议一改就重挂字段：端口跟着协议走（ssh 22 / winrm 5985 /
-              // rdp 3389），省得选了 WinRM 还留着 22 去连。
-              key={`port-${protocol}`}
-              name="port"
-              label="端口"
-              min={1}
-              max={65535}
-              initialValue={PROTOCOL_DEFAULT_PORTS[protocol as string] ?? 22}
-              rules={[{ required: true, message: '请输入端口' }]}
-              extra="按协议填：ssh 22、winrm 5985（HTTPS 用 5986）、rdp 3389"
-            />
+        <ProFormSelect
+          name="protocols"
+          label="协议入口"
+          mode="multiple"
+          options={PROTOCOL_OPTIONS}
+          rules={[{ required: true, message: '至少选一个协议入口' }]}
+          extra="同一台机器可以有多个入口：ssh 走网页终端 / SSH 网关；winrm 走网页终端里的 Windows PowerShell；rdp 走浏览器里的 Windows 远程桌面。端口与认证方式按每个协议各自生效。"
+        />
+        <ProFormDependency name={['protocols']}>
+          {({ protocols }) => (
+            <>
+              {((protocols as string[]) ?? []).map((protocol) => (
+                <ProFormDigit
+                  // key 带协议名：勾上/取消某个协议时只重挂它自己那行端口，
+                  // 端口跟着协议走默认值（ssh 22 / winrm 5985 / rdp 3389）。
+                  key={`port-${protocol}`}
+                  name={['protocolPorts', protocol]}
+                  label={`${protocol.toUpperCase()} 端口`}
+                  min={1}
+                  max={65535}
+                  initialValue={PROTOCOL_DEFAULT_PORTS[protocol] ?? 22}
+                  rules={[{ required: true, message: '请输入端口' }]}
+                  extra={
+                    protocol === 'winrm'
+                      ? '默认 5985（HTTP）；目标机开了 HTTPS 就填 5986，会自动走 TLS'
+                      : protocol === 'rdp'
+                        ? '默认 3389'
+                        : '默认 22'
+                  }
+                />
+              ))}
+              {((protocols as string[]) ?? []).includes('rdp') ? (
+                <ProFormSelect
+                  name="rdpSecurity"
+                  label="RDP 安全层"
+                  options={RDP_SECURITY_OPTIONS}
+                  initialValue="auto"
+                  extra="默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
+                />
+              ) : null}
+              {((protocols as string[]) ?? []).includes('winrm') ? (
+                <ProFormSelect
+                  name="winrmTransport"
+                  label="WinRM 认证方式"
+                  options={WINRM_TRANSPORT_OPTIONS}
+                  initialValue="ntlm"
+                  extra="ntlm 是默认；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
+                />
+              ) : null}
+            </>
           )}
         </ProFormDependency>
-        <ProFormSelect
-          name="protocol"
-          label="协议"
-          options={PROTOCOL_OPTIONS}
-          rules={[{ required: true, message: '请选择协议' }]}
-          extra="ssh 走网页终端 / SSH 网关；winrm 走网页终端里的 Windows PowerShell；rdp 走浏览器里的 Windows 远程桌面"
-        />
-        <ProFormSelect
-          name="rdpSecurity"
-          label="RDP 安全层"
-          options={RDP_SECURITY_OPTIONS}
-          initialValue="auto"
-          extra="只对协议 rdp 的主机生效：默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
-        />
-        <ProFormSelect
-          name="winrmTransport"
-          label="WinRM 认证方式"
-          options={WINRM_TRANSPORT_OPTIONS}
-          initialValue="ntlm"
-          extra="只对协议 winrm 的主机生效：端口 5985 走 HTTP（默认）、5986 走 HTTPS；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
-        />
         <ProFormSelect
           name="osType"
           label="操作系统"
@@ -748,7 +922,16 @@ const Hosts: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Text type="secondary">
             {accountHost
-              ? `${accountHost.address}:${accountHost.port} · ${accountHost.osType} · ${accountHost.groupName || '未分组'}`
+              ? `${
+                  (accountHost.protocols ?? []).length
+                    ? (accountHost.protocols ?? [])
+                        .map(
+                          (endpoint) =>
+                            `${endpoint.protocol}://${accountHost.address}:${endpoint.port}`,
+                        )
+                        .join(' · ')
+                    : `${accountHost.address}:${accountHost.port}`
+                } · ${accountHost.osType} · ${accountHost.groupName || '未分组'}`
               : ''}
             。口令与私钥会用 Fernet 加密落库，只在具备 host:manage 权限时回显。
           </Text>
@@ -774,6 +957,46 @@ const Hosts: React.FC = () => {
           />
         </div>
       </Drawer>
+
+      {/* 一台主机多协议之后，同一台机器的两条记录（同地址、不同协议）可以并成一条 */}
+      <ModalForm<{ sourceId: number }>
+        title={mergeTarget ? `合并到「${mergeTarget.name}」` : '合并主机'}
+        open={Boolean(mergeTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMergeTarget(undefined);
+          }
+        }}
+        modalProps={{ destroyOnClose: true }}
+        submitter={{ searchConfig: { submitText: '合并' } }}
+        onFinish={submitMerge}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="只允许同一地址的主机互相合并"
+          description={`要合并进来的主机的账号、授权与协议端点都会搬到本机，来源主机记录随后删除（会话历史是审计数据，不会被改写）。本机地址：${mergeTarget?.address ?? ''}`}
+        />
+        <ProFormSelect
+          name="sourceId"
+          label="要合并进来的主机"
+          rules={[{ required: true, message: '请选择要合并的主机' }]}
+          placeholder={
+            mergeLoading
+              ? '加载中…'
+              : mergeSources.length
+                ? '同地址的主机（一般是另一个协议）'
+                : '没有找到同一地址的其它主机'
+          }
+          options={mergeSources}
+          fieldProps={{
+            loading: mergeLoading,
+            showSearch: true,
+            optionFilterProp: 'label',
+          }}
+        />
+      </ModalForm>
 
       <ModalForm<AccountFormValues>
         key={accountFormKey}

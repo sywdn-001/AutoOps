@@ -294,6 +294,74 @@ class Host(TimestampMixin, db.Model):
         "HostAccount", back_populates="host", cascade="all, delete-orphan", lazy="selectin"
     )
     grants = db.relationship("Grant", back_populates="host", cascade="all, delete-orphan")
+    #: 本机提供的协议端点（一对一行的 ssh / rdp / winrm）；`protocol`/`port`/`winrm_transport`
+    #: 三个主机级字段是「主端点镜像」，只为兼容老代码路径与老库数据而保留。
+    protocols = db.relationship(
+        "HostProtocol",
+        back_populates="host",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="HostProtocol.id",
+    )
+
+    #: 各协议的默认端口（新建端点与前端表单共用同一份口径）
+    DEFAULT_PORTS = {"ssh": 22, "rdp": 3389, "winrm": 5985}
+
+    def protocol_endpoints(self, *, include_disabled: bool = False) -> list["HostEndpoint"]:
+        """本机的协议端点列表。
+
+        有 ``host_protocols`` 行时以行为准；**一行都没有**（老库还没回填、或
+        ``make_host()`` 这类直接建模型的调用）时退回「主机镜像字段」这一条兜底端点 ——
+        这样所有既有代码路径不必先迁移数据就能继续工作。
+        """
+        rows = list(self.protocols or [])
+        if rows:
+            picked = (
+                rows if include_disabled else [r for r in rows if (r.status or "active") == "active"]
+            )
+            return [HostEndpoint.from_row(row) for row in picked]
+        return [
+            HostEndpoint(
+                host_id=self.id,
+                protocol=(self.protocol or "ssh").strip().lower() or "ssh",
+                port=int(self.port or self.DEFAULT_PORTS.get((self.protocol or "ssh"), 22)),
+                winrm_transport=self.winrm_transport or "ntlm",
+            )
+        ]
+
+    def endpoint_for(self, protocol: str | None = None) -> "HostEndpoint | None":
+        """按协议取端点；``protocol`` 为空时返回第一个（即主端点）。"""
+        name = (protocol or "").strip().lower()
+        for item in self.protocol_endpoints():
+            if name and item.protocol != name:
+                continue
+            return item
+        return None
+
+    def supports_protocol(self, protocol: str) -> bool:
+        return self.endpoint_for(protocol) is not None
+
+    def protocol_names(self, *, include_disabled: bool = False) -> list[str]:
+        return [item.protocol for item in self.protocol_endpoints(include_disabled=include_disabled)]
+
+    def mirror_primary_endpoint(self) -> None:
+        """把主机级镜像字段对齐到端点表里的主端点。
+
+        主端点 = 协议名与当前 ``self.protocol`` 一致的那条，否则取第一条。端点被删掉
+        之后必须调用它，否则 ``hosts.protocol`` 会指向一个已经不存在的端点（老代码
+        路径、审计文案都会跟着错）。
+        """
+        items = list(self.protocols or [])
+        if not items:
+            return
+        primary = next(
+            (item for item in items if item.protocol == (self.protocol or "").strip().lower()),
+            items[0],
+        )
+        self.protocol = primary.protocol
+        self.port = int(primary.port or self.DEFAULT_PORTS.get(primary.protocol, 22))
+        if primary.protocol == "winrm":
+            self.winrm_transport = primary.winrm_transport or "ntlm"
 
     def to_dict(self, with_accounts: bool = False) -> dict:
         data = {
@@ -315,10 +383,98 @@ class Host(TimestampMixin, db.Model):
             "grantCount": len(self.grants),
             "createdAt": _iso(self.created_at),
             "updatedAt": _iso(self.updated_at),
+            #: 本机可用的协议端点（含被停用的：编辑表单要能看见并改回来）
+            "protocols": [item.to_dict() for item in self.protocol_endpoints(include_disabled=True)],
         }
         if with_accounts:
             data["accounts"] = [a.to_dict() for a in self.accounts]
         return data
+
+
+class HostEndpoint:
+    """协议端点的只读视图：真实 ``HostProtocol`` 行，或主机镜像字段的兜底快照。
+
+    存在的意义只有一个 —— 让 ``Host.protocol_endpoints()`` 对「有端点行」与「没有
+    端点行的老数据」返回同一种东西（都有 ``protocol`` / ``port`` / ``winrm_transport``）。
+    """
+
+    __slots__ = ("id", "host_id", "protocol", "port", "winrm_transport", "status", "persisted")
+
+    def __init__(
+        self,
+        *,
+        id: int | None = None,
+        host_id: int | None = None,
+        protocol: str = "ssh",
+        port: int = 22,
+        winrm_transport: str = "ntlm",
+        status: str = "active",
+        persisted: bool = False,
+    ) -> None:
+        self.id = id
+        self.host_id = host_id
+        self.protocol = (protocol or "ssh").strip().lower() or "ssh"
+        self.port = int(port or Host.DEFAULT_PORTS.get(self.protocol, 22))
+        self.winrm_transport = (winrm_transport or "ntlm").strip().lower() or "ntlm"
+        self.status = status or "active"
+        self.persisted = persisted
+
+    @classmethod
+    def from_row(cls, row: "HostProtocol") -> "HostEndpoint":
+        return cls(
+            id=row.id,
+            host_id=row.host_id,
+            protocol=row.protocol,
+            port=row.port,
+            winrm_transport=row.winrm_transport,
+            status=row.status,
+            persisted=True,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "hostId": self.host_id,
+            "protocol": self.protocol,
+            "port": self.port,
+            "winrmTransport": self.winrm_transport,
+            "status": self.status,
+        }
+
+
+class HostProtocol(TimestampMixin, db.Model):
+    """主机上的一个协议端点。
+
+    一台机器常常同时有多个入口（Windows 同时开 RDP 与 WinRM，Linux 以后也可能加
+    RDP）：`RDP 一个条目、WinRM 又一个条目`对使用者来说是同一台机器，所以协议下沉
+    成「端点」。``hosts.protocol`` / ``port`` / ``winrm_transport`` 保留为**主端点
+    镜像**，只为兼容老代码路径与老库数据。
+    """
+
+    __tablename__ = "host_protocols"
+    __table_args__ = (db.UniqueConstraint("host_id", "protocol", name="uq_host_protocol"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    host_id = db.Column(db.Integer, db.ForeignKey("hosts.id"), nullable=False, index=True)
+    #: ssh / rdp / winrm
+    protocol = db.Column(db.String(16), nullable=False)
+    port = db.Column(db.Integer, default=22, nullable=False)
+    #: WinRM 认证方式：ntlm（默认，域/本地账号都支持）/ basic（需要目标机 AllowUnencrypted）
+    winrm_transport = db.Column(db.String(16), default="ntlm", nullable=False)
+    #: active / disabled
+    status = db.Column(db.String(16), default="active", nullable=False)
+
+    host = db.relationship("Host", back_populates="protocols")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "hostId": self.host_id,
+            "protocol": self.protocol,
+            "port": self.port,
+            "winrmTransport": self.winrm_transport or "ntlm",
+            "status": self.status or "active",
+        }
 
 
 class HostAccount(TimestampMixin, db.Model):

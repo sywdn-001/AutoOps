@@ -332,11 +332,13 @@ def create_app(config_object=None, *, create_tables: bool = True, seed: bool = T
     with app.app_context():
         if create_tables:
             from . import models  # noqa: F401 - 确保模型已注册
-            from .schema_sync import ensure_schema
+            from .schema_sync import backfill_host_protocols, ensure_schema
 
             db.create_all()
             # create_all 只建新表；老库缺的列在这里补（只增不减的轻量迁移）
             ensure_schema()
+            # 「一台主机多协议」上线后，老库的每台主机要按镜像字段补一条协议端点
+            backfill_host_protocols()
         if seed:
             seed_data(app)
 

@@ -82,8 +82,20 @@ class WinrmConnection:
     last_command_id: str = ""
 
 
-def build_target(host, account, *, connect_timeout: int = 15, command_timeout: int = 60) -> WinrmTarget:
-    """把 (Host, HostAccount) 变成连接参数；口令在这里就地解密。"""
+def build_target(
+    host,
+    account,
+    *,
+    port: int | None = None,
+    winrm_transport: str | None = None,
+    connect_timeout: int = 15,
+    command_timeout: int = 60,
+) -> WinrmTarget:
+    """把 (Host, HostAccount) 变成连接参数；口令在这里就地解密。
+
+    ``port`` / ``winrm_transport`` 显式传入时优先于主机字段：一台主机可能有多个协议
+    端点（Windows 常见 RDP + WinRM），端口与认证方式都属于**端点**。
+    """
     auth_type = (getattr(account, "auth_type", "") or "password").strip().lower()
     if auth_type == "key":
         raise WinrmError("WinRM 不支持私钥登录，请把该资产账号改成「用户名 + 口令」凭据")
@@ -91,8 +103,10 @@ def build_target(host, account, *, connect_timeout: int = 15, command_timeout: i
     password = decrypt(getattr(account, "secret_enc", None))
     if not username or not password:
         raise WinrmError("该资产账号没有可用凭据（用户名 + 口令），请先在后台补全")
-    port = int(getattr(host, "port", 0) or WINRM_DEFAULT_PORT)
-    transport = (getattr(host, "winrm_transport", "") or WINRM_TRANSPORT_DEFAULT).strip().lower()
+    port = int(port or getattr(host, "port", 0) or WINRM_DEFAULT_PORT)
+    transport = (
+        winrm_transport or getattr(host, "winrm_transport", "") or WINRM_TRANSPORT_DEFAULT
+    ).strip().lower()
     if transport not in WINRM_TRANSPORTS:
         transport = WINRM_TRANSPORT_DEFAULT
     return WinrmTarget(

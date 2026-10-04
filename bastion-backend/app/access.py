@@ -224,27 +224,52 @@ def grant_accounts(user: User, grant: Grant) -> list[HostAccount]:
 
 
 def target_protocol(entry: dict) -> str:
-    """条目对应的连接协议（`ssh` / `rdp`），空值按 `ssh` 处理。
+    """条目对应的连接协议（`ssh` / `rdp` / `winrm`），空值按 `ssh` 处理。
 
-    交互式 shell（网关菜单、网页终端、一次性执行）只支持 `ssh`；协议为 `rdp` 的
-    Windows 主机只出现在「远程桌面」入口里 —— 这就是「TUI 里不显示 WebRDP 目标」
-    的实现口径。
+    条目由 :func:`accessible_targets` **按协议端点展开**：同一台主机如果同时开了
+    SSH 与 WinRM，就会出现在两条条目里、各带自己的 `protocol`/`port`。老代码手工
+    拼出来的条目只有 `host`，这里回落到主机镜像字段。
+
+    交互式 shell（网关菜单、网页终端、一次性执行）只支持 `ssh` / `winrm`；协议为
+    `rdp` 的端点只出现在「远程桌面」入口里 —— 这就是「TUI 里不显示 WebRDP 目标」的
+    实现口径。
     """
+    protocol = entry.get("protocol")
+    if protocol:
+        return str(protocol).strip().lower()
     return (getattr(entry.get("host"), "protocol", "") or "ssh").strip().lower()
+
+
+def _expand_endpoints(entry: dict) -> list[dict]:
+    """把「一台主机一条」的内部条目按协议端点展开成「一个入口一条」。
+
+    没有端点行的老数据（``make_host()`` 直接建模型）由
+    :meth:`Host.protocol_endpoints` 兜底成一条，所以返回值至少有一条。
+    """
+    host: Host = entry["host"]
+    expanded: list[dict] = []
+    for endpoint in host.protocol_endpoints():
+        item = dict(entry)
+        item["protocol"] = endpoint.protocol
+        item["port"] = endpoint.port
+        item["hostProtocol"] = endpoint
+        item["address"] = f"{host.address}:{endpoint.port}"
+        expanded.append(item)
+    return expanded
 
 
 def accessible_targets(user: User, *, protocols: tuple[str, ...] | None = None) -> list[dict]:
     """网关菜单 / Web 终端选单：用户当前可访问的主机与账号。
 
-    注意：返回的是**内部原始条目**（含 `host` ORM 对象，`address` 已拼上端口，
-    没有 `port`/`osType`）。任何对外输出（菜单渲染、API、Socket.IO）都必须再走一遍
-    `serialize_target()`，否则会 KeyError。
+    注意：返回的是**内部原始条目**（含 `host` ORM 对象，`address` 已拼上端口），并且
+    已按协议端点展开 —— 一台主机开了 SSH + WinRM 就是两条。任何对外输出（菜单渲染、
+    API、Socket.IO）都必须再走一遍 `serialize_target()`，否则会 KeyError。
 
     超级管理员额外获得「全部启用主机」（授权表里已有的主机保留其账号范围，
     没有授权记录的主机按全部账号列出），与 :func:`_superuser_access` 的口径一致。
 
-    `protocols` 非空时按连接协议过滤（例如终端类入口传 `("ssh",)`，远程桌面入口传
-    `("rdp",)`）。
+    `protocols` 非空时按**端点协议**过滤（终端类入口传 `("ssh", "winrm")`，远程桌面
+    入口传 `("rdp",)`）。
     """
     merged: dict[int, dict] = {}
     for grant in active_grants(user):
@@ -322,10 +347,13 @@ def accessible_targets(user: User, *, protocols: tuple[str, ...] | None = None) 
             }
 
     items = sorted(merged.values(), key=lambda e: e["hostName"])
+    # 一台主机开了多个协议就是多个入口：在这里展开成「一个端点一条」，
+    # 让每个入口各带自己的 protocol/port（前端负责把同一个 hostId 合成一行）。
+    entries = [item for entry in items for item in _expand_endpoints(entry)]
     if protocols is not None:
         allowed = {item.strip().lower() for item in protocols}
-        items = [entry for entry in items if target_protocol(entry) in allowed]
-    return items
+        entries = [entry for entry in entries if target_protocol(entry) in allowed]
+    return entries
 
 
 def current_session_count(user_id: int, grant_id: int | None = None) -> int:
@@ -348,16 +376,27 @@ def check_session_quota(user: User, grant: Grant) -> tuple[bool, str]:
 
 
 def serialize_target(entry: dict) -> dict:
+    """把内部条目转成对外可见的资产条目。
+
+    `protocol` / `port` 取**端点**（一台主机多协议时，同一个 hostId 会出现在多条
+    条目里）；`endpoints` 带上本机全部端点，前端因此能把同一个 hostId 的多条合并成
+    一行、每协议一个按钮，而不是列出好几行看着像不同的机器。
+    """
     host: Host = entry["host"]
+    protocol = target_protocol(entry)
+    endpoint = entry.get("hostProtocol")
+    port = int(entry.get("port") or (endpoint.port if endpoint else 0) or host.port or 0)
     return {
         "hostId": host.id,
         "hostName": host.name,
         "address": host.address,
-        "port": host.port,
+        "port": port,
         "groupName": entry["groupName"],
         "description": entry["description"],
         "osType": host.os_type,
-        "protocol": (getattr(host, "protocol", "") or "ssh"),
+        "protocol": protocol,
+        "protocols": host.protocol_names(),
+        "endpoints": [item.to_dict() for item in host.protocol_endpoints()],
         "canSftp": entry["canSftp"],
         "canUpload": entry["canUpload"],
         "canDownload": entry["canDownload"],

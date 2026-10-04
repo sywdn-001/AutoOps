@@ -755,6 +755,7 @@ def _run_session(app, channel, writer: ChannelWriter, user_id: int, entry, accou
             user_id=user_id,
             host_id=entry["hostId"],
             account_id=account["id"] if account else None,
+            protocol=(entry or {}).get("protocol"),
             source="gateway",
             client_ip=client_ip,
             client_port=0,

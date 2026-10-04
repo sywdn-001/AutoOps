@@ -651,6 +651,9 @@ def on_open(data=None):
 
     host_id = payload.get("hostId")
     account_id = payload.get("accountId")
+    # 一台主机可能有多个协议端点（Windows 常见 RDP + WinRM）：前端点哪个入口就连哪个，
+    # 不传时由 open_session 按主机镜像协议挑。
+    protocol = (payload.get("protocol") or "").strip().lower() or None
     cols = int(payload.get("cols") or 80)
     rows = int(payload.get("rows") or 24)
     if not host_id:
@@ -717,6 +720,7 @@ def on_open(data=None):
             user_id=ctx["user_id"],
             host_id=int(host_id),
             account_id=int(account_id) if account_id else None,
+            protocol=protocol,
             source="web",
             client_ip=request.environ.get("REMOTE_ADDR", "") or "",
             client_port=int(request.environ.get("REMOTE_PORT") or 0),

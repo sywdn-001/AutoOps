@@ -125,6 +125,9 @@ const TerminalConsolePage = () => {
   const hostId = Number(params.get('hostId') ?? '');
   const accountId = Number(params.get('accountId') ?? '');
   const urlTitle = params.get('title') ?? '';
+  // 一台主机多协议：入口页会把要开的端点写在 URL 上（ssh / winrm）；
+  // 不带就交给服务端按主机的主端点挑（老链接、手改 URL 都不能炸）。
+  const urlProtocol = (params.get('protocol') ?? '').trim().toLowerCase();
   const username = useModel('@@initialState').initialState?.currentUser?.name;
 
   const [preparing, setPreparing] = useState(true);
@@ -180,15 +183,29 @@ const TerminalConsolePage = () => {
       }
       try {
         const targets = await terminalApi.targets();
-        const target = targets.find((item) => item.hostId === hostId);
+        // 一台主机多协议时后端是「一个端点一条」，这里要按 URL 上的 protocol 挑那一条
+        const visible = targets.filter((item) => item.hostId === hostId);
+        const target = urlProtocol
+          ? visible.find(
+              (item) => (item.protocol || 'ssh').toLowerCase() === urlProtocol,
+            )
+          : visible[0];
         if (!target) {
-          throw new Error(`主机不在你的授权范围内（hostId=${hostId}）。`);
+          throw new Error(
+            urlProtocol
+              ? `这台主机没有「${urlProtocol}」这个入口（hostId=${hostId}）。`
+              : `主机不在你的授权范围内（hostId=${hostId}）。`,
+          );
         }
         const account = target.accounts.find((item) => item.id === accountId);
         if (!account) {
           throw new Error('该主机下找不到指定的资产账号，可能授权已被回收。');
         }
-        const check = await terminalApi.check(hostId, accountId);
+        const check = await terminalApi.check(
+          hostId,
+          accountId,
+          target.protocol,
+        );
         if (!check.allowed) {
           throw new Error(check.reason || '准入校验未通过。');
         }
@@ -210,7 +227,7 @@ const TerminalConsolePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [hostId, accountId, access.canTerminalUse]);
+  }, [hostId, accountId, urlProtocol, access.canTerminalUse]);
 
   // 标题：方便在多个终端窗口之间辨认（对齐 JumpServer 的标签标题口径）
   useEffect(() => {

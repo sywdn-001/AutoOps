@@ -167,6 +167,11 @@ export type HostPayload = {
   address?: string;
   port?: number;
   protocol?: string;
+  /**
+   * 一台主机多协议：整表提交协议端点（给了它就按它对齐端点表，没给则走老的单协议路径）。
+   * 每项可以是协议名（`"ssh"`）或对象 `{ protocol, port, winrmTransport }`。
+   */
+  protocols?: (string | { protocol: string; port?: number; winrmTransport?: string })[];
   /** RDP 安全层：auto（默认）/ ssl（强制标准 RDP 安全层，绕开 NLA） */
   rdpSecurity?: string;
   /** WinRM 认证方式：ntlm（默认）/ basic（明文，需目标机 AllowUnencrypted） */
@@ -195,6 +200,17 @@ export const hostApi = {
     unwrap(
       request<ApiData<HostAccountItem[]>>(`/api/hosts/${hostId}/accounts`, {
         method: 'GET',
+      }),
+    ),
+  /**
+   * 把另一台主机（`sourceId`，必须是同一地址）并进这台：账号、授权、协议端点
+   * 全部搬过来，来源主机删掉。用于把历史上登记成两条的同一台机器收成一台多协议主机。
+   */
+  merge: (hostId: number, sourceId: number) =>
+    unwrap(
+      request<ApiData<HostItem>>(`/api/hosts/${hostId}/merge`, {
+        method: 'POST',
+        data: { sourceId },
       }),
     ),
 };
@@ -543,11 +559,15 @@ export const settingApi = {
 export const terminalApi = {
   targets: () =>
     unwrap(request<ApiData<TerminalTarget[]>>('/api/terminal/targets', { method: 'GET' })),
-  check: (hostId: number, accountId?: number) =>
+  /**
+   * 复验一次「这台主机的这个协议入口能不能开」。一台主机多协议时必须带 `protocol`
+   * （同一台机器的 ssh 入口可能开着、rdp 入口却被权限挡着）。
+   */
+  check: (hostId: number, accountId?: number, protocol?: string) =>
     unwrap(
       request<ApiData<TargetCheckResult>>(`/api/terminal/targets/${hostId}/check`, {
         method: 'POST',
-        data: { accountId },
+        data: { accountId, protocol },
       }),
     ),
 };

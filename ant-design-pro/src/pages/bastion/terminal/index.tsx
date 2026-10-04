@@ -1,13 +1,14 @@
 /**
- * 网页终端入口：可访问资产列表（**字符终端与 Windows 远程桌面共用一个入口**）。
+ * 网页终端入口：可访问资产列表（**一台主机一行，行内每个协议一个入口**）。
  *
  * 对齐 JumpServer 的形态——**点「连接」用 `window.open()` 弹出一个独立窗口**跑一条会话，
  * 而不是把多个会话（和实时审计）挤在同一页里。本页只负责选资产、选账号、开窗口。
  *
- * 关于 Windows 主机：以前远程桌面有过一个独立菜单（`/rdp`），现在合并到本页 —— 列表里
- * 既有 Linux 也有 Windows，点「连接」时按主机的 `protocol` 决定弹哪种窗口：
- * `ssh` → `/terminal/console`（网页终端），`rdp` → `/rdp/console`（远程桌面）。
- * 页面上不额外标注哪台是远程桌面：系统图标已经说明了平台，能力差异由按钮状态体现。
+ * 关于「一台主机多协议」：后端 `/api/terminal/targets` 是**一个协议端点返回一条**
+ * （同一台机器可能同时有 ssh / winrm / rdp 三个入口），本页按 `hostId` 把它们合并成
+ * 一行：地址列列出每个端点的 `地址:端口`，操作列每个端点一颗按钮（ssh/winrm 弹网页终端、
+ * rdp 弹远程桌面），账号下拉取所有端点的账号并集。这样同一台 Windows 机器不会再出现
+ * 「两行看起来差不多」的观感问题。
  */
 import {
   ExportOutlined,
@@ -31,6 +32,83 @@ import {
 } from './types';
 
 /**
+ * 这一台机器可以用哪些资产账号开窗口（所有端点账号的并集，按 id 去重）。
+ */
+const mergeAccounts = (endpoints: TerminalTarget[]) => {
+  const seen = new Map<
+    number,
+    { id: number; name: string; username: string; authType?: string }
+  >();
+  for (const endpoint of endpoints) {
+    for (const account of endpoint.accounts ?? []) {
+      if (!seen.has(account.id)) {
+        seen.set(account.id, account);
+      }
+    }
+  }
+  return [...seen.values()];
+};
+
+/**
+ * 合并后的列表行：一台主机一行，`endpoints` 里是它所有协议入口。
+ */
+type LauncherRow = {
+  hostId: number;
+  hostName: string;
+  address: string;
+  osType: string;
+  groupName: string;
+  description: string;
+  policyName: string;
+  filePolicyName: string;
+  maxSessions: number;
+  canWebterm: boolean;
+  canSftp: boolean;
+  accounts: { id: number; name: string; username: string; authType?: string }[];
+  endpoints: TerminalTarget[];
+};
+
+/** 把「一个端点一条」的目标列表按 hostId 收成「一台主机一行」。 */
+const mergeTargets = (targets: TerminalTarget[]): LauncherRow[] => {
+  const rows = new Map<number, LauncherRow>();
+  for (const target of targets ?? []) {
+    const existing = rows.get(target.hostId);
+    if (existing) {
+      existing.endpoints.push(target);
+      existing.canWebterm = existing.canWebterm || target.canWebterm;
+      existing.canSftp = existing.canSftp || target.canSftp;
+      existing.maxSessions = Math.max(existing.maxSessions, target.maxSessions);
+      if (!existing.policyName && target.policyName) {
+        existing.policyName = target.policyName;
+      }
+      continue;
+    }
+    rows.set(target.hostId, {
+      hostId: target.hostId,
+      hostName: target.hostName,
+      address: target.address,
+      osType: target.osType,
+      groupName: target.groupName,
+      description: target.description,
+      policyName: target.policyName,
+      filePolicyName: target.filePolicyName,
+      maxSessions: target.maxSessions,
+      canWebterm: target.canWebterm,
+      canSftp: target.canSftp,
+      accounts: [],
+      endpoints: [target],
+    });
+  }
+  return [...rows.values()].map((row) => ({
+    ...row,
+    endpoints: [...row.endpoints].sort((a, b) =>
+      a.protocol.localeCompare(b.protocol),
+    ),
+    accounts: mergeAccounts(row.endpoints),
+  }));
+};
+
+/**
  * 这台机器可以用哪些资产账号开窗口。
  *
  * 远程桌面只认口令账号（CredSSP/NLA 要在浏览器侧算 NTLM 应答，密钥账号根本没口令可算），
@@ -40,16 +118,26 @@ import {
 const needsPasswordAccount = (protocol: string) =>
   protocol === 'rdp' || protocol === 'winrm';
 
-const usableAccounts = (target: TerminalTarget) =>
-  needsPasswordAccount(target.protocol)
-    ? target.accounts.filter(
-        (account) => (account.authType || 'password') === 'password',
-      )
-    : target.accounts;
+const usableAccounts = (endpoints: TerminalTarget[]) => {
+  const all = mergeAccounts(endpoints);
+  if (endpoints.some((endpoint) => !needsPasswordAccount(endpoint.protocol))) {
+    return all;
+  }
+  return all.filter(
+    (account) => (account.authType || 'password') === 'password',
+  );
+};
+
+/** 每个协议入口在操作列里的按钮文案 */
+const PROTOCOL_BUTTON_TEXT: Record<string, string> = {
+  ssh: '连接',
+  winrm: 'WinRM',
+  rdp: '远程桌面',
+};
 
 /**
- * 同一台 Windows 机器可能同时挂着「远程桌面」与「WinRM 网页终端」两条入口
- * （协议是主机级字段），地址后面缀一句通道说明，免得两行看起来一模一样。
+ * 地址后面缀一句通道说明：同一台机器可能同时有 ssh / winrm / rdp 入口，
+ * 光看 `地址:端口` 分不清哪个是哪个。
  */
 const protocolHint = (protocol: string) => {
   if (protocol === 'winrm') {
@@ -58,56 +146,88 @@ const protocolHint = (protocol: string) => {
   if (protocol === 'rdp') {
     return ' · 远程桌面';
   }
+  if (protocol === 'ssh') {
+    return ' · SSH 网页终端';
+  }
   return '';
+};
+
+const protocolButtonText = (protocol: string) =>
+  PROTOCOL_BUTTON_TEXT[protocol] ?? '连接';
+
+/**
+ * 操作列里那颗按钮的 Tooltip：远程桌面要额外说明「口令会下发到浏览器」。
+ */
+const protocolButtonTip = (
+  protocol: string,
+  disabled: boolean,
+  reason: string,
+) => {
+  if (disabled) {
+    return reason;
+  }
+  if (protocol === 'rdp') {
+    return '弹出独立远程桌面窗口。CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计），请只在自己信得过的设备上使用';
+  }
+  if (protocol === 'winrm') {
+    return '弹出独立终端窗口（Windows PowerShell / WinRM 字符会话）';
+  }
+  return '弹出独立终端窗口';
 };
 
 const TerminalLauncherPage = () => {
   const access = useAccess();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [picked, setPicked] = useState<Record<number, number>>({});
-  const [opening, setOpening] = useState<number>();
-  const [openingFiles, setOpeningFiles] = useState<number>();
+  // 一台主机多协议：loading 状态要按「主机 + 协议」区分，不能只按 hostId
+  const [opening, setOpening] = useState<string>();
+  const [openingFiles, setOpeningFiles] = useState<string>();
 
   /** 开一个独立的文件管理器窗口（SFTP），与终端窗口同形态、互不影响。 */
-  const openFiles = useCallback((target: TerminalTarget, accountId: number) => {
-    setOpeningFiles(target.hostId);
-    const url = buildFileConsoleUrl({
-      hostId: target.hostId,
-      accountId,
-      hostName: target.hostName,
-    });
-    const name = `bastion-files-${target.hostId}-${accountId}-${Date.now()}`;
-    const opened = window.open(url, name, consoleWindowFeatures());
-    if (opened) {
-      opened.focus();
-    } else {
-      message.warning(
-        '浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。',
-      );
-    }
-    setOpeningFiles(undefined);
-  }, []);
+  const openFiles = useCallback(
+    (endpoint: TerminalTarget, accountId: number) => {
+      setOpeningFiles(`${endpoint.hostId}:${endpoint.protocol}`);
+      const url = buildFileConsoleUrl({
+        hostId: endpoint.hostId,
+        accountId,
+        hostName: endpoint.hostName,
+      });
+      const name = `bastion-files-${endpoint.hostId}-${accountId}-${Date.now()}`;
+      const opened = window.open(url, name, consoleWindowFeatures());
+      if (opened) {
+        opened.focus();
+      } else {
+        message.warning(
+          '浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。',
+        );
+      }
+      setOpeningFiles(undefined);
+    },
+    [],
+  );
 
   const openConsole = useCallback(
-    (target: TerminalTarget, accountId: number) => {
-      const isRdp = target.protocol === 'rdp';
-      setOpening(target.hostId);
+    (endpoint: TerminalTarget, accountId: number) => {
+      const isRdp = endpoint.protocol === 'rdp';
+      setOpening(`${endpoint.hostId}:${endpoint.protocol}`);
       const url = isRdp
         ? buildRdpConsoleUrl({
-            hostId: target.hostId,
+            hostId: endpoint.hostId,
             accountId,
-            hostName: target.hostName,
+            hostName: endpoint.hostName,
           })
         : buildConsoleUrl({
-            hostId: target.hostId,
+            hostId: endpoint.hostId,
             accountId,
-            hostName: target.hostName,
+            hostName: endpoint.hostName,
+            // 一台主机多协议：必须告诉控制台窗口要开哪个端点（ssh / winrm）
+            protocol: endpoint.protocol,
           });
       // 用 window.open(url, name, features) 的第三参数弹出**独立窗口**（不给 features 就只是开标签页）。
       // name 带时间戳：每次点「连接」都是一个新窗口 = 一条新会话，跟之前「一点一个新标签页」的行为对齐。
       const name = isRdp
-        ? `bastion-rdp-${target.hostId}-${accountId}-${Date.now()}`
-        : `bastion-console-${target.hostId}-${accountId}-${Date.now()}`;
+        ? `bastion-rdp-${endpoint.hostId}-${accountId}-${Date.now()}`
+        : `bastion-console-${endpoint.hostId}-${accountId}-${Date.now()}`;
       // 坑：'noopener' 是 feature 而不是 name，且带它时 window.open 按规范**恒返回 null**，
       // 拿返回值判断「是否被拦截」会误报；另外 `opened.opener = null` 会让弹窗里的「资产列表」
       // 按钮无法聚焦回原窗口。本页与弹窗同源且都是自家代码，保留 opener 更实用。
@@ -126,7 +246,7 @@ const TerminalLauncherPage = () => {
     [],
   );
 
-  const columns: ProColumns<TerminalTarget>[] = [
+  const columns: ProColumns<LauncherRow>[] = [
     {
       title: '资产',
       dataIndex: 'hostName',
@@ -136,10 +256,12 @@ const TerminalLauncherPage = () => {
             <OsTag osType={record.osType} />
             <span className="bastion-launcher-host">{record.hostName}</span>
           </Space>
-          <span className="bastion-launcher-addr">
-            {record.address}:{record.port}
-            {protocolHint(record.protocol)}
-          </span>
+          {record.endpoints.map((endpoint) => (
+            <span key={endpoint.protocol} className="bastion-launcher-addr">
+              {record.address}:{endpoint.port}
+              {protocolHint(endpoint.protocol)}
+            </span>
+          ))}
         </Space>
       ),
     },
@@ -167,15 +289,9 @@ const TerminalLauncherPage = () => {
       key: 'account',
       width: 220,
       render: (_, record) => {
-        const accounts = usableAccounts(record);
+        const accounts = usableAccounts(record.endpoints);
         if (!accounts.length) {
-          return (
-            <span className="bastion-launcher-warn">
-              {needsPasswordAccount(record.protocol)
-                ? '无口令账号'
-                : '无可用账号'}
-            </span>
-          );
+          return <span className="bastion-launcher-warn">无可用账号</span>;
         }
         const value = picked[record.hostId] ?? accounts[0]?.id;
         return (
@@ -200,61 +316,83 @@ const TerminalLauncherPage = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 240,
       render: (_, record) => {
-        const isRdp = record.protocol === 'rdp';
-        // WinRM 也没有 SFTP 通道（WinRS 只跑命令，不传文件），别给一个点了才报错的入口。
-        const hasFiles = !isRdp && record.protocol !== 'winrm';
-        const accounts = usableAccounts(record);
+        const accounts = usableAccounts(record.endpoints);
         const accountId = picked[record.hostId] ?? accounts[0]?.id;
-        const disabled = !record.canWebterm || !accountId;
-        const reason = !record.canWebterm
-          ? '该资产的授权未开放交互式登录'
-          : needsPasswordAccount(record.protocol)
-            ? '该主机下没有可用的口令账号（远程桌面 / WinRM 都需要口令认证）'
-            : '该主机下没有可用资产账号';
-        const filesDisabled = !record.canSftp || !accountId;
-        const filesReason = !record.canSftp
-          ? '该资产的授权未开放 SFTP 文件管理'
-          : '该主机下没有可用资产账号';
         return (
-          <Space size={4}>
-            <Tooltip
-              title={
-                disabled
-                  ? reason
-                  : isRdp
-                    ? '弹出独立远程桌面窗口。CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计），请只在自己信得过的设备上使用'
-                    : '弹出独立终端窗口'
-              }
-            >
-              <Button
-                type="primary"
-                size="small"
-                icon={<ExportOutlined />}
-                disabled={disabled}
-                loading={opening === record.hostId}
-                onClick={() => openConsole(record, accountId as number)}
-              >
-                连接
-              </Button>
-            </Tooltip>
-            {/* 远程桌面与 WinRM 都没有 SFTP 通道，索性不渲染「文件」按钮，不给点了才报错的入口 */}
-            {hasFiles ? (
-              <Tooltip
-                title={filesDisabled ? filesReason : '弹出独立文件管理器窗口'}
-              >
-                <Button
-                  size="small"
-                  icon={<FolderOpenOutlined />}
-                  disabled={filesDisabled}
-                  loading={openingFiles === record.hostId}
-                  onClick={() => openFiles(record, accountId as number)}
-                >
-                  文件
-                </Button>
-              </Tooltip>
-            ) : null}
+          <Space size={4} wrap>
+            {record.endpoints.map((endpoint) => {
+              // 每个端点单独判可用性：远程桌面 / WinRM 只认口令账号，ssh 两种都行
+              const endpointAccounts = needsPasswordAccount(endpoint.protocol)
+                ? accounts.filter(
+                    (account) =>
+                      (account.authType || 'password') === 'password',
+                  )
+                : accounts;
+              const pickedOk = endpointAccounts.some(
+                (account) => account.id === accountId,
+              );
+              const disabled = !endpoint.canWebterm || !accountId || !pickedOk;
+              const reason = !endpoint.canWebterm
+                ? '该资产的授权未开放交互式登录'
+                : !pickedOk
+                  ? needsPasswordAccount(endpoint.protocol)
+                    ? '该协议只认口令账号（远程桌面 / WinRM 不支持密钥登录），请在账号列选一个口令账号'
+                    : '该主机下没有可用资产账号'
+                  : '该主机下没有可用资产账号';
+              const key = `${record.hostId}:${endpoint.protocol}`;
+              // WinRM 与远程桌面都没有 SFTP 通道（WinRS 只跑命令、RDP 只给画面），
+              // 别给一个点了才报错的入口 —— 「文件」只挂在 ssh 端点上。
+              const filesDisabled =
+                !endpoint.canSftp || !accountId || !pickedOk;
+              const filesReason = !endpoint.canSftp
+                ? '该资产的授权未开放 SFTP 文件管理'
+                : filesDisabled
+                  ? '该主机下没有可用资产账号'
+                  : '弹出独立文件管理器窗口';
+              return (
+                <Space size={4} key={key}>
+                  <Tooltip
+                    title={protocolButtonTip(
+                      endpoint.protocol,
+                      disabled,
+                      reason,
+                    )}
+                  >
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<ExportOutlined />}
+                      disabled={disabled}
+                      loading={opening === key}
+                      onClick={() => openConsole(endpoint, accountId as number)}
+                    >
+                      {protocolButtonText(endpoint.protocol)}
+                    </Button>
+                  </Tooltip>
+                  {endpoint.protocol === 'ssh' ? (
+                    <Tooltip
+                      title={
+                        endpoint.canSftp && !filesDisabled
+                          ? '弹出独立文件管理器窗口'
+                          : filesReason
+                      }
+                    >
+                      <Button
+                        size="small"
+                        icon={<FolderOpenOutlined />}
+                        disabled={filesDisabled}
+                        loading={openingFiles === key}
+                        onClick={() => openFiles(endpoint, accountId as number)}
+                      >
+                        文件
+                      </Button>
+                    </Tooltip>
+                  ) : null}
+                </Space>
+              );
+            })}
           </Space>
         );
       },
@@ -277,7 +415,7 @@ const TerminalLauncherPage = () => {
 
   return (
     <PageContainer title="网页终端">
-      <ProTable<TerminalTarget>
+      <ProTable<LauncherRow>
         rowKey="hostId"
         actionRef={actionRef}
         columns={columns}
@@ -309,7 +447,8 @@ const TerminalLauncherPage = () => {
         }}
         request={async () => {
           const data = await terminalApi.targets();
-          return { data: data ?? [], success: true };
+          // 后端是「一个协议端点一条」，这里按 hostId 收成「一台主机一行」
+          return { data: mergeTargets(data ?? []), success: true };
         }}
       />
     </PageContainer>

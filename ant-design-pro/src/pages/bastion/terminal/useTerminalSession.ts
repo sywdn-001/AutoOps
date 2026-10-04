@@ -84,7 +84,8 @@ export const useTerminalSession = (options?: {
         port: target.port,
         accountUsername: accountUsername ?? '',
         policyName: target.policyName,
-        protocol: 'ssh',
+        // 先按端点协议占位，`terminal:opened` 到达后会以服务端说的为准
+        protocol: target.protocol || 'ssh',
         status: 'connecting',
         fontSize: size,
       });
@@ -101,6 +102,8 @@ export const useTerminalSession = (options?: {
         socket.emit('terminal:open', {
           hostId: target.hostId,
           accountId,
+          // 一台主机多协议：明确告诉服务端要开哪个端点（ssh / winrm）
+          protocol: target.protocol,
           cols: handleRef.current?.getSize().cols ?? 120,
           rows: handleRef.current?.getSize().rows ?? 32,
         });

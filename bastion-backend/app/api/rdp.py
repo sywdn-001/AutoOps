@@ -131,6 +131,8 @@ def create_rdp_session():
             403,
             code="FORBIDDEN",
         )
+    # 端口取 rdp **端点**（一台主机可能同时有 SSH/WinRM 端点，端口不通用）
+    rdp_port = int(target.get("port") or 0) or 3389
     if not target.get("canWebterm"):
         return api_error("该授权不允许交互式登录，请联系管理员", 403, code="FORBIDDEN")
 
@@ -170,7 +172,7 @@ def create_rdp_session():
         host_id=host.id,
         host_name=host.name,
         host_address=host.address,
-        port=int(host.port or 3389),
+        port=rdp_port,
         account_id=account["id"],
         account_username=account["username"] or "",
         grant_id=(target.get("grantIds") or [None])[0],
@@ -194,7 +196,7 @@ def create_rdp_session():
         detail={
             "protocol": RDP_PROTOCOL,
             "account": account["username"],
-            "destination": f"{host.address}:{host.port}",
+            "destination": f"{host.address}:{rdp_port}",
             "ticketTtl": TICKET_TTL_SECONDS,
             "rdpSecurity": host.rdp_security or RDP_SECURITY_DEFAULT,
         },

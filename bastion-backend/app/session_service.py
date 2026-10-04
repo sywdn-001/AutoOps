@@ -126,6 +126,7 @@ def open_session(
     user_id: int,
     host_id: int,
     account_id: int | None = None,
+    protocol: str | None = None,
     source: str = "web",
     client_ip: str = "",
     client_port: int = 0,
@@ -193,12 +194,6 @@ def open_session(
             "role_code": user.role_code,
             "display_name": user.display_name or user.username,
         }
-        host_snapshot = {
-            "id": host.id,
-            "name": host.name,
-            "address": host.address,
-            "port": host.port,
-        }
         account_snapshot = {
             "id": account.id,
             "name": account.name,
@@ -209,9 +204,35 @@ def open_session(
         # 协议分流：Linux 走 SSH，Windows 走 WinRM。两者的桥公开面一致，网页终端
         # 前端、命令策略、CommandLog、转录、AI 助手与会话登记全部复用；rdp 有自己的
         # /api/rdp/* 入口，不会走到这里。
-        protocol = (getattr(host, "protocol", "") or "ssh").strip().lower()
-        if protocol not in ("ssh", "winrm"):
-            raise SessionError(f"该主机的协议「{protocol}」不支持交互式 shell（只有 ssh / winrm 能进网页终端）")
+        # 一台主机可以有多个端点（Windows 常见 RDP + WinRM），所以调用方可以显式指定
+        # protocol；没指定时按主机镜像协议挑，挑到 rdp 就退回第一个字符端点。
+        requested = (protocol or "").strip().lower() or None
+        endpoint = host.endpoint_for(requested or host.protocol)
+        if endpoint is None or endpoint.protocol not in ("ssh", "winrm"):
+            if requested:
+                raise SessionError(
+                    f"该主机没有「{requested}」这个端点"
+                    f"（可用：{'、'.join(host.protocol_names()) or '无'}）"
+                )
+            endpoint = next(
+                (item for item in host.protocol_endpoints() if item.protocol in ("ssh", "winrm")),
+                endpoint,
+            )
+        if endpoint is None or endpoint.protocol not in ("ssh", "winrm"):
+            fallback_name = (endpoint.protocol if endpoint else host.protocol) or "未知"
+            raise SessionError(
+                f"该主机的协议「{fallback_name}」不支持交互式 shell（只有 ssh / winrm 能进网页终端）"
+            )
+        protocol = endpoint.protocol
+        endpoint_port = endpoint.port
+        endpoint_transport = endpoint.winrm_transport
+
+        host_snapshot = {
+            "id": host.id,
+            "name": host.name,
+            "address": host.address,
+            "port": endpoint_port,
+        }
 
         target = None
         winrm_target = None
@@ -219,6 +240,8 @@ def open_session(
             winrm_target = build_winrm_target(
                 host,
                 account,
+                port=endpoint_port,
+                winrm_transport=endpoint_transport,
                 connect_timeout=Config.SSH_CONNECT_TIMEOUT,
                 command_timeout=Config.COMMAND_TIMEOUT,
             )
@@ -226,6 +249,7 @@ def open_session(
             target = build_target(
                 host,
                 account,
+                port=endpoint_port,
                 connect_timeout=Config.SSH_CONNECT_TIMEOUT,
                 banner_timeout=Config.SSH_BANNER_TIMEOUT,
                 keepalive=Config.SSH_KEEPALIVE,

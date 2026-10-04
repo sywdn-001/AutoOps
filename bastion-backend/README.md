@@ -74,9 +74,9 @@ bastion-backend/
 │   ├── __init__.py             # create_app / 蓝图注册 / 种子数据
 │   ├── config.py               # 配置（含 TestConfig）
 │   ├── extensions.py           # db / jwt / cors / socketio
-│   ├── models.py               # 20 张表 + to_dict（含 AI 三张 + rdp_recordings / rdp_recording_uploads：ai_conversations / ai_messages / ai_tool_calls）
+│   ├── models.py               # 21 张表 + to_dict（含 AI 三张 + rdp_recordings / rdp_recording_uploads：ai_conversations / ai_messages / ai_tool_calls；host_protocols = 一台主机多个协议端点）
 │   ├── security.py             # 权限码、口令哈希、@admin_required、@permission_required
-│   ├── schema_sync.py          # 轻量 schema 同步（无 Alembic：只做 ADD COLUMN 的加法迁移）
+│   ├── schema_sync.py          # 轻量 schema 同步（无 Alembic：只做 ADD COLUMN 的加法迁移）+ backfill_host_protocols() 给老主机补协议端点
 │   ├── access.py               # 授权解析：时间窗、账号绑定、可达主机、会话配额
 │   ├── policy.py               # 命令策略引擎（分段 + 规则匹配 + 内置策略模板）
 │   ├── file_policy.py          # 文件策略引擎（操作 × 路径匹配 + 内置文件策略模板 + 冻结）
@@ -110,7 +110,7 @@ bastion-backend/
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
 │   ├── winrm_gw_check.py       # 真实 SSH 网关里选一台 Windows（WinRM）主机跑 whoami/hostname（9 项断言：菜单里出现 WinRM 主机 → 进会话有 PowerShell 提示符与能力边界提示 → 输出是目标机的 → exit 回菜单）；**选跑，会在目标机上真执行两条只读命令**
 │   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
-└── tests/                      # 679 个用例（32 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+└── tests/                      # 702 个用例（33 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -471,6 +471,35 @@ python %TEMP%\_winrm_cdp.py 1 && python %TEMP%\_winrm_cdp.py 2    # 浏览器 CD
 
 ---
 
+## 七·十一、一台主机多个协议端点（`host_protocols`，A+B）
+
+同一台机器常常既要 RDP（看画面）又要 WinRM 或 SSH（要命令审计）。按「一条主机记录一个协议」的建模就得把同一台机器建成几条记录，用户实测反馈「都是同一台主机，只是协议不同就要搞两个条目，太麻烦了」，于是把「协议」从主机的一个字段升级成主机的一组**端点**：
+
+- **表**：`host_protocols(id, host_id, protocol, port, winrm_transport, status)`，`uq_host_protocol(host_id, protocol)` 钉住「同一协议只有一条」；
+- **镜像字段**：`hosts.protocol` / `hosts.port` / `hosts.winrm_transport` 保留并**始终指向主端点**（`Host.mirror_primary_endpoint()` 维护）。老代码路径读 `host.port` 依然正确，`sessions.host_id` 与历史审计口径一个字都不改；
+- **兜底**：`Host.protocol_endpoints()` 在该主机**没有任何端点行**时按镜像字段造一条（`persisted=False`），所以老库、老测试、`make_host()` 夹具全都不受影响；
+- **回填**：老库升级时 `backfill_host_protocols()` 在 `ensure_schema()` 之后跑一遍，给每台还没有端点行的主机补一条（已有端点的**跳过**，管理员手工配过多协议的不被覆盖）。
+
+### 接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/hosts` / `PUT /api/hosts/<id>`（管理员） | 都接受 `protocols: [{protocol, port?, winrmTransport?}]`（也可以简写成 `["ssh","winrm"]`）。显式给的端口必须是 1-65535，协议必须 `ssh`/`rdp`/`winrm` 且不重复，WinRM 的 `winrmTransport` 只能是 `ntlm`/`basic`，否则 400；`_apply_endpoints()` 按请求对齐端点表（增/删/改），然后把主端点写回镜像字段。**不传 `protocols` 就走老的单协议路径**，行为与以前完全一致 |
+| `POST /api/hosts/<id>/merge`（管理员） | 把**同地址**的另一条主机记录并进本机（`{"sourceId": n}`）：账号、授权、协议端点全部搬过来，随后删除来源记录。同名**且同一把凭据**的账号复用（`_same_credential()` 解密后比对，Fernet 密文带随机 IV 不能比密文），同名不同凭据的**改名保留**（绝不因为重名丢掉来源机的登录凭据）；地址不同 400，来源机还有在线会话 409。会话记录不改写（那是审计数据） |
+| `GET /api/terminal/targets` / `POST /api/terminal/targets/<id>/check` | 前者按**端点**展开（一台主机两条端点就两条记录，每条带 `protocol`/`port`/`endpoints`），前端按 `hostId` 合并成一行；后者接受 `{"protocol": "winrm"}` 精确点名端点，该机没有这个字符端点时回「该主机没有「winrm」这个字符端点」 |
+
+### 会话层与两处入口
+
+`open_session(..., protocol=None)` 先解析端点点名：显式要 `winrm` 而这台机器没有该端点，就报「该主机没有「winrm」这个端点（可用：ssh、rdp）」；不指定则取该机指定的那个（否则退回第一个 ssh/winrm 端点）。端口与 WinRM 认证方式都取自**端点**（`endpoint.port` / `endpoint.winrm_transport`），两个 `build_target()` 都新增了 `port=` 覆盖参数。网页终端的 `terminal:open` 事件与 SSH 网关菜单都把端点协议传下去（网关菜单来自 `accessible_targets(user, protocols=("ssh","winrm"))` 的展开结果），rdp 票据与它的审计目的地也用 **rdp 端点**的端口。
+
+### 回归
+
+`tests/test_host_protocols.py`（23 例）：模型兜底/端点优先/停用端点/镜像写回、`protocols[]` 的增删改与六类非法输入、入口列表按端点展开与按权限裁剪、rdp 票据用端点端口、合并（搬家完整性、同名同凭据复用、同名不同凭据改名且凭据不丢、地址不同 400、在线会话 409）、回填幂等、老主机无端点行仍可用。全量 `python -m pytest -q` → **702 passed（33 个文件）**。
+
+真机取证（CDP 驱动真实 Chrome，`win-75` 同时配 `winrm:5985` + `rdp:3389`）：`multiproto-launcher.png`（入口页一行两颗按钮）、`multiproto-winrm-console.png`、`multiproto-hosts-list.png`、`multiproto-host-form.png`、`multiproto-merge-modal.png` / `-options` / `-picked` / `-done`（**在真实 UI 上把一台同地址主机合并进来**）。
+
+---
+
 ## 八、REST API 约定
 
 - 成功：`{"success": true, "message": "...", "data": ...}`
@@ -495,7 +524,7 @@ python %TEMP%\_winrm_cdp.py 1 && python %TEMP%\_winrm_cdp.py 2    # 浏览器 CD
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 679 passed（32 个文件）
+python -m pytest -q                       # 702 passed（33 个文件）
 python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）

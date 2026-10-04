@@ -57,8 +57,14 @@ def default_client_version() -> str:
     return f"SSH-2.0-paramiko_{version}" if version else "SSH-2.0-paramiko"
 
 
-def build_target(host, account, *, connect_timeout=15, banner_timeout=20, keepalive=30) -> SSHTarget:
-    """由 ORM 对象构造连接目标，凭据字段就地解密。"""
+def build_target(
+    host, account, *, port=None, connect_timeout=15, banner_timeout=20, keepalive=30
+) -> SSHTarget:
+    """由 ORM 对象构造连接目标，凭据字段就地解密。
+
+    ``port`` 显式传入时优先于 ``host.port``：一台主机可能有多个协议端点（例如同时开
+    SSH 与 WinRM），端口属于**端点**而不是主机。
+    """
     password = None
     private_key = None
     passphrase = None
@@ -69,7 +75,7 @@ def build_target(host, account, *, connect_timeout=15, banner_timeout=20, keepal
         password = decrypt(account.secret_enc) or None
     return SSHTarget(
         host=host.address,
-        port=host.port or 22,
+        port=int(port or host.port or 22),
         username=account.username,
         password=password,
         private_key=private_key,
