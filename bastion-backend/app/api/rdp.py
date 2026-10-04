@@ -33,7 +33,11 @@ from ..audit import log_event
 from ..crypto import decrypt
 from ..extensions import db
 from ..models import Host, HostAccount, RdpRecording, User
-from ..rdp.proxy import TICKETS, TICKET_TTL_SECONDS
+from ..rdp.proxy import (
+    RDP_SECURITY_DEFAULT,
+    TICKETS,
+    TICKET_TTL_SECONDS,
+)
 from ..security import (
     admin_required,
     has_any_permission,
@@ -152,6 +156,7 @@ def create_rdp_session():
         account_username=account["username"] or "",
         grant_id=(target.get("grantIds") or [None])[0],
         client_ip=_client_ip(),
+        security=(host.rdp_security or RDP_SECURITY_DEFAULT),
     )
     log_event(
         "session",
@@ -172,6 +177,7 @@ def create_rdp_session():
             "account": account["username"],
             "destination": f"{host.address}:{host.port}",
             "ticketTtl": TICKET_TTL_SECONDS,
+            "rdpSecurity": host.rdp_security or RDP_SECURITY_DEFAULT,
         },
     )
     log.info("签发 RDP 票据 user=%s host=%s account=%s", actor.username, host.name, account["username"])

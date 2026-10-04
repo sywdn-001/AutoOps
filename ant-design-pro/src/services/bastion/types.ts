@@ -93,6 +93,8 @@ export type HostItem = {
   address: string;
   port: number;
   protocol: string;
+  /** RDP 安全层偏好：auto（默认，按客户端协商，含 NLA）/ ssl（强制标准 RDP 安全层） */
+  rdpSecurity?: 'auto' | 'ssl' | string;
   osType: string;
   description: string;
   groupId: number | null;

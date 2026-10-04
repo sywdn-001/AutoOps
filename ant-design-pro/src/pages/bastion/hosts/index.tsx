@@ -41,6 +41,7 @@ import {
   Table,
   type TableColumnsType,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type React from 'react';
@@ -80,6 +81,7 @@ type HostFormValues = {
   address: string;
   port: number;
   protocol: string;
+  rdpSecurity?: string;
   osType: string;
   groupId?: number;
   status: string;
@@ -110,6 +112,16 @@ const OS_TYPE_OPTIONS = [
   { label: 'Linux', value: 'linux' },
   { label: 'Windows', value: 'windows' },
   { label: 'Unix', value: 'unix' },
+];
+
+/**
+ * RDP 安全层：浏览器里的 WebRDP 客户端默认按「自动」协商（会带 NLA/CredSSP）。
+ * 少数老系统（Windows Server 2003 / XP 一类）在 NLA 阶段一个字节不回就断开，
+ * 这时改成「强制 SSL」让它退回标准 RDP 安全层（只对协议为 rdp 的主机生效）。
+ */
+const RDP_SECURITY_OPTIONS = [
+  { label: '自动（默认，按客户端协商，含 NLA）', value: 'auto' },
+  { label: '强制 SSL（不使用 NLA，兼容老系统）', value: 'ssl' },
 ];
 
 const STATUS_OPTIONS = Object.entries(HOST_STATUS_META).map(
@@ -209,6 +221,7 @@ const Hosts: React.FC = () => {
       address: values.address,
       port: values.port,
       protocol: values.protocol,
+      rdpSecurity: values.rdpSecurity ?? 'auto',
       osType: values.osType,
       groupId: values.groupId ?? null,
       description: values.description ?? '',
@@ -344,6 +357,7 @@ const Hosts: React.FC = () => {
         address: editing.address,
         port: editing.port,
         protocol: editing.protocol,
+        rdpSecurity: editing.rdpSecurity ?? 'auto',
         osType: editing.osType,
         groupId: editing.groupId ?? undefined,
         status: editing.status,
@@ -353,6 +367,7 @@ const Hosts: React.FC = () => {
     : {
         port: 22,
         protocol: 'ssh',
+        rdpSecurity: 'auto',
         osType: 'linux',
         status: 'active',
         tags: [],
@@ -395,6 +410,11 @@ const Hosts: React.FC = () => {
         <Space size={4}>
           <ProtocolTag protocol={row.protocol} />
           <OsTag osType={row.osType} />
+          {row.protocol === 'rdp' && row.rdpSecurity === 'ssl' ? (
+            <Tooltip title="这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）">
+              <Tag color="orange">强制 SSL</Tag>
+            </Tooltip>
+          ) : null}
         </Space>
       ),
     },
@@ -635,7 +655,14 @@ const Hosts: React.FC = () => {
           label="协议"
           options={PROTOCOL_OPTIONS}
           rules={[{ required: true, message: '请选择协议' }]}
-          extra="后端当前仅支持 ssh 协议主机"
+          extra="ssh 走网页终端 / SSH 网关；rdp 走浏览器里的 Windows 远程桌面"
+        />
+        <ProFormSelect
+          name="rdpSecurity"
+          label="RDP 安全层"
+          options={RDP_SECURITY_OPTIONS}
+          initialValue="auto"
+          extra="只对协议 rdp 的主机生效：默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
         />
         <ProFormSelect
           name="osType"

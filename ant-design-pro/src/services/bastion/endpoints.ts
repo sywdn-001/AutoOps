@@ -166,6 +166,8 @@ export type HostPayload = {
   address?: string;
   port?: number;
   protocol?: string;
+  /** RDP 安全层：auto（默认）/ ssl（强制标准 RDP 安全层，绕开 NLA） */
+  rdpSecurity?: string;
   osType?: string;
   groupId?: number | null;
   description?: string;

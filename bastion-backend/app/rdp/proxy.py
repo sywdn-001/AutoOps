@@ -78,6 +78,15 @@ NEGOTIATED_NAMES = {
 #: 网关不需要、也不应该关心 CredSSP 细节。
 TLS_CAPABLE_PROTOCOLS = (PROTOCOL_SSL, PROTOCOL_HYBRID, PROTOCOL_HYBRID_EX)
 
+#: 主机级「RDP 安全层」偏好（`hosts.rdp_security`）：
+#: * `auto` —— 原样转发浏览器客户端报的协议（含 NLA/CredSSP），默认值；
+#: * `ssl`  —— 改写成只报 `PROTOCOL_SSL`，强制走「TLS + 标准 RDP 安全层」，绕开 CredSSP。
+RDP_SECURITY_AUTO = "auto"
+RDP_SECURITY_SSL = "ssl"
+RDP_SECURITY_CHOICES = (RDP_SECURITY_AUTO, RDP_SECURITY_SSL)
+#: 库里/接口上出现别的值时按 auto 处理（老库、手工改库都不至于连不上）
+RDP_SECURITY_DEFAULT = RDP_SECURITY_AUTO
+
 
 #: 目标机主动断开时各平台给的错误码（Windows WinError / POSIX errno）
 _REMOTE_CLOSED_CODES = frozenset({32, 10053, 10054, 104})
@@ -139,6 +148,8 @@ class RdpTicket:
     expires_at: float
     used: bool = False
     used_at: float | None = None
+    #: 主机级 RDP 安全层偏好：auto（原样转发）/ ssl（强制只报 PROTOCOL_SSL）
+    security: str = RDP_SECURITY_AUTO
     meta: dict = field(default_factory=dict)
 
     def matches(self, host: str, port: int) -> bool:
@@ -215,14 +226,16 @@ TICKETS = RdpTicketStore()
 # --------------------------------------------------------------------------- #
 # 握手：TCP + X.224 + TLS
 # --------------------------------------------------------------------------- #
-def perform_handshake(
+def _negotiate(
     host: str,
     port: int,
     x224_request: bytes,
-    *,
-    timeout: int = HANDSHAKE_TIMEOUT,
-) -> tuple[bytes, list[bytes], ssl.SSLSocket]:
-    """替客户端跟目标机做 TCP + X.224 + TLS，返回 (X.224 响应, 证书链, TLS 套接字)。"""
+    timeout: int,
+) -> tuple[socket.socket, bytes, dict]:
+    """TCP 连上目标机、发 X.224 协商请求、读回响应并校验，返回 (socket, 响应, 协商结果)。
+
+    校验不过的一律抛 `RdpProxyError`（中文，能直接给人看）；socket 由调用方负责关。
+    """
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
@@ -242,7 +255,10 @@ def perform_handshake(
             name = negotiation.get("failureName", "")
             hint = ""
             if name == "HYBRID_REQUIRED_BY_SERVER":
-                hint = "（目标机要求 NLA/CredSSP，浏览器端 WASM 客户端支持；若仍失败请检查账号口令）"
+                hint = (
+                    "（目标机要求 NLA/CredSSP；若这台主机在资产里被设成「强制 SSL」，"
+                    "请改回「自动」，或直接改用支持 NLA 的客户端）"
+                )
             raise RdpProxyError(
                 f"目标主机 {host}:{port} 不接受当前安全层（{name}，失败码 {negotiation.get('failureCode')}）{hint}"
             )
@@ -258,26 +274,95 @@ def perform_handshake(
             )
         if selected not in TLS_CAPABLE_PROTOCOLS:
             raise RdpProxyError(f"目标主机 {host}:{port} 返回了无法识别的安全层（0x{int(selected):08x}）")
-
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE  # RDP 目标机普遍自签，证书由客户端校验
+    except OSError as exc:
         try:
-            tls = context.wrap_socket(sock, server_hostname=host)
-        except ssl.SSLError as exc:
-            raise RdpProxyError(
-                f"与目标主机 {host}:{port} 的 TLS 握手失败：{humanize_socket_error(exc)}"
-            ) from exc
-        der = tls.getpeercert(binary_form=True)
-        chain = [der] if der else []
-        tls.settimeout(None)
-        return response, chain, tls
+            sock.close()
+        except OSError:  # pragma: no cover
+            pass
+        raise RdpProxyError(
+            f"与目标主机 {host}:{port} 协商安全层时连接中断：{humanize_socket_error(exc)}"
+        ) from exc
     except Exception:
         try:
             sock.close()
         except OSError:  # pragma: no cover
             pass
         raise
+    return sock, response, negotiation
+
+
+def _wrap_tls(sock: socket.socket, host: str, *, legacy: bool) -> ssl.SSLSocket:
+    """在已协商好的连接上做 TLS 握手。
+
+    `legacy=True` 时放宽到 TLS 1.0 并允许 3DES/RC4 这类老密码套件 —— Windows Server 2003 / XP
+    这类老系统只支持 TLS 1.0，而 Python 3.13 的默认上下文最低要求 TLS 1.2，直接握手会被对端
+    重置连接（实测 WinError 10054）；换成兼容上下文握手就正常（实测协商到 TLSv1 + AES128-SHA）。
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE  # RDP 目标机普遍自签，证书由客户端校验
+    if legacy:
+        context.minimum_version = ssl.TLSVersion.TLSv1
+        context.maximum_version = ssl.TLSVersion.TLSv1_2
+        try:
+            context.set_ciphers("ALL:@SECLEVEL=0")
+        except ssl.SSLError:  # pragma: no cover - 取决于 OpenSSL 构建
+            logger.debug("RDP 兼容模式设置密码套件失败，沿用默认套件", exc_info=True)
+    return context.wrap_socket(sock, server_hostname=host)
+
+
+def perform_handshake(
+    host: str,
+    port: int,
+    x224_request: bytes,
+    *,
+    timeout: int = HANDSHAKE_TIMEOUT,
+) -> tuple[bytes, list[bytes], ssl.SSLSocket]:
+    """替客户端跟目标机做 TCP + X.224 + TLS，返回 (X.224 响应, 证书链, TLS 套接字)。
+
+    先按现代 TLS 握一次；若被对端重置/握手失败，就换一条新连接、用兼容模式（TLS 1.0）再握一次，
+    以支持 Windows Server 2003 / XP 这类老目标机。
+    """
+    sock, response, negotiation = _negotiate(host, port, x224_request, timeout)
+    try:
+        tls = _wrap_tls(sock, host, legacy=False)
+    except (ssl.SSLError, OSError) as exc:
+        try:
+            sock.close()
+        except OSError:  # pragma: no cover
+            pass
+        logger.info(
+            "RDP TLS 首次握手失败（%s: %s），按兼容模式重试 %s:%s",
+            type(exc).__name__,
+            exc,
+            host,
+            port,
+        )
+        try:
+            sock, response, negotiation = _negotiate(host, port, x224_request, timeout)
+            tls = _wrap_tls(sock, host, legacy=True)
+        except RdpProxyError:
+            raise
+        except (ssl.SSLError, OSError) as legacy_exc:
+            try:
+                sock.close()
+            except OSError:  # pragma: no cover
+                pass
+            raise RdpProxyError(
+                f"与目标主机 {host}:{port} 建立 TLS 失败：{humanize_socket_error(legacy_exc)}"
+                "（已按 TLS 1.0 兼容模式重试仍失败；Windows Server 2003 / XP 这类老系统只支持 TLS 1.0）"
+            ) from legacy_exc
+    except Exception:
+        try:
+            sock.close()
+        except OSError:  # pragma: no cover
+            pass
+        raise
+    der = tls.getpeercert(binary_form=True)
+    chain = [der] if der else []
+    tls.settimeout(None)
+    return response, chain, tls
+
 
 
 def server_cert_info(chain: list[bytes]) -> dict:
@@ -513,6 +598,27 @@ def _activity_toucher(sid: str) -> Callable[[], None] | None:
     return touch
 
 
+def _force_ssl_offer(x224_request: bytes) -> bytes:
+    """把客户端协商请求里的 requestedProtocols 改写成只报 ``PROTOCOL_SSL``。
+
+    用途：主机级「RDP 安全层」设成 ``ssl``（强制不用 NLA）时。老目标机会声称支持
+    `PROTOCOL_HYBRID`(NLA) 却对 CredSSP 一个字节都不回就断连（实测 Server2003 那台），
+    此时只报 `PROTOCOL_SSL` 能让它改用「TLS + 标准 RDP 安全层」，不再走 CredSSP。
+
+    RDP_NEG_REQ 的布局是 `01 00 08 00` + requestedProtocols（4 字节小端）；
+    找不到标记就原样返回（宁可不改，也不要发出结构不对的包）。
+    """
+    marker = b"\x01\x00\x08\x00"
+    index = x224_request.find(marker)
+    if index < 0 or index + 8 > len(x224_request):
+        return x224_request
+    return (
+        x224_request[: index + 4]
+        + PROTOCOL_SSL.to_bytes(4, "little")
+        + x224_request[index + 8 :]
+    )
+
+
 def handle_connection(
     ws: simple_websocket.Server,
     ticket_id: str,
@@ -563,14 +669,33 @@ def handle_connection(
         _safe_close(ws, 1008, "Destination not allowed")
         return result
 
+    x224_request = request.x224_connection_pdu
+    forced_ssl = ticket.security == RDP_SECURITY_SSL
+    if forced_ssl:
+        x224_request = _force_ssl_offer(x224_request)
+        result["security"] = RDP_SECURITY_SSL
+        logger.info(
+            "目标机 %s:%s 按主机设置强制只报 PROTOCOL_SSL（绕开 NLA/CredSSP）",
+            host,
+            port,
+        )
     try:
-        x224_response, chain, tls = perform_handshake(host, port, request.x224_connection_pdu)
+        x224_response, chain, tls = perform_handshake(host, port, x224_request)
     except RdpProxyError as exc:
         result["reason"] = str(exc)
         if hooks.audit:
             hooks.audit(ticket, "rdp_failed", str(exc), result="failed")
         _safe_error(ws, ERROR_NEGOTIATION, 502)
         _safe_close(ws, 1011, str(exc)[:120])
+        return result
+    except Exception as exc:  # noqa: BLE001 - 意外错误也要说人话，不能让客户端只看到「内部错误」
+        logger.exception("RDP 握手出现未预期错误")
+        reason = f"连接目标主机 {host}:{port} 失败：{type(exc).__name__}: {exc}"
+        result["reason"] = reason
+        if hooks.audit:
+            hooks.audit(ticket, "rdp_failed", reason, result="failed")
+        _safe_error(ws, ERROR_GENERAL, 502)
+        _safe_close(ws, 1011, reason[:120])
         return result
 
     info = server_cert_info(chain)
@@ -614,6 +739,8 @@ def handle_connection(
         counters["reason"] = stop_request.reason
         counters["forced"] = True
 
+    counters["reason"] = _with_security_hint(result, counters, stop_request)
+
     result["bytesFromClient"] = counters["fromClient"]
     result["bytesFromServer"] = counters["fromServer"]
     result["reason"] = counters["reason"]
@@ -624,6 +751,30 @@ def handle_connection(
         except Exception:  # pragma: no cover
             logger.exception("收口 RDP 会话记录失败")
     return result
+
+
+def _with_security_hint(result: dict, counters: dict, stop_request: _StopRequest) -> str:
+    """给「NLA 阶段被目标机 0 字节关掉」这个常见失败补一句可执行提示。
+
+    判据全部来自实测计数：客户端确实把认证请求（CredSSP 的 TSRequest）发出去了，
+    目标机一个字节都没回就把连接关掉，而协商阶段目标机选的是 HYBRID / HYBRID_EX
+    —— Windows Server 2003 / XP 这类只支持标准 RDP 安全层的老系统就是这个表现。
+    管理员点「中断」或有明确原因时不动原文案。
+    """
+    reason = counters.get("reason") or "与目标主机的连接中断"
+    if stop_request.requested:
+        return reason
+    if counters.get("fromClient", 0) <= 0 or counters.get("fromServer", 0) != 0:
+        return reason
+    negotiation = result.get("negotiation")
+    selected = negotiation.get("selectedProtocol") if isinstance(negotiation, dict) else None
+    if selected not in (PROTOCOL_HYBRID, PROTOCOL_HYBRID_EX):
+        return reason
+    return (
+        f"{reason}；目标机在 NLA/CredSSP 认证阶段没回任何数据就关闭了连接"
+        "（Windows Server 2003 / XP 这类老系统只支持标准 RDP 安全层），"
+        "可在资产管理里把这台主机的「RDP 安全层」设成「强制 SSL」再试"
+    )
 
 
 def _safe_error(ws: simple_websocket.Server, code: int, http_status: int | None = None) -> None:

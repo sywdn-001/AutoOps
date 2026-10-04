@@ -277,6 +277,8 @@ class Host(TimestampMixin, db.Model):
     port = db.Column(db.Integer, default=22, nullable=False)
     #: ssh / telnet 预留
     protocol = db.Column(db.String(16), default="ssh", nullable=False)
+    #: 主机级 RDP 安全层偏好：auto（原样转发客户端协议，含 NLA）/ ssl（强制只报 PROTOCOL_SSL）
+    rdp_security = db.Column(db.String(16), default="auto", nullable=False)
     os_type = db.Column(db.String(32), default="linux", nullable=False)
     group_id = db.Column(db.Integer, db.ForeignKey("host_groups.id"))
     tags = db.Column(db.JSON, default=list)
@@ -298,6 +300,7 @@ class Host(TimestampMixin, db.Model):
             "address": self.address,
             "port": self.port,
             "protocol": self.protocol,
+            "rdpSecurity": self.rdp_security or "auto",
             "osType": self.os_type,
             "groupId": self.group_id,
             "groupName": self.group.name if self.group else "",

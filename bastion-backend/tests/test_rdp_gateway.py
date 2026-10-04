@@ -52,6 +52,7 @@ from app.rdp.cleanpath import (
 from app.rdp.proxy import (
     PROTOCOL_HYBRID,
     PROTOCOL_HYBRID_EX,
+    PROTOCOL_SSL,
     RdpConnectionHooks,
     RdpProxyError,
     RdpTicketStore,
@@ -917,4 +918,322 @@ def test_socket_errors_are_humanized():
     assert "超时" in humanize_socket_error(TimeoutError(10060, "连接尝试失败"))
     # 认不出来的错误：原文照旧，别丢信息
     assert humanize_socket_error(RuntimeError("莫名其妙")) == "莫名其妙"
+
+
+# --------------------------------------------------------------------------- #
+# 老目标机（Windows Server 2003 / XP 只支持 TLS 1.0）的兼容回退
+# --------------------------------------------------------------------------- #
+class _Closer:
+    """只用来观察「失败的那条连接有没有被关掉」。"""
+
+    def __init__(self, calls: list[object]) -> None:
+        self.calls = calls
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+
+def test_perform_handshake_retries_with_legacy_tls(monkeypatch):
+    """现代 TLS 被老服务器重置后，换一条新连接用兼容模式再握一次。
+
+    实测依据：192.168.0.105（Server 2003）在 Python 3.13 默认上下文下 TLS 握手被
+    `ConnectionResetError 10054` 打断，放宽到 TLS 1.0 + `ALL:@SECLEVEL=0` 就握上了
+    （TLSv1 / AES128-SHA）。
+    """
+    from app.rdp import proxy as proxy_module
+
+    calls: list[object] = []
+    cc = X224_CC_HYBRID
+
+    class FakeTls:
+        def getpeercert(self, binary_form=False):
+            return b"der-cert"
+
+        def settimeout(self, value):
+            calls.append(("settimeout", value))
+
+    def fake_negotiate(host, port, x224_request, timeout):
+        calls.append(("negotiate", host, port))
+        return _Closer(calls), cc, {"type": "RDP_NEG_RSP", "selectedProtocol": PROTOCOL_HYBRID}
+
+    def fake_wrap(sock, host, *, legacy):
+        calls.append(("wrap", legacy))
+        if not legacy:
+            raise ConnectionResetError(10054, "远程主机强迫关闭了一个现有的连接。")
+        return FakeTls()
+
+    monkeypatch.setattr(proxy_module, "_negotiate", fake_negotiate)
+    monkeypatch.setattr(proxy_module, "_wrap_tls", fake_wrap)
+
+    response, chain, tls = proxy_module.perform_handshake("10.0.0.9", 3389, X224_CR, timeout=1)
+
+    assert response == cc
+    assert chain == [b"der-cert"]
+    assert calls == [
+        ("negotiate", "10.0.0.9", 3389),
+        ("wrap", False),
+        "close",
+        ("negotiate", "10.0.0.9", 3389),
+        ("wrap", True),
+        ("settimeout", None),
+    ]
+
+
+def test_perform_handshake_reports_readable_error_when_legacy_also_fails(monkeypatch):
+    """两次都握不上时，给的是能看懂的中文（含老系统提示），不是 WinError 原文。"""
+    from app.rdp import proxy as proxy_module
+
+    calls: list[object] = []
+
+    def fake_negotiate(host, port, x224_request, timeout):
+        return _Closer(calls), X224_CC_HYBRID, {"type": "RDP_NEG_RSP", "selectedProtocol": PROTOCOL_HYBRID}
+
+    def fake_wrap(sock, host, *, legacy):
+        raise ssl.SSLError("握手失败")
+
+    monkeypatch.setattr(proxy_module, "_negotiate", fake_negotiate)
+    monkeypatch.setattr(proxy_module, "_wrap_tls", fake_wrap)
+
+    with pytest.raises(RdpProxyError) as excinfo:
+        proxy_module.perform_handshake("10.0.0.9", 3389, X224_CR, timeout=1)
+
+    text = str(excinfo.value)
+    assert "建立 TLS 失败" in text
+    assert "TLS 1.0 兼容模式" in text
+    assert calls.count("close") == 2
+
+
+def test_negotiate_turns_a_reset_into_a_readable_error(monkeypatch):
+    """协商阶段就被对端重置，也必须变成中文 RdpProxyError（别让客户端只看到「内部错误」）。"""
+    from app.rdp import proxy as proxy_module
+
+    class ResetSocket:
+        def settimeout(self, value):
+            pass
+
+        def sendall(self, data):
+            pass
+
+        def recv(self, size):
+            raise ConnectionResetError(10054, "远程主机强迫关闭了一个现有的连接。")
+
+        def close(self):
+            pass
+
+    class FakeSocketModule:
+        @staticmethod
+        def create_connection(*args, **kwargs):
+            return ResetSocket()
+
+    monkeypatch.setattr(proxy_module, "socket", FakeSocketModule())
+
+    with pytest.raises(RdpProxyError) as excinfo:
+        proxy_module._negotiate("10.0.0.9", 3389, X224_CR, 1)
+
+    text = str(excinfo.value)
+    assert "协商安全层时连接中断" in text
+    assert "目标主机断开了连接" in text
+
+
+# --------------------------------------------------------------------------- #
+# 主机级「RDP 安全层」（auto / ssl）
+#
+# 实测依据（192.168.0.105，资产名 Server2003）：协商回的是 selectedProtocol=2
+# （PROTOCOL_HYBRID = NLA），但浏览器客户端发过去的 CredSSP v6 TSRequest 一个字节都
+# 没被回应，目标机直接关连接（审计里 bytesFromClient=57 / bytesFromServer=0）。
+# 把 requestedProtocols 改写成只报 PROTOCOL_SSL 后，目标机改用标准 RDP 安全层，
+# 协商/许可/能力交换全部走通，说明「让老机器绕开 NLA」这个杠杆是真实有效的：
+# 因此做成主机级开关，而不是自动重试（客户端一旦按 NLA 起步就无法中途改协议）。
+# --------------------------------------------------------------------------- #
+def test_force_ssl_offer_rewrites_requested_protocols():
+    from app.rdp.proxy import _force_ssl_offer
+
+    # 真实 ironrdp 负载形态：X.224 CR + Cookie 字段 + RDP_NEG_REQ(HYBRID_EX|HYBRID|SSL)
+    pdu = X224_CR[:11] + b"Cookie: mstshash=admin\r\n" + X224_CR[11:]
+    assert pdu.endswith(bytes.fromhex("0100080002000000"))  # 原本只报 HYBRID
+
+    patched = _force_ssl_offer(pdu)
+
+    assert patched[:-4] == pdu[:-4]  # 除 requestedProtocols 之外一个字节都不动
+    assert patched.endswith(bytes.fromhex("0100080001000000"))
+    assert PROTOCOL_SSL == int.from_bytes(patched[-4:], "little")
+
+
+def test_force_ssl_offer_leaves_other_payloads_untouched():
+    from app.rdp.proxy import _force_ssl_offer
+
+    # 没有 NEG_REQ 的裸 X.224 CR：原样返回，绝不发出结构不对的包
+    bare = bytes.fromhex("0300000b06d00000123400")
+    assert _force_ssl_offer(bare) == bare
+    # 标记正好贴着结尾（不够 8 字节）：不能越界改写
+    assert _force_ssl_offer(b"\x01\x00\x08\x00") == b"\x01\x00\x08\x00"
+    assert _force_ssl_offer(b"") == b""
+
+
+def test_ticket_carries_the_host_rdp_security():
+    store = RdpTicketStore(ttl=120)
+    assert store.issue(**_issue()).security == "auto"  # 默认不改写
+    assert store.issue(**_issue(security="ssl")).security == "ssl"
+
+
+@pytest.mark.parametrize(
+    ("security", "expected"),
+    [("auto", "0100080002000000"), ("ssl", "0100080001000000")],
+)
+def test_handle_connection_honours_host_rdp_security(monkeypatch, security, expected):
+    """只有主机被设成 ssl 时才改写；auto 必须原样转发浏览器请求的协议。"""
+    from app.rdp import proxy as proxy_module
+
+    seen: list[bytes] = []
+
+    def fake_handshake(host, port, x224_request, **kwargs):
+        seen.append(x224_request)
+        raise RdpProxyError("用例在这里停住（不需要真连目标机）")
+
+    monkeypatch.setattr(proxy_module, "perform_handshake", fake_handshake)
+
+    TICKETS.clear()
+    ticket = TICKETS.issue(**_issue(security=security))
+    ws = FakeWebSocket([build_request("10.0.0.8:3389")])
+
+    result = handle_connection(ws, ticket.id)
+
+    assert seen and seen[0].hex().endswith(expected)
+    assert result["ok"] is False
+    assert result["reason"] == "用例在这里停住（不需要真连目标机）"
+    if security == "ssl":
+        assert result["security"] == "ssl"
+    else:
+        assert "security" not in result
+
+
+def test_rdp_security_reaches_the_ticket_through_the_api(app, client, admin_headers, make_host, make_account):
+    """主机上设了「强制 SSL」，签出来的票据必须带着它（否则开关形同虚设）。"""
+    host_id = make_host(
+        name="legacy-01",
+        address="10.0.0.95",
+        port=3389,
+        protocol="rdp",
+        os_type="windows",
+        rdp_security="ssl",
+    )
+    make_account(host_id, name="Administrator", username="Administrator")
+
+    resp = client.post("/api/rdp/sessions", headers=admin_headers, json={"hostId": host_id})
+    assert resp.status_code == 200, resp.get_json()
+    ticket = TICKETS.consume(resp.get_json()["data"]["ticket"])
+    assert ticket is not None
+    assert ticket.security == "ssl"
+
+    with app.app_context():
+        assert AuditLog.query.filter_by(action="rdp_ticket").one().detail["rdpSecurity"] == "ssl"
+
+
+def test_hosts_api_accepts_rdp_security(app, client, admin_headers):
+    resp = client.post(
+        "/api/hosts",
+        headers=admin_headers,
+        json={
+            "name": "legacy-02",
+            "address": "10.0.0.96",
+            "port": 3389,
+            "protocol": "rdp",
+            "osType": "windows",
+            "rdpSecurity": "ssl",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.get_json()
+    data = resp.get_json()["data"]
+    assert data["rdpSecurity"] == "ssl"
+    with app.app_context():
+        assert Host.query.filter_by(name="legacy-02").first().rdp_security == "ssl"
+
+    # 更新接口同样能改回来（主机列表里能随时切换）
+    resp2 = client.put(
+        f"/api/hosts/{data['id']}", headers=admin_headers, json={"rdpSecurity": "auto"}
+    )
+    assert resp2.status_code == 200, resp2.get_json()
+    assert resp2.get_json()["data"]["rdpSecurity"] == "auto"
+
+
+def test_hosts_api_rejects_unknown_rdp_security(client, admin_headers):
+    resp = client.post(
+        "/api/hosts",
+        headers=admin_headers,
+        json={
+            "name": "legacy-03",
+            "address": "10.0.0.97",
+            "protocol": "rdp",
+            "rdpSecurity": "nla",
+        },
+    )
+    assert resp.status_code == 400
+    assert "RDP 安全层" in resp.get_json()["message"]
+
+
+def test_close_reason_hints_forced_ssl_when_nla_stalls(monkeypatch):
+    """Server 2003 实测的那种失败：目标机选了 NLA，客户端把 CredSSP 请求发出去，
+    目标机一个字节都没回就把连接关掉 —— 结束原因必须直接给出「强制 SSL」这条出路，
+    不能只说一句「目标主机断开了连接」让用户自己猜。"""
+    from app.rdp import proxy as proxy_module
+
+    monkeypatch.setattr(
+        proxy_module,
+        "perform_handshake",
+        lambda host, port, x224_request, **kwargs: (X224_CC_HYBRID, [b"\x30chain"], _Closer([])),
+    )
+    monkeypatch.setattr(proxy_module, "server_cert_info", lambda chain: {"subject": "CN=fake"})
+    monkeypatch.setattr(
+        proxy_module,
+        "relay",
+        lambda *args, **kwargs: {
+            "fromClient": 57,
+            "fromServer": 0,
+            "reason": "与目标主机的连接中断：目标主机断开了连接（对方可能重启、注销或网络中断）",
+        },
+    )
+
+    TICKETS.clear()
+    ticket = TICKETS.issue(**_issue())
+    ws = FakeWebSocket([build_request("10.0.0.8:3389")])
+
+    result = handle_connection(ws, ticket.id)
+
+    assert result["bytesFromClient"] == 57
+    assert result["bytesFromServer"] == 0
+    assert "目标主机断开了连接" in result["reason"]
+    assert "NLA/CredSSP" in result["reason"]
+    assert "强制 SSL" in result["reason"]
+
+
+def test_close_reason_has_no_hint_when_server_replied(monkeypatch):
+    """目标机回过数据（比如正常会话、或口令错但服务端有应答）时不许乱加提示。"""
+    from app.rdp import proxy as proxy_module
+
+    monkeypatch.setattr(
+        proxy_module,
+        "perform_handshake",
+        lambda host, port, x224_request, **kwargs: (X224_CC_HYBRID, [b"\x30chain"], _Closer([])),
+    )
+    monkeypatch.setattr(proxy_module, "server_cert_info", lambda chain: {"subject": "CN=fake"})
+    monkeypatch.setattr(
+        proxy_module,
+        "relay",
+        lambda *args, **kwargs: {
+            "fromClient": 1500,
+            "fromServer": 59646,
+            "reason": "目标主机结束了远程桌面会话",
+        },
+    )
+
+    TICKETS.clear()
+    ticket = TICKETS.issue(**_issue())
+    ws = FakeWebSocket([build_request("10.0.0.8:3389")])
+
+    result = handle_connection(ws, ticket.id)
+
+    assert result["reason"] == "目标主机结束了远程桌面会话"
+    assert "强制 SSL" not in result["reason"]
+
+
 

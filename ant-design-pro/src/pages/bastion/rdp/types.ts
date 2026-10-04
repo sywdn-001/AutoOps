@@ -122,6 +122,26 @@ export const describeRdpError = (error: unknown): string => {
   if (http !== undefined && http >= 400) {
     return `RDCleanPath 隧道握手失败（HTTP ${http}）：${origin}`;
   }
+  // 会话已经建立、数据也回来了，只是浏览器端解不开目标机的 PDU ——
+  // 实测 Windows Server 2003 这类老系统就是「[decode error] general error」，
+  // 这时要把两条出路直接写给用户，而不是只说「客户端内部错误」。
+  if (/decode error/i.test(origin)) {
+    return (
+      '目标机发回的远程桌面画面浏览器端解析不了（常见于只支持老旧 RDP 协议的系统，' +
+      '如 Windows Server 2003 / XP）。可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；' +
+      `若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：${origin}`
+    );
+  }
+  // 用户实测报的那条（Windows Server 2003）：隧道在认证阶段就被掐掉，
+  // wasm 只留下一句 “WebSocket connection failed”，必须补上人话与出路。
+  if (/websocket connection failed/i.test(origin)) {
+    return (
+      '与堡垒机的远程桌面通道在认证阶段就断了（目标机常常一个字节都没回就直接关闭连接，' +
+      'Windows Server 2003 / XP 这类只支持老旧 RDP 协议的系统尤其如此）。' +
+      '可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；' +
+      `若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：${origin}`
+    );
+  }
   if (friendly) {
     return `${friendly}（${origin}）`;
   }

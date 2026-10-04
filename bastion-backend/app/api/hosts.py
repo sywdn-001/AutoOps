@@ -8,6 +8,7 @@ from sqlalchemy import or_
 from ..audit import log_event
 from ..extensions import db
 from ..models import Grant, Host, HostAccount, HostGroup, SessionRecord
+from ..rdp.proxy import RDP_SECURITY_CHOICES, RDP_SECURITY_DEFAULT
 from ..security import admin_required, permission_required
 from ..ssh_client import SSHError, build_target, connect, run_single_command
 from ..utils import (
@@ -114,11 +115,21 @@ def _validate_host_payload(payload: dict, *, host_id: int | None = None):
     group_id = parse_int(payload.get("groupId"))
     if group_id and db.session.get(HostGroup, group_id) is None:
         return None, api_error("指定的主机分组不存在", 400, code="INVALID_ARGUMENT")
+    rdp_security = str(
+        payload.get("rdpSecurity") or payload.get("rdp_security") or RDP_SECURITY_DEFAULT
+    ).strip().lower()
+    if rdp_security not in RDP_SECURITY_CHOICES:
+        return None, api_error(
+            f"RDP 安全层只能是 {' / '.join(RDP_SECURITY_CHOICES)}（收到 {rdp_security or '空值'}）",
+            400,
+            code="INVALID_ARGUMENT",
+        )
     return {
         "name": name,
         "address": address,
         "port": int(port),
         "protocol": (payload.get("protocol") or "ssh").strip().lower(),
+        "rdp_security": rdp_security,
         "os_type": (payload.get("osType") or payload.get("os_type") or "linux").strip(),
         "group_id": group_id,
         "description": (payload.get("description") or "").strip(),
@@ -162,6 +173,7 @@ def update_host(host_id: int):
         "address": payload.get("address", host.address),
         "port": payload.get("port", host.port),
         "protocol": payload.get("protocol", host.protocol),
+        "rdpSecurity": payload.get("rdpSecurity", host.rdp_security or RDP_SECURITY_DEFAULT),
         "osType": payload.get("osType", host.os_type),
         "groupId": payload.get("groupId", host.group_id),
         "description": payload.get("description", host.description),
