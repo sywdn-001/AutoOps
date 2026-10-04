@@ -137,11 +137,7 @@
   color: #8c8c8c;
 }
 
-.bastion-launcher-note {
-  margin-bottom: 12px;
-}
-
-/* 录像列表与回放（审计中心 · 远程桌面录像） */
+/* 录像列表（审计中心 · 远程桌面录像） */
 .bastion-rdp-rec-id {
   font-family:
     "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas,
@@ -154,4 +150,57 @@
   max-height: 68vh;
   background: #000;
   border-radius: 6px;
+  outline: none;
+}
+
+/* 回放窗口（/rdp/play）：layout:false 的独立窗口，一整页只有工具条 + 播放区 */
+.bastion-rdp-play {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #fff;
+}
+
+.bastion-rdp-play-bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.bastion-rdp-play-title {
+  font-weight: 600;
+}
+
+.bastion-rdp-play-meta {
+  font-size: 12px;
+}
+
+.bastion-rdp-play-stage {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+  background: #05080f;
+}
+
+.bastion-rdp-play-placeholder {
+  width: 320px;
+  height: 180px;
+}
+
+/* 播放区里让画面按原始比例完整可见（黑底letterbox），不裁切也不拉伸 */
+.bastion-rdp-play .bastion-rdp-video {
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 0 0 1px #1f2937;
 }

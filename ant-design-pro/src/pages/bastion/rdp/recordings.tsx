@@ -21,17 +21,10 @@ import {
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
-import {
-  Alert,
-  Button,
-  Modal,
-  message,
-  Popconfirm,
-  Space,
-  Tag,
-  Typography,
-} from 'antd';
+import { Button, message, Popconfirm, Space, Tooltip, Typography } from 'antd';
 import { useCallback, useRef, useState } from 'react';
+import { buildRdpPlayUrl } from '@/pages/bastion/rdp/types';
+import { consoleWindowFeatures } from '@/pages/bastion/terminal/types';
 import { rdpApi } from '@/services/bastion/endpoints';
 import type { RdpRecording } from '@/services/bastion/types';
 import './rdp.css';
@@ -75,26 +68,29 @@ const formatTime = (value?: string): string => {
 const RdpRecordingsPage = () => {
   const access = useAccess();
   const actionRef = useRef<ActionType | undefined>(undefined);
-  const [playing, setPlaying] = useState<{
-    recording: RdpRecording;
-    url: string;
-  }>();
-  const [loadingPlay, setLoadingPlay] = useState<number>();
   const [removing, setRemoving] = useState<number>();
 
-  /** 换票并打开回放窗口（票据 10 分钟有效，够看完一段录像）。 */
-  const play = useCallback(async (recording: RdpRecording) => {
-    setLoadingPlay(recording.id);
-    try {
-      const ticket = await rdpApi.recordingTicket(recording.id);
-      const url = ticket.path.includes('?')
-        ? ticket.path
-        : `${ticket.path}?ticket=${encodeURIComponent(ticket.ticket)}`;
-      setPlaying({ recording, url });
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '打开录像失败');
-    } finally {
-      setLoadingPlay(undefined);
+  /**
+   * 回看：**弹独立窗口**（与终端/远程桌面窗口同形态），窗口自己换票再流式播放。
+   * 票据 10 分钟有效、且只在打开窗口的那一刻换一次（换票时后端写一条 `rdp_recording_viewed`）。
+   */
+  const play = useCallback((recording: RdpRecording) => {
+    const url = buildRdpPlayUrl({
+      recordingId: recording.id,
+      hostName: recording.hostName || `主机 #${recording.hostId}`,
+      username: recording.username,
+      accountUsername: recording.accountUsername,
+      duration: formatDuration(recording.durationSeconds),
+      size: formatSize(recording.sizeBytes),
+      createdAt: formatTime(recording.createdAt),
+    });
+    const opened = window.open(
+      url,
+      `rdp-play-${recording.id}`,
+      consoleWindowFeatures(),
+    );
+    if (!opened) {
+      message.warning('浏览器拦截了回放窗口，请允许本页弹出窗口后重试');
     }
   }, []);
 
@@ -173,15 +169,16 @@ const RdpRecordingsPage = () => {
       width: 170,
       render: (_, record) => (
         <Space size={4}>
-          <Button
-            size="small"
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            loading={loadingPlay === record.id}
-            onClick={() => void play(record)}
-          >
-            回看
-          </Button>
+          <Tooltip title="在独立窗口里回放（会换一张 10 分钟有效的一次性票据，并在审计里记一条查看记录）">
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={() => play(record)}
+            >
+              回看
+            </Button>
+          </Tooltip>
           <Popconfirm
             title="删除这条录像？"
             description="录像文件会从堡垒机上删除，审计里只留下「已删除」的记录。"
@@ -206,24 +203,25 @@ const RdpRecordingsPage = () => {
 
   return (
     <PageContainer title="远程桌面录像">
-      <Alert
-        className="bastion-launcher-note"
-        type="info"
-        showIcon
-        message="登录 Windows 资产的远程操作全过程都在这里"
-        description={
-          access.canSessionViewAll || access.canAuditView
-            ? '你能看到所有人的录像；每次点「回看」都会在审计里记一条查看记录。'
-            : '你只能看到自己上传的录像；每次点「回看」都会在审计里记一条查看记录。'
-        }
-      />
       <ProTable<RdpRecording>
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
         search={false}
         cardBordered
-        headerTitle="录像列表"
+        headerTitle={
+          <Space size={10} wrap>
+            <span>录像列表</span>
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, fontWeight: 'normal' }}
+            >
+              {access.canSessionViewAll || access.canAuditView
+                ? '你能看到所有人的录像；每次「回看」都会在审计里记一条查看记录。'
+                : '你只能看到自己上传的录像；每次「回看」都会在审计里记一条查看记录。'}
+            </Text>
+          </Space>
+        }
         options={{ reload: true, density: false, setting: false }}
         toolBarRender={() => [
           <Button
@@ -257,46 +255,6 @@ const RdpRecordingsPage = () => {
           };
         }}
       />
-
-      <Modal
-        open={playing !== undefined}
-        title={
-          playing
-            ? `录像回放 · #${playing.recording.id} ${playing.recording.hostName || ''}`
-            : '录像回放'
-        }
-        width={880}
-        destroyOnHidden
-        onCancel={() => setPlaying(undefined)}
-        footer={[
-          <Button key="close" onClick={() => setPlaying(undefined)}>
-            关闭
-          </Button>,
-        ]}
-      >
-        {playing ? (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            {/* biome-ignore lint/a11y/useMediaCaption: 远程桌面录像只录画面（canvas.captureStream 没有音轨），不存在需要对白的字幕 */}
-            <video
-              key={playing.url}
-              src={playing.url}
-              controls
-              autoPlay
-              className="bastion-rdp-video"
-            />
-            <Text type="secondary">
-              操作人 {playing.recording.username || '—'} · 资产账号{' '}
-              {playing.recording.accountUsername || '—'} · 时长{' '}
-              {formatDuration(playing.recording.durationSeconds)} · 体积{' '}
-              {formatSize(playing.recording.sizeBytes)} · 录制于{' '}
-              {formatTime(playing.recording.createdAt)}
-            </Text>
-            <Tag color="blue">
-              回放链接 10 分钟后失效，重新打开需再次换票（并再记一条审计）
-            </Tag>
-          </Space>
-        ) : null}
-      </Modal>
     </PageContainer>
   );
 };

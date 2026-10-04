@@ -49,8 +49,6 @@ const TerminalLauncherPage = () => {
   const [picked, setPicked] = useState<Record<number, number>>({});
   const [opening, setOpening] = useState<number>();
   const [openingFiles, setOpeningFiles] = useState<number>();
-  /** 列表里有没有 Windows 远程桌面主机：有才提示「口令会下发到浏览器」 */
-  const [hasRdp, setHasRdp] = useState(false);
 
   /** 开一个独立的文件管理器窗口（SFTP），与终端窗口同形态、互不影响。 */
   const openFiles = useCallback((target: TerminalTarget, accountId: number) => {
@@ -203,7 +201,7 @@ const TerminalLauncherPage = () => {
                 disabled
                   ? reason
                   : isRdp
-                    ? '弹出独立远程桌面窗口'
+                    ? '弹出独立远程桌面窗口。CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计），请只在自己信得过的设备上使用'
                     : '弹出独立终端窗口'
               }
             >
@@ -256,15 +254,6 @@ const TerminalLauncherPage = () => {
 
   return (
     <PageContainer title="网页终端">
-      {hasRdp ? (
-        <Alert
-          className="bastion-launcher-note"
-          type="info"
-          showIcon
-          title="列表里的 Windows 主机会在浏览器内建立远程桌面"
-          description="与密钥登录的字符终端不同：Windows 的 CredSSP/NLA 必须在浏览器侧完成，所以打开远程桌面时堡垒机会把该资产账号的口令下发到你的浏览器（服务端会单独留一条审计）。请只在自己信得过的设备上使用。"
-        />
-      ) : null}
       <ProTable<TerminalTarget>
         rowKey="hostId"
         actionRef={actionRef}
@@ -297,9 +286,7 @@ const TerminalLauncherPage = () => {
         }}
         request={async () => {
           const data = await terminalApi.targets();
-          const list = data ?? [];
-          setHasRdp(list.some((item) => item.protocol === 'rdp'));
-          return { data: list, success: true };
+          return { data: data ?? [], success: true };
         }}
       />
     </PageContainer>

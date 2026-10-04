@@ -73,6 +73,16 @@ export default [
     component: './bastion/rdp/console',
   },
   {
+    // 录像回放：审计中心「远程桌面录像」列表点「回看」后**弹独立窗口**进来，一个窗口一段录像。
+    // 同样不带后台框架、不进菜单（票据在页面里换，URL 上的参数不作数）。
+    path: '/rdp/play',
+    name: '录像回放',
+    access: 'canRdpRecordings',
+    layout: false,
+    hideInMenu: true,
+    component: './bastion/rdp/play',
+  },
+  {
     path: '/assets',
     name: '资产管理',
     icon: 'CloudServerOutlined',

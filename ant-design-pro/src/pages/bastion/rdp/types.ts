@@ -147,6 +147,37 @@ export const buildRdpConsoleUrl = (options: {
   return `/rdp/console?${params.toString()}`;
 };
 
+/**
+ * 录像回放窗口地址。审计中心列表点「回看」时 `window.open(url, name, features)` 弹独立窗口；
+ * 窗口自己会调 `POST /api/rdp/recordings/<id>/ticket` 换票（后端校验可见性并写一条查看审计），
+ * 再让 `<video>` 带 `?ticket=` 流式播放（支持 Range，进度条能拖）。元信息随 query 带过去，省一次列表请求。
+ */
+export const buildRdpPlayUrl = (options: {
+  recordingId: number;
+  hostName?: string;
+  username?: string | null;
+  accountUsername?: string | null;
+  duration?: string;
+  size?: string;
+  createdAt?: string;
+}): string => {
+  const params = new URLSearchParams({
+    recordingId: String(options.recordingId),
+  });
+  const fill = (key: string, value?: string | null) => {
+    if (value) {
+      params.set(key, value);
+    }
+  };
+  fill('title', options.hostName);
+  fill('user', options.username);
+  fill('account', options.accountUsername);
+  fill('duration', options.duration);
+  fill('size', options.size);
+  fill('time', options.createdAt);
+  return `/rdp/play?${params.toString()}`;
+};
+
 /** WebSocket 隧道地址：同源，协议随页面（https → wss）。 */
 export const buildRdpWsUrl = (wsPath: string): string => {
   const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

@@ -63,6 +63,15 @@ const CLOSE_COUNTDOWN_SECONDS = 10;
 
 /** 窗口尺寸变化后重新协商远端分辨率的最小间隔（拖动窗口时不要每个像素都发一次）。 */
 const VIEWPORT_DEBOUNCE_MS = 200;
+/**
+ * 刚连上时那次 `resize()` 会赶在 wasm 的会话任务起来之前发出（日志里能看到它排在
+ * `Start RDP session` 前面），于是被丢掉；隔一会儿再确认，没生效就补发。
+ * 实测目标机在会话刚建立的头几秒里会忽略请求，所以补发最多试 `VIEWPORT_RETRY_ATTEMPTS` 次。
+ */
+const VIEWPORT_RETRY_MS = 1200;
+const VIEWPORT_RETRY_ATTEMPTS = 3;
+/** 工具条上的分辨率取自画布后备缓冲，用低频轮询保持诚实。 */
+const VIEW_SIZE_POLL_MS = 500;
 
 /** 远端桌面的下限：比这更小的分辨率 Windows 桌面会挤成一团。 */
 const MIN_VIEWPORT_WIDTH = 800;
@@ -128,6 +137,9 @@ const RdpConsolePage = () => {
   /** 已经发给远端的视口尺寸，避免重复发 resize。 */
   const viewportRef = useRef<{ width: number; height: number } | null>(null);
   const resizeTimerRef = useRef<number | undefined>(undefined);
+  /** 补发定时器：确认远端真的把分辨率改过来了，没改成就再要一次。 */
+  const verifyTimerRef = useRef<number | undefined>(undefined);
+  const verifyAttemptsRef = useRef(0);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -155,14 +167,20 @@ const RdpConsolePage = () => {
   const startedAt = useRef<number>(0);
 
   /**
-   * 把画布尺寸对齐到舞台尺寸，并让远端跟着改分辨率。
+   * 请求远端把分辨率改成舞台尺寸（MS-RDPEDISP 显示控制），让被控主机真的感知「屏幕变大了」。
    *
-   * `force` 用于刚连上时：那时 wasm 已把画布按协商出的 1280×720 摆好，必须无条件覆盖一次。
+   * 两个踩过的坑记在这里：
+   * 1. **绝不能自己改 `canvas.width/height`**。画布后备缓冲归 wasm 管：它作画时会按桌面尺寸
+   *    摆好缓冲、收到 `resize()` 时按新分辨率重设缓冲。我们手动改缓冲会让浏览器**清空画布**，
+   *    而 RDP 只补增量区域、静态桌面不发帧 —— 被清掉的那块就永远是黑的（右侧/下方黑带）。
+   * 2. 刚连上时那次 `resize()` 赶在 wasm 的会话任务之前发出（日志里排在 `Start RDP session`
+   *    前面）会被丢掉，所以 `VIEWPORT_RETRY_MS` 之后确认一次，没生效就补发。
+   *
+   * `force` 用于刚连上时无条件发一次。
    */
   const applyViewport = useCallback((force = false) => {
     const stage = stageRef.current;
-    const canvas = canvasRef.current;
-    if (!stage || !canvas) {
+    if (!stage) {
       return;
     }
     const width = Math.max(MIN_VIEWPORT_WIDTH, Math.floor(stage.clientWidth));
@@ -178,10 +196,6 @@ const RdpConsolePage = () => {
       return;
     }
     viewportRef.current = { width, height };
-    setViewSize({ width, height });
-    // 画布后备缓冲尺寸 = 远端桌面分辨率；CSS 尺寸也是 100%，所以是 1:1 像素映射
-    canvas.width = width;
-    canvas.height = height;
     const session = sessionRef.current;
     if (!session) {
       return;
@@ -193,7 +207,78 @@ const RdpConsolePage = () => {
       // 目标机可能不支持动态分辨率（老系统/被策略关掉），此时画面仍是可用的，只是不跟随窗口
       console.error('[rdp] 通知远端调整分辨率失败', err);
     }
+    verifyAttemptsRef.current = 0;
+    window.clearTimeout(verifyTimerRef.current);
+    verifyTimerRef.current = window.setTimeout(function verify() {
+      const canvas = canvasRef.current;
+      const live = sessionRef.current;
+      if (!canvas || !live) {
+        return;
+      }
+      if (canvas.width === width && canvas.height === height) {
+        return; // 远端已经跟上了
+      }
+      verifyAttemptsRef.current += 1;
+      try {
+        live.resize(width, height, null);
+      } catch (err) {
+        console.error('[rdp] 补发分辨率调整失败', err);
+      }
+      if (verifyAttemptsRef.current < VIEWPORT_RETRY_ATTEMPTS) {
+        verifyTimerRef.current = window.setTimeout(verify, VIEWPORT_RETRY_MS);
+      }
+    }, VIEWPORT_RETRY_MS);
   }, []);
+
+  /**
+   * 画布 CSS 盒：按位图宽高比等比放进舞台（contain）。
+   *
+   * 位图尺寸通常就等于舞台（远端跟着改了分辨率时是 1:1 像素映射）；万一远端拒绝或还没跟上，
+   * 这里保证是「按比例留黑边」而不是把画面拉变形。
+   */
+  const fitCanvasBox = useCallback(() => {
+    const canvas = canvasRef.current;
+    const stage = stageRef.current;
+    if (!canvas || !stage || !canvas.width || !canvas.height) {
+      return;
+    }
+    const availW = stage.clientWidth;
+    const availH = stage.clientHeight;
+    if (availW <= 0 || availH <= 0) {
+      return;
+    }
+    const scale = Math.min(availW / canvas.width, availH / canvas.height);
+    const cssW = `${Math.max(1, Math.round(canvas.width * scale))}px`;
+    const cssH = `${Math.max(1, Math.round(canvas.height * scale))}px`;
+    if (canvas.style.width !== cssW) {
+      canvas.style.width = cssW;
+    }
+    if (canvas.style.height !== cssH) {
+      canvas.style.height = cssH;
+    }
+  }, []);
+
+  /**
+   * 工具条上的分辨率显示**实际生效**的那个：画布后备缓冲的真实尺寸。
+   *
+   * 远端的显示控制可能拒绝我们的请求（实测 640×480 被拒、800×600 生效），也可能由它自己
+   * 调整，所以低频读一次缓冲，而不是显示我们「想要」的尺寸。
+   */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      fitCanvasBox();
+      const canvas = canvasRef.current;
+      if (!canvas?.width || !canvas.height) {
+        return;
+      }
+      setViewSize((prev) =>
+        prev && prev.width === canvas.width && prev.height === canvas.height
+          ? prev
+          : { width: canvas.width, height: canvas.height },
+      );
+    }, VIEW_SIZE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [fitCanvasBox]);
 
   /** 窗口尺寸变化：延后合并处理，避免拖动窗口时每个像素都发一次 resize。 */
   const scheduleViewport = useCallback(() => {
@@ -441,7 +526,13 @@ const RdpConsolePage = () => {
         .authToken('none')
         .desktopSize(new rdp.DesktopSize(1280, 720))
         .extension(new rdp.Extension('enable_credssp', true))
+        // MS-RDPEDISP 动态分辨率：打开后 `Session.resize()` 才会真正改变被控主机的桌面尺寸
+        .extension(new rdp.Extension('display_control', true))
         .renderCanvas(canvas);
+      // wasm 自己动了画布缓冲（远端改了分辨率）时，跟着把 CSS 盒摆正
+      builder.canvasResizedCallback(() => {
+        fitCanvasBox();
+      });
       builder.setCursorStyleCallbackContext(canvas);
       builder.setCursorStyleCallback((style: string | undefined) => {
         canvas.style.cursor = style || 'default';
@@ -450,11 +541,9 @@ const RdpConsolePage = () => {
       const live = await builder.connect();
       sessionRef.current = live;
 
-      // 4) 画布对齐窗口大小：先按远端协商结果摆好，再要求远端改成窗口大小（分辨率跟随窗口）
-      const desktop = live.desktopSize();
-      canvas.width = desktop.width;
-      canvas.height = desktop.height;
+      // 4) 分辨率跟随窗口：只向远端发请求，画布缓冲由 wasm 按远端桌面尺寸自己管
       applyViewport(true);
+      fitCanvasBox();
       canvas.focus();
 
       detachRef.current = attachInput(canvas, live, rdp);
@@ -496,6 +585,7 @@ const RdpConsolePage = () => {
   }, [
     applyViewport,
     finishRecording,
+    fitCanvasBox,
     handleSessionEnd,
     query,
     startRecording,
@@ -507,6 +597,7 @@ const RdpConsolePage = () => {
     return () => {
       window.clearTimeout(timerRef.current);
       window.clearTimeout(resizeTimerRef.current);
+      window.clearTimeout(verifyTimerRef.current);
       window.clearInterval(countdownRef.current);
       detachRef.current?.();
       detachRef.current = null;
