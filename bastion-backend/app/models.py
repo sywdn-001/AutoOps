@@ -1211,6 +1211,11 @@ class RdpRecording(db.Model):
     height = db.Column(db.Integer)
     started_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    #: 窗口被强行关掉（崩溃 / 直接关标签页）时由服务端自动收口的部分录像 —— 界面要标出来，
+    #: 免得审计把「只录到一半」当成「正常结束」。整包上传的老路径恒为 False。
+    recovered = db.Column(db.Boolean, default=False, nullable=False)
+    #: 边录边传的任务号（浏览器生成的 uuid hex）；走整包上传的录像为 NULL
+    upload_id = db.Column(db.String(64))
 
     def to_dict(self) -> dict:
         return {
@@ -1229,6 +1234,70 @@ class RdpRecording(db.Model):
             "height": self.height,
             "startedAt": _iso(self.started_at),
             "createdAt": _iso(self.created_at),
+            # 服务端自动收口的部分录像（窗口被强行关掉）：界面标「未正常结束」
+            "recovered": bool(self.recovered),
+            "uploadId": self.upload_id,
             # 相对路径，前端 <video src> 直接可用；也便于反向代理换域名
             "url": f"/api/rdp/recordings/{self.id}/file",
+        }
+
+
+class RdpRecordingUpload(db.Model):
+    """「边录边传」的上传任务：浏览器每 5 秒发一片，先攒在磁盘的暂存文件里。
+
+    为什么要这张表：整包上传时**窗口被强行关掉**（直接关标签页 / 浏览器崩溃 / 拔网线）
+    会把那个上传请求一起带走，录像整段丢失。边录边传之后，服务端手里随时已经有录到的
+    部分 —— 只要记住「任务还在进行、它属于哪台主机、最后一片什么时候到的」，
+    `app/api/rdp.py:sweep_stale_uploads()` 就能在静默超时后把暂存部分转正成一条
+    ``recovered=True`` 的录像（界面标「未正常结束」）。
+
+    暂存文件在 ``<RDP_RECORDING_DIR>/staging/<upload_id>.part``；转正时 ``os.replace``
+    成服务端 uuid 文件名（同一文件系统内的原子改名，不会出现半个文件）。
+    """
+
+    __tablename__ = "rdp_recording_uploads"
+    __table_args__ = (
+        db.Index("ix_rdp_recording_uploads_last_seen", "last_seen_at"),
+        db.Index("ix_rdp_recording_uploads_username", "username"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    #: 浏览器生成的十六进制任务号；服务端校验 `^[0-9a-f]{8,64}$` 之后才拼进路径
+    upload_id = db.Column(db.String(64), nullable=False, unique=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    username = db.Column(db.String(64), default="")
+    host_id = db.Column(db.Integer, db.ForeignKey("hosts.id"))
+    host_name = db.Column(db.String(64), default="")
+    host_address = db.Column(db.String(128), default="")
+    account_username = db.Column(db.String(64), default="")
+    mime_type = db.Column(db.String(64), default="video/webm")
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    #: 已收到的片数、最后一片的序号（-1 = 一片都没收到）、暂存文件当前字节数
+    chunks = db.Column(db.Integer, default=0, nullable=False)
+    last_seq = db.Column(db.Integer, default=-1, nullable=False)
+    size_bytes = db.Column(db.BigInteger, default=0, nullable=False)
+    started_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    #: 最后一次收到分片的时刻 —— 静默超过阈值就认为窗口已经没了（sweep 的判据）
+    last_seen_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    client_ip = db.Column(db.String(64), default="")
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "uploadId": self.upload_id,
+            "hostId": self.host_id,
+            "hostName": self.host_name,
+            "hostAddress": self.host_address,
+            "username": self.username,
+            "accountUsername": self.account_username,
+            "mimeType": self.mime_type,
+            "width": self.width,
+            "height": self.height,
+            "chunks": self.chunks or 0,
+            "lastSeq": -1 if self.last_seq is None else self.last_seq,
+            "sizeBytes": self.size_bytes or 0,
+            "startedAt": _iso(self.started_at),
+            "lastSeenAt": _iso(self.last_seen_at),
+            "createdAt": _iso(self.created_at),
         }

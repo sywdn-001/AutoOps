@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from datetime import timedelta
 
@@ -32,7 +33,7 @@ from ..access import accessible_targets, serialize_target
 from ..audit import log_event
 from ..crypto import decrypt
 from ..extensions import db
-from ..models import Host, HostAccount, RdpRecording, User
+from ..models import Host, HostAccount, RdpRecording, RdpRecordingUpload, SessionRecord, User, utcnow
 from ..rdp.proxy import (
     RDP_SECURITY_DEFAULT,
     TICKETS,
@@ -70,6 +71,22 @@ RECORDING_TICKET_SCOPE = "rdp-recording"
 #: 回放票据有效期（秒）：够看完一段录像，又不至于成为长期有效的下载链接
 RECORDING_TICKET_TTL_SECONDS = 600
 
+#: 边录边传：分片暂存在录像目录下的这个子目录里，转正时改名成服务端 uuid.webm
+STAGING_DIRNAME = "staging"
+STAGING_SUFFIX = ".part"
+
+#: 边录边传的任务号只允许十六进制 —— 它会被拼进暂存文件名，绝不能让请求里的任意字符串进路径
+UPLOAD_ID_PATTERN = re.compile(r"^[0-9a-f]{8,64}$")
+
+#: 单个任务最多收多少片（每片 5 秒 ⇒ 够 27 小时以上的会话）
+MAX_UPLOAD_CHUNKS = 20_000
+
+#: 「边录边传」静默多少秒就认为窗口已经没了，可以把暂存部分收口成一条录像
+DEFAULT_UPLOAD_STALE_SECONDS = 45
+
+#: 小于这个体积认为根本没录到东西（与前端 RECORD_MIN_BYTES 对齐）
+MIN_RECORDING_BYTES = 4096
+
 
 def _client_ip() -> str:
     forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
@@ -99,6 +116,8 @@ def create_rdp_session():
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    # 有人要开新会话 ⇒ 上一段「窗口被强行关掉」的会话的记录该收口了（不需要后台线程）
+    sweep_stale_uploads()
     payload = request.get_json(silent=True) or {}
     host_id = parse_int(payload.get("hostId") if "hostId" in payload else payload.get("host_id"))
     if not host_id:
@@ -249,6 +268,52 @@ def _recording_max_bytes() -> int:
     return int(current_app.config.get("RDP_RECORDING_MAX_MB", 512)) * 1024 * 1024
 
 
+def _recording_min_bytes() -> int:
+    return max(0, int(current_app.config.get("RDP_RECORDING_MIN_BYTES", MIN_RECORDING_BYTES)))
+
+
+def _staging_dir() -> str:
+    """边录边传的暂存目录（在录像目录下，单独一层，不会被回放/删除接口扫到）。"""
+    path = os.path.join(_recording_dir(), STAGING_DIRNAME)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _staging_path(upload: RdpRecordingUpload) -> str:
+    """暂存文件路径：文件名只用**已校验过的十六进制任务号**，不碰请求里的其它字符串。"""
+    return os.path.join(_staging_dir(), f"{upload.upload_id}{STAGING_SUFFIX}")
+
+
+def _upload_stale_seconds() -> int:
+    return max(1, int(current_app.config.get("RDP_UPLOAD_STALE_SECONDS", DEFAULT_UPLOAD_STALE_SECONDS)))
+
+
+def _resolve_rdp_target(actor, host_id: int | None):
+    """把 hostId 解析成「可远程桌面的目标」：``(target, host, None)`` 或 ``(None, None, 错误响应)``。
+
+    准入与「换票据」同源（``accessible_targets`` + 协议必须是 rdp），否则任何人都能往
+    任意主机名下塞录像。
+    """
+    target = None
+    if host_id:
+        targets = {
+            item["hostId"]: item
+            for item in accessible_targets(actor, protocols=(RDP_PROTOCOL,))
+        }
+        target = targets.get(host_id)
+    if target is None:
+        return (
+            None,
+            None,
+            api_error(
+                "该主机不是可远程桌面的主机（协议须为 rdp），或你没有访问权限",
+                403,
+                code="FORBIDDEN",
+            ),
+        )
+    return target, target["host"], None
+
+
 def _visible_all(actor) -> bool:
     """能否看全部人的录像：审计 / 全量会话查看权限，或管理员。"""
     return has_any_permission(actor, RECORDING_VIEW_ALL_PERMISSIONS)
@@ -330,15 +395,9 @@ def upload_recording():
     if not host_id:
         return api_error("请指定录像所属的主机", 400, code="INVALID_ARGUMENT")
 
-    targets = {item["hostId"]: item for item in accessible_targets(actor, protocols=(RDP_PROTOCOL,))}
-    target = targets.get(host_id)
-    if target is None:
-        return api_error(
-            "该主机不是可远程桌面的主机（协议须为 rdp），或你没有访问权限",
-            403,
-            code="FORBIDDEN",
-        )
-    host = target["host"]
+    target, host, failure = _resolve_rdp_target(actor, host_id)
+    if failure is not None:
+        return failure
 
     mime = (upload.mimetype or "").split(";")[0].strip().lower()
     if mime not in ALLOWED_RECORDING_MIME and mime != "application/octet-stream":
@@ -444,6 +503,333 @@ def upload_recording():
     return api_ok(recording.to_dict(), message="录像已保存", status=201)
 
 
+# --------------------------------------------------------------------------- #
+# 边录边传（分片）：窗口被强行关掉时，服务端手里仍然有已录到的部分
+# --------------------------------------------------------------------------- #
+def _session_id_for_upload(upload: RdpRecordingUpload) -> int | None:
+    """把录像挂回它对应的会话行：同一用户 + 同一主机 + 开始时间最接近的那条 rdp 会话。
+
+    浏览器侧拿不到 `sessions.id`（它是服务端在隧道打开时建的），但「谁、在哪台机器上、
+    什么时候开始录」这三样都在任务行里 —— 据此把录像关联回会话，审计页才能从会话点进录像。
+    """
+    if not upload.user_id or not upload.host_id or not upload.started_at:
+        return None
+    row = (
+        db.session.query(SessionRecord)
+        .filter(
+            SessionRecord.user_id == upload.user_id,
+            SessionRecord.host_id == upload.host_id,
+            SessionRecord.protocol == RDP_PROTOCOL,
+            SessionRecord.started_at >= upload.started_at - timedelta(minutes=5),
+        )
+        .order_by(SessionRecord.id.desc())
+        .first()
+    )
+    return row.id if row else None
+
+
+def _discard_upload(upload: RdpRecordingUpload) -> None:
+    """删掉暂存文件与任务行（体积太小 / 前端改用整包上传兜底 / 主动放弃）。"""
+    path = _staging_path(upload)
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:  # pragma: no cover - 删不掉只记日志，不阻断
+        log.exception("清理录像暂存文件失败 path=%s", path)
+    db.session.delete(upload)
+    db.session.commit()
+
+
+def _finalize_upload(
+    upload: RdpRecordingUpload,
+    *,
+    duration_seconds: int,
+    session_id: int | None = None,
+    recovered: bool = False,
+) -> RdpRecording | None:
+    """把暂存分片转正：``<upload_id>.part`` → ``<uuid>.webm`` + ``rdp_recordings`` 行 + 审计。
+
+    体积太小（纯黑 / 刚开就断）返回 ``None`` 并把任务清掉。``recovered=True`` 表示这是
+    **窗口被强行关掉**后由服务端自动收口的部分录像，界面上要标「未正常结束」。
+    """
+    path = _staging_path(upload)
+    actual = os.path.getsize(path) if os.path.exists(path) else 0
+    if actual < _recording_min_bytes():
+        log.info("边录边传录像太小，丢弃 upload=%s size=%s", upload.upload_id, actual)
+        _discard_upload(upload)
+        return None
+
+    if session_id is None:
+        session_id = _session_id_for_upload(upload)
+
+    filename = f"{uuid.uuid4().hex}.webm"
+    os.replace(path, os.path.join(_recording_dir(), filename))
+    recording = RdpRecording(
+        session_id=session_id,
+        host_id=upload.host_id,
+        host_name=upload.host_name or "",
+        host_address=upload.host_address or "",
+        username=upload.username or "",
+        account_username=upload.account_username or "",
+        filename=filename,
+        size_bytes=actual,
+        duration_seconds=max(0, int(duration_seconds or 0)),
+        mime_type=FALLBACK_RECORDING_MIME,
+        width=upload.width,
+        height=upload.height,
+        started_at=upload.started_at,
+        recovered=recovered,
+        upload_id=upload.upload_id,
+    )
+    db.session.add(recording)
+    db.session.delete(upload)
+    db.session.commit()
+
+    duration = recording.duration_seconds or 0
+    tail = "，窗口被强行关闭，这里是服务端自动收口的部分内容）" if recovered else "）"
+    log_event(
+        "session",
+        "rdp_recording_saved",
+        message=(
+            f"{recording.username} 保存了 {recording.host_name} 的远程桌面录像"
+            f"（{actual / 1024:.0f} KB，{duration} 秒{tail}"
+        ),
+        target_type="host",
+        target_id=recording.host_id,
+        target_name=recording.host_name,
+        actor_id=upload.user_id,
+        actor_username=recording.username,
+        actor_role="",
+        ip=upload.client_ip or "",
+        detail={
+            "protocol": RDP_PROTOCOL,
+            "recordingId": recording.id,
+            "sizeBytes": actual,
+            "durationSeconds": duration,
+            "mimeType": recording.mime_type,
+            "account": recording.account_username,
+            "recovered": recovered,
+            "uploadId": upload.upload_id,
+            "chunks": upload.chunks or 0,
+        },
+    )
+    log.info(
+        "收口 RDP 录像 user=%s host=%s size=%s recovered=%s",
+        recording.username,
+        recording.host_name,
+        actual,
+        recovered,
+    )
+    return recording
+
+
+def sweep_stale_uploads(*, skip: str | None = None, ttl_seconds: int | None = None) -> int:
+    """把静默太久的「边录边传」任务收口成录像，返回收口条数。
+
+    为什么这样触发：窗口被强行关掉（`pagehide` / 浏览器崩溃 / 拔网线）时前端**来不及**
+    调 finalize，但分片早就在服务端了。收口点刻意放在「有人打开审计中心 / 有人开新的
+    远程桌面」这两个时刻 —— 不需要后台线程，下一个访客到来时把上一段录像转正。
+    """
+    ttl = _upload_stale_seconds() if ttl_seconds is None else max(1, int(ttl_seconds))
+    deadline = utcnow() - timedelta(seconds=ttl)
+    rows = (
+        db.session.query(RdpRecordingUpload)
+        .filter(RdpRecordingUpload.last_seen_at < deadline)
+        .all()
+    )
+    done = 0
+    for upload in rows:
+        if skip and upload.upload_id == skip:
+            continue
+        duration = 0
+        if upload.started_at and upload.last_seen_at:
+            duration = max(1, int((upload.last_seen_at - upload.started_at).total_seconds()))
+        try:
+            if _finalize_upload(upload, duration_seconds=duration, recovered=True) is not None:
+                done += 1
+        except Exception:  # pragma: no cover - 单个任务出错不能拖垮列表接口
+            log.exception("自动收口边录边传录像失败 upload=%s", upload.upload_id)
+            db.session.rollback()
+    if done:
+        log.info("自动收口了 %s 段边录边传的远程桌面录像", done)
+    return done
+
+
+@bp.post("/recordings/chunk")
+@permission_required("rdp:use")
+def upload_recording_chunk():
+    """边录边传的一个分片（multipart：``uploadId`` / ``seq`` / ``file`` / ``hostId``）。
+
+    前端每 5 秒（`MediaRecorder` 的 `timeslice`）发一片，**边录边传**：窗口被强行关掉时
+    服务端手里已经有已录到的部分，随后由 `sweep_stale_uploads()` 自动收口，而不是像
+    整包上传那样整段丢失。首片额外带元信息（宽高 / 资产账号 / 开始时间），后到的也会补上。
+    """
+    actor = load_actor()
+    if actor is None:
+        return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+
+    upload_id = (request.form.get("uploadId") or "").strip().lower()
+    if not UPLOAD_ID_PATTERN.match(upload_id):
+        return api_error("uploadId 不合法（应为 8-64 位十六进制）", 400, code="INVALID_ARGUMENT")
+
+    upload = (
+        db.session.query(RdpRecordingUpload)
+        .filter(RdpRecordingUpload.upload_id == upload_id)
+        .one_or_none()
+    )
+    if upload is not None and (upload.username or "") != (actor.username or ""):
+        return api_error("该录像上传任务不存在", 404, code="NOT_FOUND")
+
+    target, host, failure = _resolve_rdp_target(actor, parse_int(request.form.get("hostId")))
+    if failure is not None:
+        return failure
+    if upload is not None and upload.host_id != host.id:
+        return api_error("该录像上传任务属于另一台主机", 409, code="CONFLICT")
+    if upload is None:
+        accounts = target.get("accounts") or []
+        upload = RdpRecordingUpload(
+            upload_id=upload_id,
+            user_id=actor.id,
+            username=actor.username or "",
+            host_id=host.id,
+            host_name=host.name,
+            host_address=host.address,
+            account_username=(request.form.get("accountUsername") or "").strip()
+            or (accounts[0]["username"] if accounts else ""),
+            mime_type=FALLBACK_RECORDING_MIME,
+            width=parse_int(request.form.get("width")),
+            height=parse_int(request.form.get("height")),
+            started_at=parse_datetime(request.form.get("startedAt")) or utcnow(),
+            last_seq=-1,
+            chunks=0,
+            size_bytes=0,
+            client_ip=_client_ip(),
+        )
+        db.session.add(upload)
+
+    chunk = request.files.get("file")
+    if chunk is None:
+        return api_error("缺少分片内容", 400, code="INVALID_ARGUMENT")
+    seq = parse_int(request.form.get("seq"), 0)
+    if seq is None or seq < 0:
+        return api_error("分片序号 seq 不合法", 400, code="INVALID_ARGUMENT")
+
+    last_seq = upload.last_seq if upload.last_seq is not None else -1
+    if seq <= last_seq:  # 前端重试重发了同一片：幂等返回，不重复追加
+        return api_ok(
+            {**upload.to_dict(), "seq": seq, "duplicate": True},
+            message="分片已收到（重传）",
+        )
+    if seq != last_seq + 1:
+        return api_error(
+            f"分片序号不连续（期望 {last_seq + 1}，收到 {seq}）",
+            409,
+            code="OUT_OF_ORDER",
+        )
+    if (upload.chunks or 0) >= MAX_UPLOAD_CHUNKS:
+        return api_error("分片数量超过上限", 413, code="TOO_LARGE")
+
+    data = chunk.stream.read()
+    if not data:
+        return api_error("分片内容为空", 400, code="INVALID_ARGUMENT")
+    if (upload.size_bytes or 0) + len(data) > _recording_max_bytes():
+        return api_error(
+            f"录像文件超过上限 {current_app.config.get('RDP_RECORDING_MAX_MB', 512)} MB",
+            413,
+            code="TOO_LARGE",
+        )
+
+    path = _staging_path(upload)
+    with open(path, "ab") as fp:
+        fp.write(data)
+    upload.last_seq = seq
+    upload.chunks = (upload.chunks or 0) + 1
+    upload.size_bytes = os.path.getsize(path)
+    upload.last_seen_at = utcnow()
+    if not upload.width:
+        upload.width = parse_int(request.form.get("width"))
+    if not upload.height:
+        upload.height = parse_int(request.form.get("height"))
+    account = (request.form.get("accountUsername") or "").strip()
+    if account:
+        upload.account_username = account
+    db.session.commit()
+    return api_ok({**upload.to_dict(), "seq": seq}, message="已收到分片")
+
+
+@bp.post("/recordings/finalize")
+@permission_required("rdp:use")
+def finalize_recording_upload():
+    """把边录边传的暂存录像转正（幂等：任务行已被自动收口时返回同一条录像）。"""
+    actor = load_actor()
+    if actor is None:
+        return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    payload = request.get_json(silent=True) or {}
+    upload_id = str(payload.get("uploadId") or "").strip().lower()
+    if not UPLOAD_ID_PATTERN.match(upload_id):
+        return api_error("uploadId 不合法（应为 8-64 位十六进制）", 400, code="INVALID_ARGUMENT")
+
+    upload = (
+        db.session.query(RdpRecordingUpload)
+        .filter(RdpRecordingUpload.upload_id == upload_id)
+        .one_or_none()
+    )
+    if upload is None:
+        # 可能已经被 sweep 自动收口了：按 uploadId 找回那条录像，保证前端重试幂等
+        existing = (
+            db.session.query(RdpRecording)
+            .filter(RdpRecording.upload_id == upload_id)
+            .one_or_none()
+        )
+        if existing is None:
+            return api_error("该录像上传任务不存在或已经结束", 404, code="NOT_FOUND")
+        if not _visible_all(actor) and (existing.username or "") != (actor.username or ""):
+            return api_error("无权访问该录像", 403, code="FORBIDDEN")
+        return api_ok(existing.to_dict(), message="录像已保存（此前已自动收口）")
+    if (upload.username or "") != (actor.username or ""):
+        return api_error("该录像上传任务不存在或已经结束", 404, code="NOT_FOUND")
+
+    session_id = parse_int(payload.get("sessionId"))
+    if session_id is not None:
+        from ..models import SessionRecord
+
+        if db.session.get(SessionRecord, session_id) is None:
+            session_id = None
+    duration = parse_int(payload.get("durationSeconds"), 0) or 0
+    if duration <= 0 and upload.started_at:
+        duration = max(1, int((utcnow() - upload.started_at).total_seconds()))
+    recording = _finalize_upload(
+        upload,
+        duration_seconds=duration,
+        session_id=session_id,
+        recovered=False,
+    )
+    if recording is None:
+        return api_error("录像内容太短，没有保存", 400, code="INVALID_ARGUMENT")
+    return api_ok(recording.to_dict(), message="录像已保存", status=201)
+
+
+@bp.post("/recordings/abort")
+@permission_required("rdp:use")
+def abort_recording_upload():
+    """放弃一个边录边传任务（前端改用整包上传兜底时调用），删暂存文件与任务行。"""
+    actor = load_actor()
+    if actor is None:
+        return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    payload = request.get_json(silent=True) or {}
+    upload_id = str(payload.get("uploadId") or "").strip().lower()
+    if not UPLOAD_ID_PATTERN.match(upload_id):
+        return api_error("uploadId 不合法（应为 8-64 位十六进制）", 400, code="INVALID_ARGUMENT")
+    upload = (
+        db.session.query(RdpRecordingUpload)
+        .filter(RdpRecordingUpload.upload_id == upload_id)
+        .one_or_none()
+    )
+    if upload is not None and (upload.username or "") == (actor.username or ""):
+        _discard_upload(upload)
+    return api_ok({"uploadId": upload_id, "aborted": True}, message="已放弃该上传任务")
+
+
 @bp.get("/recordings")
 @login_required
 def list_recordings():
@@ -451,6 +837,8 @@ def list_recordings():
     actor = load_actor()
     if actor is None:  # pragma: no cover - login_required 已挡掉
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    # 有人来看录像列表 = 上一段「窗口被强行关掉」的会话该收口了（把已录到的部分转正）
+    sweep_stale_uploads()
     page, size = page_args()
     query = db.session.query(RdpRecording)
     if not _visible_all(actor):

@@ -43,6 +43,7 @@ import type {
   PolicyRuleItem,
   RiskLevel,
   RdpRecording,
+  RdpRecordingUploadState,
   RdpSessionInfo,
   RdpTarget,
   RoleItem,
@@ -600,6 +601,75 @@ export const rdpApi = {
       request<ApiData<RdpRecording>>('/api/rdp/recordings', { method: 'POST', data }),
     );
   },
+  /**
+   * 边录边传的一个分片。
+   *
+   * 为什么不是整包上传：整包只在会话**正常结束**时才发得出去 —— 直接关掉窗口 / 浏览器
+   * 崩溃时那个请求会跟着页面一起消失，整段录像就没了。改成每 5 秒发一片之后，服务端
+   * 手里随时都有已录到的部分；即使前端再也没机会调 `finalizeRecordingUpload`，后端也会
+   * 在静默超时后自动收口成一条 `recovered` 录像（界面标「未正常结束」）。
+   */
+  uploadRecordingChunk: (
+    uploadId: string,
+    seq: number,
+    blob: Blob,
+    meta: {
+      hostId: number;
+      sessionId?: number | null;
+      startedAt?: string;
+      width?: number;
+      height?: number;
+      accountUsername?: string;
+    },
+  ) => {
+    const data = new FormData();
+    data.append('uploadId', uploadId);
+    data.append('seq', String(seq));
+    data.append('hostId', String(meta.hostId));
+    data.append('file', blob, `${seq}.bin`);
+    if (meta.sessionId) {
+      data.append('sessionId', String(meta.sessionId));
+    }
+    if (meta.startedAt) {
+      data.append('startedAt', meta.startedAt);
+    }
+    if (meta.width && meta.height) {
+      data.append('width', String(meta.width));
+      data.append('height', String(meta.height));
+    }
+    if (meta.accountUsername) {
+      data.append('accountUsername', meta.accountUsername);
+    }
+    return unwrap(
+      request<ApiData<RdpRecordingUploadState>>('/api/rdp/recordings/chunk', {
+        method: 'POST',
+        data,
+      }),
+    );
+  },
+  /** 把边录边传的暂存录像转正（幂等：若已被后端自动收口，返回的是同一条录像） */
+  finalizeRecordingUpload: (
+    uploadId: string,
+    meta: { sessionId?: number | null; durationSeconds: number },
+  ) =>
+    unwrap(
+      request<ApiData<RdpRecording>>('/api/rdp/recordings/finalize', {
+        method: 'POST',
+        data: {
+          uploadId,
+          sessionId: meta.sessionId ?? null,
+          durationSeconds: Math.max(0, Math.round(meta.durationSeconds)),
+        },
+      }),
+    ),
+  /** 放弃分片任务（改用整包上传兜底时调用，避免暂存盘上留垃圾） */
+  abortRecordingUpload: (uploadId: string) =>
+    unwrap(
+      request<ApiData<{ uploadId: string; aborted: boolean }>>('/api/rdp/recordings/abort', {
+        method: 'POST',
+        data: { uploadId },
+      }),
+    ),
   /** 录像列表（分页信封）：普通用户只能看到自己上传的，`session:view_all`/`audit:view` 能看全部 */
   recordings: (params: PageParams = {}) =>
     request<ApiList<RdpRecording>>('/api/rdp/recordings', {

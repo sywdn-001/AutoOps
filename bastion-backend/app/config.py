@@ -135,6 +135,12 @@ class Config:
     #: 请求体总上限：默认 8MB 会挡掉录像上传，故按录像上限放宽并多留 8MB 余量。
     #: 业务侧的大小校验在接口里做（见 app/api/rdp.py），这里只是最后一道兜底。
     MAX_CONTENT_LENGTH = (RDP_RECORDING_MAX_MB + 8) * 1024 * 1024
+    #: 边录边传：单个分片请求的上限（MB）。前端每 5 秒发一片，实测 1~2MB 量级。
+    RDP_RECORDING_CHUNK_MAX_MB = int(os.environ.get("BASTION_RDP_RECORDING_CHUNK_MAX_MB", "32"))
+    #: 边录边传：小于这个字节数认为没录到东西（纯黑 / 刚开就断），转正时丢弃
+    RDP_RECORDING_MIN_BYTES = int(os.environ.get("BASTION_RDP_RECORDING_MIN_BYTES", "4096"))
+    #: 边录边传：静默这么久就认为窗口已经没了，下次有人看录像列表/开新会话时自动收口
+    RDP_UPLOAD_STALE_SECONDS = int(os.environ.get("BASTION_RDP_UPLOAD_STALE_SECONDS", "45"))
 
     # --- 启动参数与内置管理员 -------------------------------------------
     HOST = os.environ.get("BASTION_HOST", "0.0.0.0")

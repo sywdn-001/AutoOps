@@ -719,4 +719,42 @@ export type RdpRecording = {
   startedAt?: string | null;
   createdAt: string;
   url: string;
+  /**
+   * 这条录像是**服务端自动收口**的：浏览器窗口被强行关掉（直接关标签页 / 崩溃 / 断网）时，
+   * 边录边传已经攒下的部分由后端转正 —— 只录到窗口关闭那一刻，界面要标「未正常结束」，
+   * 免得审计把「只录到一半」当成「正常结束」。
+   */
+  recovered?: boolean;
+  /** 边录边传的任务号（整包上传的老录像为 null） */
+  uploadId?: string | null;
+};
+
+/**
+ * 一个「边录边传」上传任务的当前状态（`POST /api/rdp/recordings/chunk` 的返回）。
+ *
+ * 前端只关心进度与 `lastSeq`：`sizeBytes`/`chunks` 用来做「已上传 xx MB」的提示，
+ * 真正的完整性由后端的序号校验（乱序 409）保证。
+ */
+export type RdpRecordingUploadState = {
+  uploadId: string;
+  hostId: number;
+  hostName: string;
+  hostAddress: string;
+  username: string;
+  accountUsername: string;
+  mimeType: string;
+  width?: number | null;
+  height?: number | null;
+  /** 服务端已收到的片数 */
+  chunks: number;
+  /** 服务端已收到的最后一片序号（-1 = 还没收到） */
+  lastSeq: number;
+  sizeBytes: number;
+  startedAt?: string | null;
+  lastSeenAt?: string | null;
+  createdAt?: string | null;
+  /** 该片是重传（服务端幂等收下，不重复追加） */
+  duplicate?: boolean;
+  /** 这次请求带上去的序号（回显，方便前端对账） */
+  seq?: number;
 };

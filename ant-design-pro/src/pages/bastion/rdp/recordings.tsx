@@ -21,7 +21,15 @@ import {
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
-import { Button, message, Popconfirm, Space, Tooltip, Typography } from 'antd';
+import {
+  Button,
+  message,
+  Popconfirm,
+  Space,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { useCallback, useRef, useState } from 'react';
 import { buildRdpPlayUrl } from '@/pages/bastion/rdp/types';
 import { consoleWindowFeatures } from '@/pages/bastion/terminal/types';
@@ -111,11 +119,16 @@ const RdpRecordingsPage = () => {
     {
       title: '录像',
       dataIndex: 'id',
-      width: 90,
+      width: 130,
       render: (_, record) => (
         <Space size={6}>
           <VideoCameraOutlined />
           <span className="bastion-rdp-rec-id">#{record.id}</span>
+          {record.recovered ? (
+            <Tooltip title="浏览器窗口被强行关掉（直接关标签页 / 崩溃 / 断网）时，服务端凭边录边传已经收到的分片自动收口的录像 —— 只录到窗口关闭那一刻，不是完整的操作过程">
+              <Tag color="orange">未正常结束</Tag>
+            </Tooltip>
+          ) : null}
         </Space>
       ),
     },

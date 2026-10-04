@@ -46,6 +46,7 @@ import { rdpApi } from '@/services/bastion/endpoints';
 import type { RdpSessionInfo } from '@/services/bastion/types';
 import { attachInput } from './input';
 import './rdp.css';
+import { ChunkQueue, newUploadId } from './recordingUpload';
 import {
   buildRdpWsUrl,
   describeRdpError,
@@ -146,6 +147,14 @@ const RdpConsolePage = () => {
   const recStartedAtRef = useRef(0);
   /** 有录像正在收尾/上传：倒计时到点时先别关窗，否则录像会丢。 */
   const recPendingRef = useRef(false);
+  /** 边录边传：任务号 + 分片序号 + 串行队列（关窗口时服务端凭已到的分片收口，不再整段丢） */
+  const uploadIdRef = useRef('');
+  const uploadSeqRef = useRef(0);
+  const uploadQueueRef = useRef<ChunkQueue | null>(null);
+  /** 录像起始时刻（ISO）：分片请求的元信息要用，必须在首片发出前就定下来 */
+  const startedAtIsoRef = useRef('');
+  /** 被登录的资产账号名：录像元信息要用（`info` 拿到之前先留空） */
+  const accountNameRef = useRef('');
 
   const countdownRef = useRef<number | undefined>(undefined);
   const remainRef = useRef(0);
@@ -291,48 +300,89 @@ const RdpConsolePage = () => {
     );
   }, [applyViewport]);
 
-  /** 开始录像（失败不影响会话本身，只标注「本次没有录像」）。 */
-  const startRecording = useCallback((canvas: HTMLCanvasElement) => {
-    const mimeType = pickRecorderMime();
-    if (!mimeType) {
-      setRecState('skipped');
-      setRecNote('当前浏览器不支持 MediaRecorder，本次会话没有录像');
-      return;
-    }
-    try {
-      const stream = canvas.captureStream(RECORD_FPS);
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: RECORD_BITRATE,
-      });
-      chunksRef.current = [];
-      recorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data.size > 0) {
+  /**
+   * 开始录像（失败不影响会话本身，只标注「本次没有录像」）。
+   *
+   * **边录边传**：每片（`RECORD_SLICE_MS`）一录出来就进串行队列发往堡垒机。这样即便用户
+   * 直接关掉窗口 / 浏览器崩溃（此时前端的收尾与整包上传都来不及跑），服务端手里也已经有
+   * 已录到的部分，随后由后端在静默超时后自动收口成一条 `recovered` 录像（标「未正常结束」），
+   * 而不是像以前那样整段录像凭空消失。
+   */
+  const startRecording = useCallback(
+    (canvas: HTMLCanvasElement) => {
+      const mimeType = pickRecorderMime();
+      if (!mimeType) {
+        setRecState('skipped');
+        setRecNote('当前浏览器不支持 MediaRecorder，本次会话没有录像');
+        return;
+      }
+      try {
+        const stream = canvas.captureStream(RECORD_FPS);
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: RECORD_BITRATE,
+        });
+        chunksRef.current = [];
+        uploadIdRef.current = newUploadId();
+        uploadSeqRef.current = 0;
+        uploadQueueRef.current = new ChunkQueue(
+          (blob, seq) =>
+            rdpApi.uploadRecordingChunk(uploadIdRef.current, seq, blob, {
+              hostId: query.hostId,
+              startedAt: startedAtIsoRef.current || undefined,
+              width: canvasRef.current?.width,
+              height: canvasRef.current?.height,
+              accountUsername: accountNameRef.current,
+            }),
+          {
+            onProgress: ({ sent, failed }) => {
+              if (failed > 0) {
+                return; // 失败片数由收尾逻辑统一报告，这里不刷屏
+              }
+              setRecNote(
+                `录像中（${mimeType.replace('video/', '')}，${RECORD_FPS}fps，已上传 ${sent} 片）`,
+              );
+            },
+          },
+        );
+        recorder.ondataavailable = (event: BlobEvent) => {
+          if (event.data.size <= 0) {
+            return;
+          }
+          // 兜底仍留一份完整内存拷贝：分片上传失败时改走整包上传要用它
           chunksRef.current.push(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        console.error('[rdp] 录像中断');
-      };
-      recorder.start(RECORD_SLICE_MS);
-      recorderRef.current = recorder;
-      recStartedAtRef.current = Date.now();
-      setRecState('recording');
-      setRecNote(
-        `录像中（${mimeType.replace('video/', '')}，${RECORD_FPS}fps）`,
-      );
-    } catch (err) {
-      console.error('[rdp] 无法开始录像', err);
-      setRecState('failed');
-      setRecNote(`录像未能开始：${describeRdpError(err)}`);
-    }
-  }, []);
+          const seq = uploadSeqRef.current;
+          uploadSeqRef.current = seq + 1;
+          uploadQueueRef.current?.enqueue(event.data, seq);
+        };
+        recorder.onerror = () => {
+          console.error('[rdp] 录像中断');
+        };
+        recorder.start(RECORD_SLICE_MS);
+        recorderRef.current = recorder;
+        recStartedAtRef.current = Date.now();
+        startedAtIsoRef.current = new Date(
+          recStartedAtRef.current,
+        ).toISOString();
+        setRecState('recording');
+        setRecNote(
+          `录像中（${mimeType.replace('video/', '')}，${RECORD_FPS}fps）`,
+        );
+      } catch (err) {
+        console.error('[rdp] 无法开始录像', err);
+        setRecState('failed');
+        setRecNote(`录像未能开始：${describeRdpError(err)}`);
+      }
+    },
+    [query.hostId],
+  );
 
   /**
    * 收尾录像并上传，返回「上传已结束」的 Promise（倒计时关窗要等它）。
    *
-   * 二进制走 multipart 交给堡垒机落盘，后端建 `RdpRecording` 行 + 写审计；
-   * 上传失败不影响审计链（会话本身的开/关两条审计早在服务端写好了）。
+   * 两条路：**分片齐全**时只发一个 finalize（视频早就在服务端了，切窗口也不会丢）；
+   * **有分片失败**或没走分片队列时，回退成把内存里的完整 blob 整包上传一次，并放弃
+   * 服务端那份不完整的暂存（否则回看起来会缺中间几片）。
    */
   const finishRecording = useCallback((): Promise<void> => {
     const recorder = recorderRef.current;
@@ -343,30 +393,27 @@ const RdpConsolePage = () => {
       1,
       Math.round((Date.now() - recStartedAtRef.current) / 1000),
     );
-    const startedAtIso = new Date(recStartedAtRef.current).toISOString();
+    const startedAtIso = startedAtIsoRef.current;
     const hostId = query.hostId;
+    const uploadId = uploadIdRef.current;
+    const queue = uploadQueueRef.current;
     recPendingRef.current = true;
     return new Promise<void>((resolve) => {
       const settle = () => {
         recPendingRef.current = false;
         resolve();
       };
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || 'video/webm',
-        });
-        chunksRef.current = [];
-        recorderRef.current = null;
-        if (blob.size < RECORD_MIN_BYTES) {
-          setRecState('skipped');
-          setRecNote('会话过短，没有录到有效画面');
-          settle();
-          return;
-        }
+      const uploadWholeBlob = (blob: Blob, reason: string) => {
         setRecState('uploading');
         setRecNote(
-          `正在上传录像（${(blob.size / 1048576).toFixed(1)} MB，${durationSeconds} 秒）…`,
+          `正在整包上传录像（${(blob.size / 1048576).toFixed(1)} MB，${durationSeconds} 秒）…`,
         );
+        if (uploadId) {
+          // 整包走老路径，服务端那份不完整的暂存留着也没用（而且会被自动收口成第二条录像）
+          rdpApi.abortRecordingUpload(uploadId).catch((err: unknown) => {
+            console.warn('[rdp] 放弃分片任务失败', err);
+          });
+        }
         const canvas = canvasRef.current;
         rdpApi
           .uploadRecording(blob, {
@@ -380,7 +427,7 @@ const RdpConsolePage = () => {
           .then((saved) => {
             setRecState('saved');
             setRecNote(
-              `录像已保存（#${saved.id}，${durationSeconds} 秒，可在「审计中心 · 远程桌面录像」回看）`,
+              `录像已保存（#${saved.id}，${durationSeconds} 秒，可在「审计中心 · 远程桌面录像」回看）${reason}`,
             );
           })
           .catch((err: unknown) => {
@@ -389,6 +436,56 @@ const RdpConsolePage = () => {
             setRecNote(`录像上传失败：${describeRdpError(err)}`);
           })
           .finally(settle);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || 'video/webm',
+        });
+        chunksRef.current = [];
+        recorderRef.current = null;
+        if (blob.size < RECORD_MIN_BYTES) {
+          setRecState('skipped');
+          setRecNote('会话过短，没有录到有效画面');
+          settle();
+          return;
+        }
+        if (!queue || !uploadId) {
+          uploadWholeBlob(blob, '');
+          return;
+        }
+        // 先等最后几片确认落盘，再让服务端把暂存转正
+        setRecState('uploading');
+        setRecNote(
+          `正在收口录像（${(blob.size / 1048576).toFixed(1)} MB，${durationSeconds} 秒）…`,
+        );
+        queue
+          .drain()
+          .then((failedCount) => {
+            if (failedCount > 0) {
+              console.warn(
+                `[rdp] 有 ${failedCount} 个录像分片上传失败，改走整包上传`,
+              );
+              uploadWholeBlob(blob, '（有分片上传失败，已改用整包上传）');
+              return;
+            }
+            return rdpApi
+              .finalizeRecordingUpload(uploadId, { durationSeconds })
+              .then((saved) => {
+                setRecState('saved');
+                setRecNote(
+                  `录像已保存（#${saved.id}，${durationSeconds} 秒，可在「审计中心 · 远程桌面录像」回看）`,
+                );
+              })
+              .catch((err: unknown) => {
+                console.error('[rdp] 录像收口失败', err);
+                uploadWholeBlob(blob, '（收口失败，已改用整包上传）');
+              })
+              .finally(settle);
+          })
+          .catch((err: unknown) => {
+            console.error('[rdp] 录像分片队列异常', err);
+            uploadWholeBlob(blob, '');
+          });
       };
       try {
         recorder.stop();
@@ -513,6 +610,7 @@ const RdpConsolePage = () => {
       // 1) 换票：服务端在这一步复验权限 / 授权开关 / 账号，并写下审计
       const session = await rdpApi.create(query.hostId, query.accountId);
       setInfo(session);
+      accountNameRef.current = session.account?.username ?? '';
 
       // 2) 载入 wasm（4MB，按需加载）并显式指定 wasm 路径：打包后 import.meta.url 会指向产物目录
       const rdp = (await import('ironrdp-wasm')) as WasmModule;

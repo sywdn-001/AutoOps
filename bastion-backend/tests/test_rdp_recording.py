@@ -16,11 +16,20 @@ from __future__ import annotations
 
 import io
 import os
+from datetime import timedelta
 
 import pytest
 
 from app.extensions import db
-from app.models import AuditLog, RdpRecording, Role, SessionRecord, User
+from app.models import (
+    AuditLog,
+    RdpRecording,
+    RdpRecordingUpload,
+    Role,
+    SessionRecord,
+    User,
+    utcnow,
+)
 from app.security import hash_password
 from tests.conftest import token_of
 
@@ -695,3 +704,292 @@ def test_ticket_missing_recording_returns_404(client, admin_headers, recording_d
     resp = _ticket(client, admin_headers, 424242)
     assert resp.status_code == 404
     assert resp.get_json()["code"] == "NOT_FOUND"
+
+
+# --------------------------------------------------------------------------- #
+# 6. 边录边传（分片）：窗口被强行关掉时也要留下已录到的部分
+# --------------------------------------------------------------------------- #
+CHUNK = bytes(range(256)) * 32  # 8192 字节：跨过 RDP_RECORDING_MIN_BYTES（4096）
+
+
+def _chunk(client, headers, upload_id, seq, host_id, data=CHUNK, **fields):
+    """POST /api/rdp/recordings/chunk 的 multipart 封装。"""
+    form = {"uploadId": upload_id, "seq": str(seq), "hostId": str(host_id)}
+    form.update({key: str(value) for key, value in fields.items()})
+    form["file"] = (io.BytesIO(data), f"{seq}.bin", "application/octet-stream")
+    return client.post(
+        "/api/rdp/recordings/chunk",
+        headers=headers,
+        data=form,
+        content_type="multipart/form-data",
+    )
+
+
+def _finalize(client, headers, upload_id, **payload):
+    payload["uploadId"] = upload_id
+    return client.post("/api/rdp/recordings/finalize", headers=headers, json=payload)
+
+
+def _staging_files(recording_dir):
+    staging = recording_dir / "staging"
+    return sorted(path.name for path in staging.glob("*")) if staging.is_dir() else []
+
+
+def _age_upload(app, upload_id, seconds=600):
+    """把任务行的 last_seen_at 推到过去，模拟「浏览器窗口已经没了」。"""
+    with app.app_context():
+        row = RdpRecordingUpload.query.filter_by(upload_id=upload_id).one()
+        row.last_seen_at = utcnow() - timedelta(seconds=seconds)
+        db.session.commit()
+
+
+def test_chunked_upload_appends_in_order_and_finalizes(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """边录边传：分片按 seq 顺序追加到暂存文件，收口后转正成一条录像 + 审计。"""
+    host_id = _rdp_host(make_host, name="win-chunk", address="10.0.0.91")
+    upload_id = "a1b2c3d4e5f60718"
+
+    first = _chunk(
+        client,
+        admin_headers,
+        upload_id,
+        0,
+        host_id,
+        data=CHUNK,
+        durationSeconds=1,
+        width=1024,
+        height=768,
+        startedAt="2026-03-04T05:06:07Z",
+        accountUsername="Administrator",
+    )
+    assert first.status_code == 200, first.get_json()
+    body = first.get_json()["data"]
+    assert body["uploadId"] == upload_id
+    assert body["chunks"] == 1
+    assert body["lastSeq"] == 0
+    assert body["sizeBytes"] == len(CHUNK)
+
+    # 续片只需 uploadId / seq / hostId（元信息在首片给过）
+    assert _chunk(client, admin_headers, upload_id, 1, host_id).status_code == 200
+    assert _chunk(client, admin_headers, upload_id, 2, host_id).status_code == 200
+
+    # 暂存文件是「任务号.part」，内容 = 三片按序拼接；此时还没有 rdp_recordings 行
+    staged = recording_dir / "staging" / f"{upload_id}.part"
+    assert staged.is_file()
+    assert staged.read_bytes() == CHUNK * 3
+    with app.app_context():
+        assert RdpRecording.query.count() == 0
+        assert RdpRecordingUpload.query.one().size_bytes == len(CHUNK) * 3
+
+    done = _finalize(client, admin_headers, upload_id, durationSeconds=17)
+    assert done.status_code == 201, done.get_json()
+    data = done.get_json()["data"]
+    assert data["sizeBytes"] == len(CHUNK) * 3
+    assert data["durationSeconds"] == 17
+    assert data["hostName"] == "win-chunk"
+    assert data["username"] == "admin"
+    assert data["accountUsername"] == "Administrator"  # 首片带的元信息留下来了
+    assert data["width"] == 1024
+    assert data["height"] == 768
+    assert data["startedAt"] == "2026-03-04T05:06:07Z"
+    assert data["recovered"] is False
+    assert data["uploadId"] == upload_id
+
+    # 暂存转正：目录里没有 .part 了，落地文件内容一致，任务行已删
+    assert _staging_files(recording_dir) == []
+    stored = recording_dir / data["filename"]
+    assert stored.read_bytes() == CHUNK * 3
+    with app.app_context():
+        assert RdpRecordingUpload.query.count() == 0
+        entry = AuditLog.query.filter_by(action="rdp_recording_saved").one()
+        assert entry.detail["uploadId"] == upload_id
+        assert entry.detail["chunks"] == 3
+        assert entry.detail["recovered"] is False
+        assert entry.detail["sizeBytes"] == len(CHUNK) * 3
+
+
+def test_chunked_upload_rejects_out_of_order_and_ignores_duplicates(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """乱序分片必须拒（拼起来就是坏文件）；重传同一片要幂等，不能重复追加。"""
+    host_id = _rdp_host(make_host)
+    upload_id = "0011223344556677"
+
+    gap = _chunk(client, admin_headers, upload_id, 2, host_id)
+    assert gap.status_code == 409
+    assert gap.get_json()["code"] == "OUT_OF_ORDER"
+    assert "期望 0" in gap.get_json()["message"]
+    assert _staging_files(recording_dir) == []  # 乱序的片一个字都没落盘
+
+    assert _chunk(client, admin_headers, upload_id, 0, host_id).status_code == 200
+    again = _chunk(client, admin_headers, upload_id, 0, host_id)
+    assert again.status_code == 200
+    assert again.get_json()["data"]["duplicate"] is True
+    assert (recording_dir / "staging" / f"{upload_id}.part").read_bytes() == CHUNK
+
+
+def test_chunked_upload_rejects_bad_upload_id(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """任务号会被拼进路径：非法值一律 400，绝不落盘到别处。"""
+    host_id = _rdp_host(make_host)
+    for bad in ("../../etc/passwd", "..\\..\\win.ini", "not-hex!", "", "a" * 65, "A1B2"):
+        resp = _chunk(client, admin_headers, bad, 0, host_id)
+        assert resp.status_code == 400, (bad, resp.get_json())
+        assert resp.get_json()["code"] == "INVALID_ARGUMENT"
+
+    staging = recording_dir / "staging"
+    assert _staging_files(recording_dir) == []
+    # 没有文件被写到录像目录之外（任务号是路径拼进去的唯一来源）
+    assert not (recording_dir.parent / "etc").exists()
+    assert not (recording_dir.parent / "win.ini").exists()
+    assert staging.parent == recording_dir
+
+
+def test_sweep_finalizes_a_stale_upload_as_recovered(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """窗口被强行关掉（前端来不及调 finalize）：看录像列表时自动收口成 recovered 录像。"""
+    host_id = _rdp_host(make_host, name="win-dropped", address="10.0.0.92")
+    upload_id = "feedfacecafebeef"
+    _chunk(
+        client,
+        admin_headers,
+        upload_id,
+        0,
+        host_id,
+        data=CHUNK,
+        accountUsername="Administrator",
+        startedAt="2026-03-04T05:00:00Z",
+    )
+    _chunk(client, admin_headers, upload_id, 1, host_id)
+
+    _age_upload(app, upload_id, seconds=600)
+
+    listing = client.get("/api/rdp/recordings", headers=admin_headers)
+    assert listing.status_code == 200, listing.get_json()
+    rows = listing.get_json()["data"]
+    assert len(rows) == 1
+    recovered = rows[0]
+    assert recovered["recovered"] is True
+    assert recovered["uploadId"] == upload_id
+    assert recovered["hostName"] == "win-dropped"
+    assert recovered["sizeBytes"] == len(CHUNK) * 2
+    assert recovered["durationSeconds"] >= 1  # 服务端按 开始时间→最后一片 估算
+    assert recovered["username"] == "admin"
+
+    # 收口后暂存清空、任务行消失、录像本体在（回放走正常通道）
+    assert _staging_files(recording_dir) == []
+    with app.app_context():
+        assert RdpRecordingUpload.query.count() == 0
+        entry = AuditLog.query.filter_by(action="rdp_recording_saved").one()
+        assert entry.detail["recovered"] is True
+        assert "自动收口" in entry.message
+    play = client.post(
+        f"/api/rdp/recordings/{recovered['id']}/ticket", headers=admin_headers
+    )
+    assert play.status_code == 200
+
+
+def test_sweep_discards_a_too_small_upload(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """只录到几十字节（纯黑/刚开就断）：收口时直接丢，别在审计里留一条空录像。"""
+    host_id = _rdp_host(make_host)
+    upload_id = "0f0f0f0f0f0f0f0f"
+    _chunk(client, admin_headers, upload_id, 0, host_id, data=b"\x1a\x45\xdf\xa3tiny")
+    _age_upload(app, upload_id, seconds=600)
+
+    assert client.get("/api/rdp/recordings", headers=admin_headers).status_code == 200
+    with app.app_context():
+        assert RdpRecording.query.count() == 0
+        assert RdpRecordingUpload.query.count() == 0
+    assert _staging_files(recording_dir) == []
+
+
+def test_finalize_is_idempotent_after_the_sweep_already_collected_it(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """自动收口后前端才把 finalize 发上来（网络慢/重试）：要还回同一条录像，不能存两条。"""
+    host_id = _rdp_host(make_host, name="win-late", address="10.0.0.93")
+    upload_id = "abcdef0123456789"
+    _chunk(client, admin_headers, upload_id, 0, host_id)
+    _age_upload(app, upload_id, seconds=600)
+    client.get("/api/rdp/recordings", headers=admin_headers)
+
+    again = _finalize(client, admin_headers, upload_id, durationSeconds=9)
+    assert again.status_code == 200, again.get_json()
+    assert "自动收口" in again.get_json()["message"]
+    with app.app_context():
+        assert RdpRecording.query.count() == 1
+
+
+def test_finalize_reports_too_short_content(
+    app, client, admin_headers, make_host, recording_dir
+):
+    host_id = _rdp_host(make_host)
+    upload_id = "1111222233334444"
+    _chunk(client, admin_headers, upload_id, 0, host_id, data=b"tiny")
+    resp = _finalize(client, admin_headers, upload_id, durationSeconds=1)
+    assert resp.status_code == 400
+    assert resp.get_json()["code"] == "INVALID_ARGUMENT"
+    with app.app_context():
+        assert RdpRecording.query.count() == 0
+        assert RdpRecordingUpload.query.count() == 0
+
+
+def test_abort_discards_the_staging_upload(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """前端改用整包上传兜底时会放弃分片任务：暂存与行都要清掉，也别留一条重复录像。"""
+    host_id = _rdp_host(make_host)
+    upload_id = "9999888877776666"
+    _chunk(client, admin_headers, upload_id, 0, host_id)
+
+    resp = client.post(
+        "/api/rdp/recordings/abort", headers=admin_headers, json={"uploadId": upload_id}
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["aborted"] is True
+    with app.app_context():
+        assert RdpRecordingUpload.query.count() == 0
+        assert RdpRecording.query.count() == 0
+    assert _staging_files(recording_dir) == []
+
+
+def test_chunked_upload_respects_host_access_and_ownership(
+    app, client, admin_headers, make_host, make_grant, recording_dir
+):
+    """分片接口的准入与换票据同源：没授权的主机 403，别人的任务号当作不存在（404）。"""
+    mine = _rdp_host(make_host, name="win-mine", address="10.0.0.94")
+    other = _rdp_host(make_host, name="win-other", address="10.0.0.95")
+    headers = _ops_with_access(app, client, make_grant, mine, "rec-ops-chunk")
+    upload_id = "2222333344445555"
+
+    assert _chunk(client, headers, upload_id, 0, mine).status_code == 200
+    denied = _chunk(client, headers, upload_id, 1, other)
+    assert denied.status_code == 403
+    assert denied.get_json()["code"] == "FORBIDDEN"
+
+    # 换个用户拿同一个任务号续传：当作不存在，不能往别人的录像里塞数据
+    stranger = _ops_with_access(app, client, make_grant, mine, "rec-ops-stranger")
+    stolen = _chunk(client, stranger, upload_id, 1, mine)
+    assert stolen.status_code == 404
+    assert stolen.get_json()["code"] == "NOT_FOUND"
+    assert _finalize(client, stranger, upload_id, durationSeconds=3).status_code == 404
+    # 原主人仍然可以正常收口
+    assert _finalize(client, headers, upload_id, durationSeconds=3).status_code == 201
+
+
+def test_chunked_upload_rejects_a_second_host_for_the_same_task(
+    app, client, admin_headers, make_host, recording_dir
+):
+    """同一个任务号不能换主机续传（否则字段与文件对不上）。"""
+    first = _rdp_host(make_host, name="win-a", address="10.0.0.96")
+    second = _rdp_host(make_host, name="win-b", address="10.0.0.97")
+    upload_id = "3333444455556666"
+    assert _chunk(client, admin_headers, upload_id, 0, first).status_code == 200
+    resp = _chunk(client, admin_headers, upload_id, 1, second)
+    assert resp.status_code == 409
+    assert resp.get_json()["code"] == "CONFLICT"
