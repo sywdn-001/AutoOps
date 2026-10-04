@@ -22,8 +22,28 @@ from .policy import evaluate_policy, freeze_policy
 from .settings_store import get_int
 from .ssh_client import SSHError, build_target, close as close_conn, connect, open_shell
 from .terminal import BridgeConfig, ShellBridge, TranscriptRecorder
+from .winrm import (
+    WinrmBridge,
+    WinrmError,
+    build_target as build_winrm_target,
+    close as close_winrm,
+    connect as connect_winrm,
+)
 
 log = logging.getLogger(__name__)
+
+
+def _close_target_connection(protocol: str, connection) -> None:
+    """按协议关闭目标机连接：Linux 走 paramiko（SSH），Windows 走 WinRM。"""
+    if connection is None:
+        return
+    try:
+        if protocol == "winrm":
+            close_winrm(connection)
+        else:
+            close_conn(connection)
+    except Exception:  # noqa: BLE001
+        log.debug("关闭目标机连接失败（忽略）", exc_info=True)
 
 #: 单条命令写入数据库的输出上限（完整内容仍在会话录制文件里）
 DB_OUTPUT_LIMIT = 100_000
@@ -37,7 +57,7 @@ class SessionError(RuntimeError):
 class OpenedSession:
     sid: str
     record_id: int
-    bridge: ShellBridge
+    bridge: ShellBridge | WinrmBridge
     connection: object
     segmented: bool
     host_name: str = ""
@@ -186,18 +206,35 @@ def open_session(
         }
         grant_id = grant.id
 
-        target = build_target(
-            host,
-            account,
-            connect_timeout=Config.SSH_CONNECT_TIMEOUT,
-            banner_timeout=Config.SSH_BANNER_TIMEOUT,
-            keepalive=Config.SSH_KEEPALIVE,
-        )
+        # 协议分流：Linux 走 SSH，Windows 走 WinRM。两者的桥公开面一致，网页终端
+        # 前端、命令策略、CommandLog、转录、AI 助手与会话登记全部复用；rdp 有自己的
+        # /api/rdp/* 入口，不会走到这里。
+        protocol = (getattr(host, "protocol", "") or "ssh").strip().lower()
+        if protocol not in ("ssh", "winrm"):
+            raise SessionError(f"该主机的协议「{protocol}」不支持交互式 shell（只有 ssh / winrm 能进网页终端）")
+
+        target = None
+        winrm_target = None
+        if protocol == "winrm":
+            winrm_target = build_winrm_target(
+                host,
+                account,
+                connect_timeout=Config.SSH_CONNECT_TIMEOUT,
+                command_timeout=Config.COMMAND_TIMEOUT,
+            )
+        else:
+            target = build_target(
+                host,
+                account,
+                connect_timeout=Config.SSH_CONNECT_TIMEOUT,
+                banner_timeout=Config.SSH_BANNER_TIMEOUT,
+                keepalive=Config.SSH_KEEPALIVE,
+            )
 
     # ---- 连接目标机（网络动作放在应用上下文之外，避免长时间占用连接）
     try:
-        connection = connect(target)
-    except SSHError as exc:
+        connection = connect_winrm(winrm_target) if protocol == "winrm" else connect(target)
+    except (SSHError, WinrmError) as exc:
         with app.app_context():
             log_event(
                 "session",
@@ -230,7 +267,7 @@ def open_session(
             account_username=account_snapshot["username"],
             grant_id=grant_id,
             source=source,
-            protocol="ssh",
+            protocol=protocol,
             client_ip=client_ip,
             client_port=client_port,
             status="active",
@@ -254,8 +291,10 @@ def open_session(
 
     recorder = TranscriptRecorder(sid, path=transcript_path)
 
+    channel = None
     try:
-        channel = open_shell(connection, width=cols, height=rows)
+        if protocol == "ssh":
+            channel = open_shell(connection, width=cols, height=rows)
     except SSHError as exc:
         close_conn(connection)
         with app.app_context():
@@ -320,7 +359,11 @@ def open_session(
             on_notice=notify,
             on_close=_on_dead,
         )
-    bridge = ShellBridge(channel, config, session=None)
+    if protocol == "winrm":
+        # WinRM 没有 PTY 通道：连接本身就是桥的输入（每条命令单独起一个短命进程）。
+        bridge = WinrmBridge(connection, config, session=None)
+    else:
+        bridge = ShellBridge(channel, config, session=None)
 
     session_registry.register(
         sid,
@@ -356,7 +399,7 @@ def open_session(
         segmented = bridge.start()
     except Exception as exc:  # noqa: BLE001
         session_registry.unregister(sid)
-        close_conn(connection)
+        _close_target_connection(protocol, connection)
         recorder.close("初始化终端失败")
         with app.app_context():
             stale = SessionRecord.query.filter_by(sid=sid).first()
@@ -375,6 +418,7 @@ def open_session(
         policy_name=policy_name,
         meta={
             "source": source,
+            "protocol": protocol,
             "client_ip": client_ip,
             "user": user_snapshot,
             "host": host_snapshot,
@@ -392,7 +436,7 @@ def teardown_session(opened: OpenedSession | None, reason: str = "用户断开�
     except Exception:  # noqa: BLE001
         pass
     session_registry.unregister(opened.sid)
-    close_conn(opened.connection)
+    _close_target_connection(str(opened.meta.get("protocol") or "ssh"), opened.connection)
     _close_record(opened, reason)
 
 

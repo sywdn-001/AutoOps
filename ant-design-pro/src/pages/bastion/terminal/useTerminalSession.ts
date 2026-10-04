@@ -129,6 +129,8 @@ export const useTerminalSession = (options?: {
           accountUsername?: string;
           policyName?: string;
           segmented?: boolean;
+          /** 会话协议：ssh（Linux 命令行）/ winrm（Windows PowerShell）。 */
+          protocol?: string;
         }) => {
           if (!payload?.sid) {
             return;
@@ -143,6 +145,7 @@ export const useTerminalSession = (options?: {
             accountUsername: accountName,
             policyName: payload.policyName ?? target.policyName,
             segmented: payload.segmented,
+            protocol: payload.protocol || 'ssh',
             error: undefined,
           });
           write(

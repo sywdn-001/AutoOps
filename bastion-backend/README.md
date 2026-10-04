@@ -74,7 +74,7 @@ bastion-backend/
 │   ├── __init__.py             # create_app / 蓝图注册 / 种子数据
 │   ├── config.py               # 配置（含 TestConfig）
 │   ├── extensions.py           # db / jwt / cors / socketio
-│   ├── models.py               # 19 张表 + to_dict（含 AI 三张 + rdp_recordings：ai_conversations / ai_messages / ai_tool_calls）
+│   ├── models.py               # 20 张表 + to_dict（含 AI 三张 + rdp_recordings / rdp_recording_uploads：ai_conversations / ai_messages / ai_tool_calls）
 │   ├── security.py             # 权限码、口令哈希、@admin_required、@permission_required
 │   ├── schema_sync.py          # 轻量 schema 同步（无 Alembic：只做 ADD COLUMN 的加法迁移）
 │   ├── access.py               # 授权解析：时间窗、账号绑定、可达主机、会话配额
@@ -85,10 +85,11 @@ bastion-backend/
 │   ├── session_registry.py     # 在线会话注册表（内存）
 │   ├── idle_sweeper.py         # 空闲超时清理（session_idle_timeout 真正生效：超时自动断开并收口）
 │   ├── settings_store.py       # system_settings 读写（带默认值）
+│   ├── session_notes.py        # 会话能力边界文案（网页终端与 SSH 网关共用的单一来源：WinRM 的「每条命令单独执行 / 不支持文件传输」）
 │   ├── ssh_client.py           # paramiko 连接（口令/私钥/跳板参数）
 │   ├── utils.py                # 分页、时间解析、响应封装
 │   ├── crypto.py               # Fernet 加解密
-│   ├── api/                    # 16 个蓝图，107 条路径 / 138 个 (路径, 方法) 接口组合
+│   ├── api/                    # 16 个 API 蓝图，110 条路径 / 141 个 (路径, 方法) 接口组合
 │   │   ├── auth.py users.py roles.py hosts.py grants.py
 │   │   ├── policies.py file_policies.py files.py
 │   │   ├── sessions.py audits.py settings.py ai.py rdp.py
@@ -97,7 +98,8 @@ bastion-backend/
 │   ├── files/                  # SFTP 文件管理器：service.py（会话/操作/策略双闸）+ __init__.py
 │   ├── gateway/                # SSH 网关服务端（paramiko ServerInterface）+ ai_shell.py（会话内 /ask-ai）
 │   ├── terminal/               # 会话桥：bridge(命令识别) + recorder(录像)
-│   └── webterm/                # Socket.IO 网页终端事件
+│   ├── winrm/                  # Windows 字符终端（WinRM）：client.py（WSMan 连接/脚本执行/异常人话化）+ bridge.py（WinrmBridge，公开面与 ShellBridge 一致）+ __init__.py
+│   ├── webterm/                # Socket.IO 网页终端事件
 │   └── rdp/                    # Windows 远程桌面（WebRDP）：cleanpath.py（RDCleanPath 的 X.224/TLS/凭据封包，X.224 的 length 是小端）+ proxy.py（RdpWebSocketMiddleware 字节中继 + 120 秒一次性票据；中继是单线程 + 非阻塞 TLS（setblocking(False)、recv 只认 SSLWantReadError、send 遇 SSLWantWriteError 就 select 等可写）—— OpenSSL 的 SSL 对象不是线程安全的，两个线程并发读写会出现「sendall() 成功但字节没上线」的中继假死；而「读线程 + select + 锁」又会死锁，所以整个中继只用一个线程、一把锁都不用）+ hooks.py（会话记录与审计收口）
 ├── tools/
 │   ├── demo_ssh_target.py      # 假 Linux 演示目标机（真实 SSH 协议栈 + tty 行规程 + exec 请求 + 转义序列过滤 TtyEscapeFilter + SFTP 子系统，默认 127.0.0.1:2200）
@@ -106,8 +108,9 @@ bastion-backend/
 │   ├── ui_check.py             # 真实 Chrome(CDP) 逐路由巡检后台 UI（21 项断言：16 个路由 + 登录态守卫 + 品牌痕迹/Logo）
 │   ├── gw_ai_check.py          # 真实 SSH 网关里跑一次 /ask-ai（9 项断言：选真机进会话 → 粘贴形态提问 → 无「AI 出错/HTTP 400」→ 有真实答案 → 回合后终端仍可用）；**选跑，会消耗一次真实模型调用**
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
+│   ├── winrm_gw_check.py       # 真实 SSH 网关里选一台 Windows（WinRM）主机跑 whoami/hostname（9 项断言：菜单里出现 WinRM 主机 → 进会话有 PowerShell 提示符与能力边界提示 → 输出是目标机的 → exit 回菜单）；**选跑，会在目标机上真执行两条只读命令**
 │   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
-└── tests/                      # 607 个用例（31 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+└── tests/                      # 679 个用例（32 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -150,7 +153,7 @@ bastion-backend/
 
 **两层判定（必须同时成立）**：授权开关决定「能不能做这个动作」（`can_sftp` 没开连窗口都进不去、`can_upload`/`can_download`/`can_file_write` 分别管上传、下载与改动），文件策略决定「这条路径上允不允许」。任一不过即拒绝，且拒绝也写审计。
 
-**Windows 远程桌面（WebRDP）的准入**：与终端完全同源 —— `rdp:use` 权限码 + 该主机的授权（账号/时段/星期/过期/并发上限）+ `can_webterm`；另加两条协议约束：主机 `Host.protocol` 必须是 `rdp`、账号必须是口令认证（私钥账号不给远程桌面）。反向地，交互式 shell 与网页终端只认 `protocol=ssh`，所以 Windows 主机不会出现在网关菜单里。
+**Windows 远程桌面（WebRDP）的准入**：与终端完全同源 —— `rdp:use` 权限码 + 该主机的授权（账号/时段/星期/过期/并发上限）+ `can_webterm`；另加两条协议约束：主机 `Host.protocol` 必须是 `rdp`、账号必须是口令认证（私钥账号不给远程桌面）。反向地，**字符会话只认 `protocol in ("ssh", "winrm")`**（Linux 走 SSH、Windows 走 WinRM，共用权限码 `terminal:use`），所以 `protocol=rdp` 的 Windows 主机不会出现在网关菜单里 —— 它走 `/rdp` 那条入口。
 
 **账号解析纪律**：未指定账号 → 精确账号授权优先，否则整机授权 + 该主机第一个可用账号；显式指定账号 → 只认绑定该账号的授权或覆盖整机的通配授权，**绝不静默替换成另一个账号**（有专门回归测试）。
 
@@ -189,7 +192,7 @@ ssh -p 2222 <堡垒机账号>@<堡垒机IP>
 - **输出时序与 ONLCR**：目标机欢迎语不得抢在堡垒机横幅之前 —— `open_session(on_ready=...)` 在 `bridge.start()` **之前**回调，横幅与会话号从这里发出；目标机的裸 `\n` 在客户端可见路径上统一由 `LineEndingNormalizer` 补成 `\r\n`（等价于替不做 `ONLCR` 的目标机/网络设备补上转换，**录像仍记录原始字节**）。两条都有真机级回归用例（`tests/test_terminal_output.py`）。
 - **会话控制指令不受命令策略限制**：`exit` / `quit` / `logout` / `bye` 由 `policy.is_session_exit()` 在策略评估**之前**放行 —— 否则只读白名单策略会把它们判成「白名单外一律拒绝」，命令发不到目标机、远端 shell 不结束，**用户被困在会话里出不去**（横幅却写着「输入 exit 返回主机菜单」）。放行后仍然完整落审计（`action=allow`、`reason` 标注「不受命令策略限制」）；回归用例见 `tests/test_integration_ssh.py::test_session_exit_is_allowed_under_readonly_policy`。
 - **会话内 `/ask-ai <问题>`**：连上主机后随时问 AI，按键照旧转发给目标机、命中时补发 `Ctrl-U` 抹掉该行（不会被目标机当命令执行），Markdown 原地重绘流式渲染、卡片降级 ASCII、敏感操作走掩码口令确认 —— 详见 **七·七**。**行分流状态机是 `app/ai/line_split.py` 的 `LineShadow`**（与网页终端共用同一份实现）：命中那一行的回车不转发，但**同一 chunk 里回车之后的字节必须继续转发**（粘贴收尾的 `ESC[201~` 被吞掉会让远端 readline 卡在 bracketed paste 模式）；CSI/SS3/OSC 转义序列一律不计入用户输入行，粘贴标记 `ESC[200~`/`ESC[201~` 不清空影子行，方向键等非无害序列保守清行，影子行上限 512 字节。回归：`tests/test_ai_line_split.py`（34）与 `tests/test_gateway_ai_shell.py`（46）。
-- **连接目标机后自动清屏**：会话就绪先写 `\x1b[2J\x1b[H`，再重画上下文（主机/账号/会话号）与横幅，最后补一个**裸回车**让远端重画提示符 —— 不这么做，终端里会留着目标机上一屏的滚屏（用户反馈「太乱了」）。清屏与重画卷在网关与网页终端**同一措辞**；裸回车走在 `ShellBridge.feed_input()` 的 Enter 分支之前（空行在任何 `_start_command()`/`evaluate_policy()` 之前返回），**不落 `command_logs`、不进策略引擎**。回归：`tests/test_gateway_clear.py`（10）。
+- **连接目标机后自动清屏**：会话就绪先写 `\x1b[2J\x1b[H`，再重画上下文（主机/账号/会话号）与横幅，最后补一个**裸回车**让远端重画提示符 —— 不这么做，终端里会留着目标机上一屏的滚屏（用户反馈「太乱了」）。清屏与重画卷在网关与网页终端**同一措辞**；裸回车走在 `ShellBridge.feed_input()` 的 Enter 分支之前（空行在任何 `_start_command()`/`evaluate_policy()` 之前返回），**不落 `command_logs`、不进策略引擎**。`_write_session_context()` 是两条入口共用的措辞来源，它同样按协议追加能力边界提示（`app/session_notes.py`）。回归：`tests/test_gateway_clear.py`（10）。
 - **握手两端版本都可观测**：`ConnectionInfo` 同时带 `server_version`（对端目标机在 `SSH-2.0-...` 里声明的）与 `client_version`（堡垒机作为 SSH 客户端声明的，`SSH-2.0-paramiko_<版本>` —— 与 paramiko 的 `Transport.local_version` 大小写一致；拿不到传输层时用 `default_client_version()` 兜底，兜底真值也按小写 `paramiko`）。`GET /api/settings/gateway` 回传 `serverVersion`（网关自己的 `SSH-2.0-BastionGW_1.0`）+ `clientVersion`，`POST /api/hosts/<id>/accounts/<aid>/test` 回传目标机的两者，前端在「系统设置 → SSH 网关」与「主机 → 账号 → 连接测试」并排显示。回归：`tests/test_client_version.py`。
 
 ## 七、网页终端（需求②，`app/webterm/events.py` + `app/terminal/`）
@@ -200,7 +203,7 @@ ssh -p 2222 <堡垒机账号>@<堡垒机IP>
 - 会话就绪前到达的按键会**先缓冲、就绪后按序回放**（`ctx["early_input"]`），绝不静默丢弃；客户端每次都会收到 `terminal:opened`（含 `segmented` 字段，前端据此决定是否提示降级）。
 - 网页终端与 SSH 网关共用同一套 `open_session`、策略引擎与录像存储 —— **两条入口的每条命令与输出都会被记录**。
 - **网页终端里同样能用 `/ask-ai <问题>`**：`on_input` 先把按键喂进 `app/ai/line_split.py` 的 `LineShadow`，命中就补发 `Ctrl-U` 抹行（**该行不会被目标机执行**），随后起一条独立线程跑 `ai_shell.run_ask_ai`，流式 Markdown 走该会话的 `OutputPump` 原地重绘；AI 等输入（掩码口令确认）时按键进队列、**不会漏给目标机**，超时/中止会复位状态。回归：`tests/test_webterm_ai.py`（6，含真实 Socket.IO 链路）。
-- **连接目标机后自动清屏**（与网关同一措辞）：会话就绪先清屏再重画上下文，随后补一个裸回车；裸回车不落库、不进策略（`CommandLog` 计数为 0）。用户反馈的「连上 Linux 客户机之后清一下屏，要不然太乱了」即为此项。
+- **连接目标机后自动清屏**（与网关同一措辞）：会话就绪先清屏再重画上下文，随后补一个裸回车；裸回车不落库、不进策略（`CommandLog` 计数为 0）。用户反馈的「连上 Linux 客户机之后清一下屏，要不然太乱了」即为此项。重画的三行上下文之后还会按协议追加**能力边界提示**（`app/session_notes.py`：WinRM 会话多两行，说明「每条命令单独执行、cd 保留 / 进程内状态不保留 / 交互式程序与文件传输不可用」）—— 桥接层自己的连接横幅紧跟着就被这句清屏擦掉了，所以提示必须在这里重打（详见七·十）。
 
 命令识别采用「提示符标记（marker）」方案：会话建立时把目标机 `PS1` 改写为带随机 marker 的提示符，据此精确切分每条命令的边界与输出归属；若目标机不允许改写 `PS1`，则**自动降级为原始录制模式**并明确提示用户。
 
@@ -412,13 +415,59 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 
 ### 协议隔离
 
-主机表 `Host.protocol` 取 `ssh` / `rdp`（默认 `ssh`）。`app/access.py` 的 `target_protocol()` 判协议；`accessible_targets(user, protocols=("ssh",))` 是 **SSH 网关/TUI 菜单**唯一的主机来源 —— 所以 Windows 主机不会出现在字符菜单里（堡垒机账号登录后的 TUI 只列 Linux）。**网页终端入口页是唯一把两类主机合在一起的地方**（需求⑥）：`GET /api/terminal/targets` 按权限码决定包含 `ssh` 还是 `rdp`（`terminal:use` / `rdp:use` 任一即可进这个页面），条目回传 `protocol`，前端据此决定弹终端窗口还是远程桌面窗口，列表里不额外标注。前端按 `protocol` 渲染操作系统图标（`src/components/Bastion/osMeta.tsx`），主机列表与终端选择列表看到的都是真实系统。
+主机表 `Host.protocol` 取 `ssh` / `rdp` / `winrm`（默认 `ssh`）。`app/access.py` 的 `target_protocol()` 判协议；`accessible_targets(user, protocols=("ssh", "winrm"))` 是 **SSH 网关/TUI 菜单**唯一的主机来源 —— 菜单里同时列 Linux（ssh）与 Windows 字符终端（winrm），只有图形桌面（rdp）不在菜单里（它走浏览器端的 `/rdp` 入口）。**网页终端入口页把三类主机合在一起**（需求⑥）：`GET /api/terminal/targets` 按权限码决定包含哪些协议 —— `terminal:use` 覆盖 `ssh` 与 `winrm`（两者都是「字符 shell」，只是桥接层不同），`rdp:use` 覆盖 `rdp`，任一即可进这个页面；条目回传 `protocol`，前端据此决定弹终端窗口还是远程桌面窗口。前端按 `protocol` 渲染操作系统图标与协议注记（`src/components/Bastion/osMeta.tsx`、`src/pages/bastion/terminal/index.tsx` 的 `protocolHint()`），主机列表与终端选择列表看到的都是真实系统与真实入口。
 
 ### 回归
 
-`tests/test_rdp_gateway.py`（44 例）：RDCleanPath 封包/解包（含 X.224 小端 length）、`X224_CC_HYBRID_EX` 协商、票据 TTL 与一次性、WebSocket 中继、`_open_session` / `_close_session` 跨 app context 的会话记录与审计收口（断言 `status=closed`、字节数、`end_reason`、`ended_at` 与 open/close 两条审计都在），以及网页终端列表「两类主机合并 + 按权限码分协议」。隧道用例带 **30 秒看门狗**：卡住时先 `faulthandler.dump_traceback(all_threads=True)` 打出所有线程的栈和现场（`server.received` / `ws.sent`）再 `fail`，绝不无限挂住测试会话。另覆盖**会话中断链路**（通用 `stop` 真能停隧道、`forced` 收口成 `terminated`）与 `humanize_socket_error()` 的人话映射。
+`tests/test_rdp_gateway.py`（57 例）：RDCleanPath 封包/解包（含 X.224 小端 length）、`X224_CC_HYBRID_EX` 协商、票据 TTL 与一次性、WebSocket 中继、`_open_session` / `_close_session` 跨 app context 的会话记录与审计收口（断言 `status=closed`、字节数、`end_reason`、`ended_at` 与 open/close 两条审计都在）、关闭原因的人话化（NLA/CredSSP 阶段零字节关闭 → 提示「强制 SSL」，服务端回过数据则不加这句），以及网页终端列表「三类主机合并 + 按权限码分协议」。隧道用例带 **30 秒看门狗**：卡住时先 `faulthandler.dump_traceback(all_threads=True)` 打出所有线程的栈和现场（`server.received` / `ws.sent`）再 `fail`，绝不无限挂住测试会话。另覆盖**会话中断链路**（通用 `stop` 真能停隧道、`forced` 收口成 `terminated`）与 `humanize_socket_error()` 的人话映射。
 
-`tests/test_rdp_recording.py`（39 例）：录像上传的 mime/体积/权限/主机准入校验、列表可见性（`session:view_all` / `audit:view` 看全部，否则只看自己）、`Range` 206 与 416、`Content-Disposition: inline`、三段审计，以及回放票据 —— 10 分钟有效、绑定单条录像（拿 A 的票拉 B 必 401）、过期/换 `scope`/拿登录 token 冒充一律 401、签票只写一条 `rdp_recording_viewed`。
+`tests/test_rdp_recording.py`（49 例）：录像上传的 mime/体积/权限/主机准入校验、列表可见性（`session:view_all` / `audit:view` 看全部，否则只看自己）、`Range` 206 与 416、`Content-Disposition: inline`、三段审计，以及回放票据 —— 10 分钟有效、绑定单条录像（拿 A 的票拉 B 必 401）、过期/换 `scope`/拿登录 token 冒充一律 401、签票只写一条 `rdp_recording_viewed`。
+
+---
+
+## 七·十、Windows 网页终端（WinRM，`app/winrm/` + `app/session_notes.py`）
+
+七·九 让浏览器连 Windows 的**图形桌面**；这一节给 Windows 机器开**字符 shell** —— 浏览器里一个 PowerShell 提示符，敲的每条命令与目标机的每段输出都进审计，身份/授权/命令策略/录像与 Linux 会话共用同一套。两条路各有位置：RDP 需要图形栈与 WASM 客户端、带宽也重，适合「必须看到桌面」的场合；运维日常的看服务、查日志、重启进程走 WinRM 更轻，且在**同一张网页终端列表**里就能连（`terminal:use` 一个权限码管到底）。
+
+### 模块（`app/winrm/` + 一处共享文案）
+
+| 文件 | 行 | 干什么 |
+| --- | --- | --- |
+| `client.py` | 297 | `WinrmTarget` / `ScriptResult` / `WinrmConnection` 三个数据类 + `build_target()`（解资产口令、`5986` 自动 `use_ssl`、key 账号与空凭据直接报中文错）、`connect()`（`winrm.Protocol` + `open_shell(codepage=65001)`）、`run_script()`（脚本编成 UTF-16LE + base64 走 `-EncodedCommand`，后台线程收 `get_command_output`，超时/取消先请求中断）、`decode_bytes()`（UTF-8 → GBK → 兜底）、`_friendly()`（把 `timed out` / `refused` / `401` / 证书校验这些英文异常翻成人话）、`PROBE_SCRIPT` 与 `test_connection()`（资产「连接测试」用，回 `whoami / COMPUTERNAME / PowerShellVersion / OSVersion`） |
+| `bridge.py` | 792 | `WinrmBridge`：把「一个持久 WSMan shell + 每条输入一条自己会退出的短命令」包装成与 `ShellBridge` **完全一致**的公开面（`start/stop/feed_input/resize/stats/closed/at_prompt`），于是网关与网页终端两条通路都不用为 WinRM 改一行；本地做行编辑（光标/退格/Ctrl-W/历史/Ctrl-C）与 `\x1b[…` 序列解析，远端只负责执行；`build_script()` 在命令尾部追加落款 `Write-Output "<marker>{退出码}|{当前目录}<marker>"`，`split_trailer()` 从输出里剥出退出码与 cwd ⇒ **`cd` 能在下一条命令生效**；`decode_clixml()` 把 PowerShell 往 stderr 写的 CLIXML 包（`#< CLIXML … <S S="Error">…_x000D__x000A_</S>`）还原成可读中文；`cls` / `clear` / `Clear-Host` 在 `LOCAL_CLEAR_COMMANDS` 里**就地清屏**（见下面「两条本地兜底」） |
+| `__init__.py` | 38 | 导出（`WinrmBridge` / `WinrmError` / `build_target` / `connect` / `run_script` / `close` / `test_connection`） |
+| `app/session_notes.py` | 27 | **单一文案来源**：`session_note_lines(protocol)` 给 WinRM 会话返回那两行能力边界提示。网页终端与 SSH 网关各写一遍必然漂移，所以抽到这里 |
+
+### 三条硬约束（为什么这么设计）
+
+1. **每条命令单独执行，`cd` 保留、进程内状态不保留**：WSMan 的 shell 是无状态的，`$env:FOO`、自定义变量、`Set-Location` 之外的会话状态都不会活到下一条命令 —— 这是协议本身的性质，不是实现偷懒。`cd` 之所以保留，是桥接层自己在服务端记 cwd 并在每条命令前 `Set-Location -LiteralPath …`。两行提示（`app/session_notes.py`）就是把这个边界**说在用户敲命令之前**。
+2. **交互式程序不可用**：`more` / `pause` / `Read-Host` 这类要等 stdin 的程序拿不到真正的 TTY。实测 `cmd.exe /K` 上的 `get_command_output()` 会阻塞 150 秒以上，所以实现选择的不是「假装能交互」，而是「超时可中断 + 明确告知」。
+3. **没有文件传输**：WinRM 没有 SFTP 通道。网页终端的「文件管理」按钮对 WinRM 会话**直接不渲染**（不是留一颗永远点不动的灰按钮），`file:use` 权限仍然在，只是这个协议用不上。
+
+### 两条本地兜底（用户实测反馈后补的）
+
+1. **`cls` / `clear` / `Clear-Host` 就地清屏**：WSMan 会话没有真实控制台，PowerShell 的 `Clear-Host` 依赖 `$Host.UI.RawUI`，在 `-NonInteractive` + 重定向输出下会直接报错、屏幕根本不干净（用户实测反馈）。现在这几个等价写法命中 `LOCAL_CLEAR_COMMANDS` 后**不发给目标机**，由桥接层自己写清屏序列（`\x1b[2J\x1b[H`）并重画提示符。判定点放在命令策略**之后** —— 策略里若把 `cls` 列进白名单/黑名单，拦截结论照样先生效；走本地清屏同样记一条 `command_logs`（`reason='本地清屏指令（WinRM 会话没有真实控制台，不发给目标机）'`、`duration_ms=0`）。
+2. **会话还没就绪时敲的键不丢**：服务端在 `open_session()` 返回前把收到的按键攒进 `early_input`、就绪后按序回放（`app/webterm/events.py`），但前端原先 `inputEnabled` 只认 `connected`，把这段时间的按键**静默丢在浏览器里**（WinRM 建连更慢，用户表现为「有概率敲命令没输出」）。现在 `inputEnabled` 只排除 `failed` / `disconnected`，会话连上后还会自动把焦点收回终端。
+
+### 协议隔离与两处入口
+
+`accessible_targets(user, protocols=("ssh", "winrm"))` 是 SSH 网关菜单的主机来源，所以 Windows 字符终端在 `ssh <堡垒机IP>` 的 TUI 菜单里**和 Linux 主机并列出现**（`app/gateway/server.py:994-1000`），选中后走 `open_session()` → `WinrmBridge`，`exit` 回菜单、`q` 退网关，与 Linux 会话完全同构。网页终端入口页 `GET /api/terminal/targets` 同样包含 winrm（`terminal:use` 覆盖 ssh 与 winrm），列表里该行标注 `192.168.0.75:5985 · WinRM 网页终端`，只给「连接」按钮。资产侧 `Host.protocol` 保存 `winrm`、`Host.winrm_transport` 保存 `ntlm`（默认）/ `basic`（需要目标机开 `AllowUnencrypted`），新增资产时端口默认 `5985`。
+
+### 审计口径
+
+会话行落 `sessions` 表且 `protocol='winrm'`（`source='web'` 或 `'gateway'`），命令/输出与 Linux 会话走同一张 `command_logs`、同一份转录（`instance/transcripts/<sid>.log`）：`input`/`output` 是逐键逐段留痕，`command` 事件带 `action`（`allow` / `deny` / `error` / `timeout`）、退出码与 cwd。被策略拒绝的命令**不占执行序号**（`stats()["commands"]` 只数真正发到目标机的），并且**根本不会发到目标机**。
+
+### 回归
+
+`tests/test_winrm_gateway.py`（49 例）：客户端层 11 例（解口令、5986→https、key/空凭据报错、非法 transport 回落、`decode_bytes`、`_friendly` 六种英文异常、`-EncodedCommand` 的 UTF-16LE+base64 还原、超时请求中断、`connect()` 的超时参数与 codepage、`test_connection` 的成功/超时/空输出）；桥接层 17 例（`split_trailer` 取**第一个**标记的回归用例、半个落款、`decode_clixml`、逐行执行并剥落款、`cd` 跨命令带目录、非零退出码、CLIXML stderr、策略拒绝且不发目标机、`exit` 记会话控制并回调、**`cls`/`clear` 就地清屏且一条都不发目标机**、**白名单策略下 `cls` 照样被拒且不清屏**、超时 `action=timeout`、单条失败 `action=error` 且会话可继续、行编辑/历史/中文/Ctrl-W、Ctrl-C 中断、`stats`/`resize`、连接横幅）；会话分发 2 例（winrm 主机 → `WinrmBridge` 且 `SessionRecord.protocol == "winrm"`、rdp 主机 → `SessionError`「只有 ssh / winrm 能进网页终端」）；资产接口 5 例（默认端口 5985 与 `winrmTransport` 默认 ntlm、PUT 改 basic、PUT 不传 port 不改端口、非法 transport 400、测试连接成功/失败）；网页终端入口 2 例（winrm 主机出现在 `/api/terminal/targets` 且 `/check` 放行、只有 `terminal:use` 的角色看得到 winrm 但看不到 rdp）。
+
+真机两条（都要求后端在跑）：
+```bash
+python tools/winrm_gw_check.py --admin-password <当前管理员口令>   # SSH 网关里选 Windows 主机跑命令（9 项断言）
+python %TEMP%\_winrm_cdp.py 1 && python %TEMP%\_winrm_cdp.py 2    # 浏览器 CDP 取证：列表页 + 控制台（一次性探针）
+```
+
+实测截图（根 `docs/screenshots/`）：`winrm-webterm-list.png`、`winrm-webterm-console.png`、`winrm-cls-and-early-input.png`（`cls` 之后就只剩一行提示符，验证就地清屏与「刚开窗就敲」的按键有输出）。
 
 ---
 
@@ -446,7 +495,7 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 607 passed（31 个文件）
+python -m pytest -q                       # 679 passed（32 个文件）
 python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）
@@ -457,6 +506,8 @@ python -m pytest tests/test_gateway_ai_shell.py -q   # 网关里 /ask-ai 的行�
 python -m pytest tests/test_ai_line_split.py tests/test_webterm_ai.py -q   # /ask-ai 行分流状态机（网关与网页终端共用）+ 网页终端入口
 python -m pytest tests/test_rdp_gateway.py -q   # Windows 远程桌面（WebRDP）：RDCleanPath 封包/解包、票据 TTL 与一次性、WebSocket 中继、会话记录与审计收口
 python -m pytest tests/test_rdp_recording.py -q # 远程桌面录像：上传/列表/Range 回放/三段审计 + 回放票据（10 分钟、绑定单条录像、各类伪造 401）
+python -m pytest tests/test_winrm_gateway.py -q # Windows 网页终端（WinRM）：客户端/桥接层/会话分发/资产接口/网页终端入口（49 例，全部不碰真机）
+python tools/winrm_gw_check.py --admin-password <当前管理员口令>   # 真机：SSH 网关菜单里选 Windows 主机跑 whoami/hostname（9 项断言，选跑）
 python -m pytest tests/test_gateway_clear.py -q   # 连接目标机后自动清屏（且裸回车不落库）
 python -m pytest tests/test_client_version.py -q   # SSH 握手两端版本（网关页 + 账号连接测试）
 

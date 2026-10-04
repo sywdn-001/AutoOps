@@ -20,6 +20,7 @@ from ..audit import log_event
 from ..extensions import db, socketio
 from ..models import User
 from ..security import has_permission
+from ..session_notes import session_note_lines
 from ..session_registry import registry
 from ..session_service import open_session, teardown_session
 
@@ -518,6 +519,12 @@ def _clear_screen_after_connect(ctx: dict, opened, ready: dict, cols: int) -> No
         + color("/ask-ai <问题>", ai_shell.CLR_CYAN)
         + color("（AI 的答案流式输出，操作同样入审计）", ai_shell.CLR_DIM),
     ]
+    # 协议专属的能力边界（如 WinRM 的「进程内状态不保留 / 交互式程序不可用」）：
+    # 桥接层自己在 start() 里也打印过一份，但紧接着这句清屏会把它擦掉，所以必须在这里重打。
+    protocol = (getattr(opened, "meta", None) or {}).get("protocol") or "ssh"
+    lines.extend(
+        color(line, ai_shell.CLR_DIM) for line in session_note_lines(protocol)
+    )
     writer.write(CLEAR_SCREEN + "\r\n".join(lines) + "\r\n")
     try:
         opened.bridge.feed_input(b"\n")
@@ -604,9 +611,11 @@ def on_targets(data=None):
     if user is None:
         emit("terminal:error", {"message": "账号状态异常"})
         return
-    # 网页终端只列 ssh 主机；Windows 远程桌面（protocol="rdp"）走 /api/rdp/* 独立入口。
+    # 网页终端列 ssh（Linux shell）与 winrm（Windows shell）主机；Windows 远程桌面
+    # （protocol="rdp"）走 /api/rdp/* 独立入口。
     entries = [
-        serialize_target(entry) for entry in accessible_targets(user, protocols=("ssh",))
+        serialize_target(entry)
+        for entry in accessible_targets(user, protocols=("ssh", "winrm"))
     ]
     emit(
         "terminal:targets",
@@ -621,6 +630,7 @@ def on_targets(data=None):
                     "description": item["description"],
                     "policyName": item["policyName"],
                     "canWebterm": item["canWebterm"],
+                    "protocol": item.get("protocol") or "ssh",
                     "accounts": item["accounts"],
                 }
                 for item in entries
@@ -767,6 +777,8 @@ def on_open(data=None):
             "accountUsername": ready.get("accountUsername") or "",
             "policyName": ready.get("policyName") or "",
             "segmented": opened.segmented,
+            # 协议随会话下发，前端状态条据此显示 SSH / WINRM（同一个终端窗口两种通道）
+            "protocol": (opened.meta or {}).get("protocol") or "ssh",
         },
     )
     # 放行缓冲的目标机输出（MOTD + 第一个提示符），随后清屏并重画堡垒机上下文行：

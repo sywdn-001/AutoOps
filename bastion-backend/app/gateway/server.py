@@ -29,6 +29,7 @@ from ..ai.line_split import LineShadow
 from ..extensions import db
 from ..models import User, utcnow
 from ..security import verify_password
+from ..session_notes import session_note_lines
 from ..session_service import open_session, teardown_session
 from ..settings_store import get_int, get_setting
 
@@ -679,11 +680,14 @@ def _write_session_context(writer: ChannelWriter, entry, account, sid: str) -> N
         f"账号 {account['username'] if account else '-'}，会话号 {sid}"
     )
     writer.line(color("[堡垒机] 输入的命令与输出都会被审计记录。输入 exit 返回主机菜单。", CLR_DIM))
-    writer.line(
-        color("[堡垒机] 想随时问 AI：", CLR_DIM)
+    writer.line(color("[堡垒机] 想随时问 AI：", CLR_DIM)
         + color("/ask-ai <问题>", CLR_CYAN)
         + color("（AI 的答案流式输出，操作同样入审计）", CLR_DIM)
     )
+    # 协议专属的能力边界（WinRM 的「进程内状态不保留 / 交互式程序不可用」等）：
+    # 与网页终端共用一份措辞，避免两个入口各说各话。
+    for note in session_note_lines((entry or {}).get("protocol")):
+        writer.line(color(note, CLR_DIM))
     writer.line()
 
 
@@ -987,10 +991,12 @@ def _serve_channel(app, transport, channel, server, client_ip, host_key):
     while True:
         if not _channel_alive(channel):
             return
-        # 菜单只列 ssh 主机：Windows 远程桌面（protocol="rdp"）不在这里出现，
-        # 它走浏览器端的 /rdp 入口（`app/api/rdp.py`）。
+        # 菜单列 ssh（Linux shell）与 winrm（Windows shell）主机：两者都能进这个审计 shell；
+        # Windows 远程桌面（protocol="rdp"）不在这里出现，它走浏览器端的 /rdp 入口
+        # （`app/api/rdp.py`）。
         entries = [
-            serialize_target(entry) for entry in accessible_targets(user, protocols=("ssh",))
+            serialize_target(entry)
+            for entry in accessible_targets(user, protocols=("ssh", "winrm"))
         ]
         live_count = _live_count(user.id)
         # 终端可能在菜单停留期间被拖动改变宽度，每轮都取最新的 PTY 列数

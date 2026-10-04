@@ -9,6 +9,7 @@ from ..audit import log_event
 from ..extensions import db
 from ..models import Grant, Host, HostAccount, HostGroup, SessionRecord
 from ..rdp.proxy import RDP_SECURITY_CHOICES, RDP_SECURITY_DEFAULT
+from ..winrm.client import WINRM_TRANSPORTS, WINRM_TRANSPORT_DEFAULT
 from ..security import admin_required, permission_required
 from ..ssh_client import SSHError, build_target, connect, run_single_command
 from ..utils import (
@@ -22,7 +23,10 @@ from ..utils import (
 
 bp = Blueprint("hosts", __name__, url_prefix="/api/hosts")
 
-ALLOWED_PROTOCOLS = {"ssh", "rdp"}
+ALLOWED_PROTOCOLS = {"ssh", "rdp", "winrm"}
+
+#: 新建主机时不填端口时的默认值（ssh 22 / rdp 3389 / winrm 5985）
+DEFAULT_PORTS = {"ssh": 22, "rdp": 3389, "winrm": 5985}
 ALLOWED_AUTH_TYPES = {"password", "key"}
 
 
@@ -102,7 +106,9 @@ def get_host(host_id: int):
 def _validate_host_payload(payload: dict, *, host_id: int | None = None):
     name = (payload.get("name") or "").strip()
     address = (payload.get("address") or "").strip()
-    port = parse_int(payload.get("port"), 22) or 22
+    protocol = (payload.get("protocol") or "ssh").strip().lower()
+    default_port = DEFAULT_PORTS.get(protocol, 22)
+    port = parse_int(payload.get("port"), default_port) or default_port
     if not name:
         return None, api_error("主机别名不能为空", 400, code="INVALID_ARGUMENT")
     if not address:
@@ -124,12 +130,22 @@ def _validate_host_payload(payload: dict, *, host_id: int | None = None):
             400,
             code="INVALID_ARGUMENT",
         )
+    winrm_transport = str(
+        payload.get("winrmTransport") or payload.get("winrm_transport") or WINRM_TRANSPORT_DEFAULT
+    ).strip().lower()
+    if winrm_transport not in WINRM_TRANSPORTS:
+        return None, api_error(
+            f"WinRM 认证方式只能是 {' / '.join(WINRM_TRANSPORTS)}（收到 {winrm_transport or '空值'}）",
+            400,
+            code="INVALID_ARGUMENT",
+        )
     return {
         "name": name,
         "address": address,
         "port": int(port),
-        "protocol": (payload.get("protocol") or "ssh").strip().lower(),
+        "protocol": protocol,
         "rdp_security": rdp_security,
+        "winrm_transport": winrm_transport,
         "os_type": (payload.get("osType") or payload.get("os_type") or "linux").strip(),
         "group_id": group_id,
         "description": (payload.get("description") or "").strip(),
@@ -146,7 +162,11 @@ def create_host():
     if error is not None:
         return error
     if data["protocol"] not in ALLOWED_PROTOCOLS:
-        return api_error("当前仅支持 ssh 协议主机", 400, code="INVALID_ARGUMENT")
+        return api_error(
+            "主机协议只能是 ssh（Linux 网页终端）/ rdp（Windows 远程桌面）/ winrm（Windows 网页终端）",
+            400,
+            code="INVALID_ARGUMENT",
+        )
     host = Host(**data)
     db.session.add(host)
     db.session.commit()
@@ -174,6 +194,9 @@ def update_host(host_id: int):
         "port": payload.get("port", host.port),
         "protocol": payload.get("protocol", host.protocol),
         "rdpSecurity": payload.get("rdpSecurity", host.rdp_security or RDP_SECURITY_DEFAULT),
+        "winrmTransport": payload.get(
+            "winrmTransport", host.winrm_transport or WINRM_TRANSPORT_DEFAULT
+        ),
         "osType": payload.get("osType", host.os_type),
         "groupId": payload.get("groupId", host.group_id),
         "description": payload.get("description", host.description),
@@ -372,6 +395,79 @@ def delete_account(host_id: int, account_id: int):
     return api_ok(None, "主机登录账号已删除")
 
 
+def _test_winrm_account(host, account, account_id: int):
+    """WinRM 资产的「测试连接」：读 whoami / 计算机名 / PowerShell 版本 / 系统版本。"""
+    from flask import current_app
+
+    from ..winrm import WinrmError
+    from ..winrm import build_target as build_winrm_target
+    from ..winrm import close as close_winrm
+    from ..winrm import connect as connect_winrm
+    from ..winrm import run_script as run_winrm_script
+    from ..winrm.client import PROBE_SCRIPT
+
+    try:
+        target = build_winrm_target(
+            host,
+            account,
+            connect_timeout=current_app.config["SSH_CONNECT_TIMEOUT"],
+            command_timeout=current_app.config["COMMAND_TIMEOUT"],
+        )
+        connection = connect_winrm(target)
+    except WinrmError as exc:
+        log_event(
+            "host",
+            "test_account",
+            result="failure",
+            target_type="host_account",
+            target_id=account_id,
+            target_name=account.name,
+            message=f"WinRM 连通性测试失败：{exc}",
+        )
+        return api_error(str(exc), 400, code="WINRM_CONNECT_FAILED")
+
+    try:
+        result = run_winrm_script(connection, PROBE_SCRIPT, timeout=20.0)
+    except Exception as exc:  # noqa: BLE001 - 通道异常也要回结构化错误，不能 500
+        log_event(
+            "host",
+            "test_account",
+            result="failure",
+            target_type="host_account",
+            target_id=account_id,
+            target_name=account.name,
+            message=f"WinRM 连通性测试命令执行失败：{exc}",
+        )
+        return api_error(f"连通性测试命令执行失败：{exc}", 400, code="WINRM_TEST_COMMAND_FAILED")
+    finally:
+        close_winrm(connection)
+
+    if result.timed_out:
+        return api_error(
+            "WinRM 命令超时：目标机没有在 20 秒内返回结果",
+            400,
+            code="WINRM_TEST_TIMEOUT",
+        )
+    log_event(
+        "host",
+        "test_account",
+        target_type="host_account",
+        target_id=account_id,
+        target_name=account.name,
+        message="WinRM 连通性测试成功",
+    )
+    return api_ok(
+        {
+            "output": (result.stdout or "").strip(),
+            "check": "winrm",
+            "endpoint": target.endpoint,
+            "transport": target.transport,
+            "command": "whoami / COMPUTERNAME / PowerShellVersion / OSVersion",
+        },
+        "连接成功",
+    )
+
+
 @bp.post("/<int:host_id>/accounts/<int:account_id>/test")
 @admin_required
 def test_account(host_id: int, account_id: int):
@@ -379,6 +475,8 @@ def test_account(host_id: int, account_id: int):
     account = db.session.get(HostAccount, account_id)
     if host is None or account is None or account.host_id != host_id:
         return api_error("主机或登录账号不存在", 404, code="NOT_FOUND")
+    if (host.protocol or "ssh").strip().lower() == "winrm":
+        return _test_winrm_account(host, account, account_id)
     from flask import current_app
 
     try:

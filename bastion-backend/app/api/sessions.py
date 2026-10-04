@@ -425,21 +425,23 @@ def get_command(command_id: int):
 @bp.get("/terminal/targets")
 @permission_required("terminal:use", "rdp:use")
 def terminal_targets():
-    """当前账号有权访问的主机菜单（网页终端入口，**ssh 与 rdp 合并在同一张列表里**）。
+    """当前账号有权访问的主机菜单（网页终端入口，**ssh / winrm / rdp 合并在同一张列表里**）。
 
     历史上的终端选单只列 ssh 主机，Windows 远程桌面（`protocol="rdp"`）另有一个入口页；
-    现在两者合并：同一个列表、同一颗「连接」按钮，按主机的 `protocol` 决定打开字符终端
-    还是远程桌面窗口（`/terminal/console` 或 `/rdp/console`）。
+    现在三者合并：同一个列表、同一颗「连接」按钮，按主机的 `protocol` 决定打开哪扇窗口 ——
+    ssh 与 winrm 是字符终端（`/terminal/console`），rdp 是远程桌面（`/rdp/console`）。
 
     谁能看到哪一类，取决于权限码而不是页面：有 `terminal:use`（且账号没被禁用网页终端）
-    才返回 ssh 主机，有 `rdp:use` 才返回 rdp 主机；两类都没有就是空列表。
+    才返回字符终端主机（Linux 的 ssh 与 Windows 的 winrm 共用这一个权限码），
+    有 `rdp:use` 才返回 rdp 主机；两类都没有就是空列表。
     """
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
     protocols: list[str] = []
     if has_permission(actor, "terminal:use") and actor.webterm_enabled:
-        protocols.append("ssh")
+        # 字符终端：Linux 走 ssh、Windows 走 winrm，两者共用一个权限码与同一条前端链路
+        protocols.extend(("ssh", "winrm"))
     if has_permission(actor, "rdp:use"):
         protocols.append(RDP_PROTOCOL)
     if not protocols:
@@ -474,7 +476,7 @@ def check_target(host_id: int):
     actor = load_actor()
     if actor is None:
         return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
-    targets = accessible_targets(actor, protocols=("ssh",))
+    targets = accessible_targets(actor, protocols=("ssh", "winrm"))
     target = next((item for item in targets if item["hostId"] == host_id), None)
     if target is None:
         from ..access import find_access

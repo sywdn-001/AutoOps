@@ -26,7 +26,11 @@ export type TerminalSession = {
   port: number;
   accountUsername: string;
   policyName?: string;
-  protocol: 'ssh';
+  /**
+   * 会话协议：`ssh` = Linux 命令行，`winrm` = Windows 命令行（服务端按主机协议
+   * 决定用 SSH channel 还是 WinRS，前端只用来在状态条上显示通道类型）。
+   */
+  protocol: string;
   status: ConnectionStatus;
   /** 连接建立时刻（毫秒），用于状态条上的「连接时长」每秒跳动。 */
   connectedAt?: number;

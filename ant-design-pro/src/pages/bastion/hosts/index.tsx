@@ -82,6 +82,7 @@ type HostFormValues = {
   port: number;
   protocol: string;
   rdpSecurity?: string;
+  winrmTransport?: string;
   osType: string;
   groupId?: number;
   status: string;
@@ -101,10 +102,12 @@ type AccountFormValues = {
 };
 
 /**
- * 后端接受 ssh（网页终端 / SSH 网关）与 rdp（Windows 远程桌面，走浏览器里的 WebRDP）
+ * 后端接受 ssh（网页终端 / SSH 网关）、winrm（Windows 网页终端，PowerShell over WinRS）
+ * 与 rdp（Windows 远程桌面，走浏览器里的 WebRDP）
  */
 const PROTOCOL_OPTIONS = [
   { label: 'SSH（Linux / Unix 命令行）', value: 'ssh' },
+  { label: 'WinRM（Windows 命令行 / PowerShell）', value: 'winrm' },
   { label: 'RDP（Windows 远程桌面）', value: 'rdp' },
 ];
 
@@ -123,6 +126,23 @@ const RDP_SECURITY_OPTIONS = [
   { label: '自动（默认，按客户端协商，含 NLA）', value: 'auto' },
   { label: '强制 SSL（不使用 NLA，兼容老系统）', value: 'ssl' },
 ];
+
+/**
+ * WinRM 认证方式：ntlm 是默认（域账号、本地账号都能用）；basic 只在目标机开了
+ * `AllowUnencrypted` 时才用得上（明文口令，尽量别选）。两者都走 HTTP/5985，
+ * 目标机开了 HTTPS 时把端口填 5986 即可自动用 TLS。
+ */
+const WINRM_TRANSPORT_OPTIONS = [
+  { label: 'NTLM（默认，域 / 本地账号）', value: 'ntlm' },
+  { label: 'Basic（明文，需目标机 AllowUnencrypted）', value: 'basic' },
+];
+
+/** 各协议在后台的默认端口（与后端 `api/hosts.py` 的 DEFAULT_PORTS 保持一致） */
+const PROTOCOL_DEFAULT_PORTS: Record<string, number> = {
+  ssh: 22,
+  winrm: 5985,
+  rdp: 3389,
+};
 
 const STATUS_OPTIONS = Object.entries(HOST_STATUS_META).map(
   ([value, meta]) => ({
@@ -222,6 +242,7 @@ const Hosts: React.FC = () => {
       port: values.port,
       protocol: values.protocol,
       rdpSecurity: values.rdpSecurity ?? 'auto',
+      winrmTransport: values.winrmTransport ?? 'ntlm',
       osType: values.osType,
       groupId: values.groupId ?? null,
       description: values.description ?? '',
@@ -358,6 +379,7 @@ const Hosts: React.FC = () => {
         port: editing.port,
         protocol: editing.protocol,
         rdpSecurity: editing.rdpSecurity ?? 'auto',
+        winrmTransport: editing.winrmTransport ?? 'ntlm',
         osType: editing.osType,
         groupId: editing.groupId ?? undefined,
         status: editing.status,
@@ -368,6 +390,7 @@ const Hosts: React.FC = () => {
         port: 22,
         protocol: 'ssh',
         rdpSecurity: 'auto',
+        winrmTransport: 'ntlm',
         osType: 'linux',
         status: 'active',
         tags: [],
@@ -413,6 +436,11 @@ const Hosts: React.FC = () => {
           {row.protocol === 'rdp' && row.rdpSecurity === 'ssl' ? (
             <Tooltip title="这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）">
               <Tag color="orange">强制 SSL</Tag>
+            </Tooltip>
+          ) : null}
+          {row.protocol === 'winrm' && row.winrmTransport === 'basic' ? (
+            <Tooltip title="这台主机的 WinRM 认证方式是 Basic（口令明文过网，只在目标机开了 AllowUnencrypted 时才用得上的兜底选项）">
+              <Tag color="orange">Basic 明文</Tag>
             </Tooltip>
           ) : null}
         </Space>
@@ -643,19 +671,28 @@ const Hosts: React.FC = () => {
           fieldProps={{ placeholder: '192.168.1.10 或 host.example.com' }}
           rules={[{ required: true, message: '请输入主机地址' }]}
         />
-        <ProFormDigit
-          name="port"
-          label="端口"
-          min={1}
-          max={65535}
-          rules={[{ required: true, message: '请输入端口' }]}
-        />
+        <ProFormDependency name={['protocol']}>
+          {({ protocol }) => (
+            <ProFormDigit
+              // key 让协议一改就重挂字段：端口跟着协议走（ssh 22 / winrm 5985 /
+              // rdp 3389），省得选了 WinRM 还留着 22 去连。
+              key={`port-${protocol}`}
+              name="port"
+              label="端口"
+              min={1}
+              max={65535}
+              initialValue={PROTOCOL_DEFAULT_PORTS[protocol as string] ?? 22}
+              rules={[{ required: true, message: '请输入端口' }]}
+              extra="按协议填：ssh 22、winrm 5985（HTTPS 用 5986）、rdp 3389"
+            />
+          )}
+        </ProFormDependency>
         <ProFormSelect
           name="protocol"
           label="协议"
           options={PROTOCOL_OPTIONS}
           rules={[{ required: true, message: '请选择协议' }]}
-          extra="ssh 走网页终端 / SSH 网关；rdp 走浏览器里的 Windows 远程桌面"
+          extra="ssh 走网页终端 / SSH 网关；winrm 走网页终端里的 Windows PowerShell；rdp 走浏览器里的 Windows 远程桌面"
         />
         <ProFormSelect
           name="rdpSecurity"
@@ -663,6 +700,13 @@ const Hosts: React.FC = () => {
           options={RDP_SECURITY_OPTIONS}
           initialValue="auto"
           extra="只对协议 rdp 的主机生效：默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
+        />
+        <ProFormSelect
+          name="winrmTransport"
+          label="WinRM 认证方式"
+          options={WINRM_TRANSPORT_OPTIONS}
+          initialValue="ntlm"
+          extra="只对协议 winrm 的主机生效：端口 5985 走 HTTP（默认）、5986 走 HTTPS；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
         />
         <ProFormSelect
           name="osType"

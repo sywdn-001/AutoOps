@@ -412,12 +412,32 @@ const TerminalConsolePage = () => {
 
   const status = session ? STATUS_META[session.status] : undefined;
   const connected = session?.status === 'connected';
+  // 就绪前也要把按键送出去：服务端在 `open_session()` 返回之前会把按键攒进 early_input、
+  // 就绪后按序回放；客户端若在这里丢弃，用户「窗口一打开就敲」的第一条命令会静默消失
+  // （表现就是「敲了命令没有任何输出」）。原先只认 `connected`，Windows（WinRM）主机
+  // 建连更慢，所以更容易踩到。
+  const inputEnabled =
+    session !== undefined &&
+    session.status !== 'failed' &&
+    session.status !== 'disconnected';
+  // 会话刚建立时把焦点收回终端：本页是 `window.open()` 弹出的窗口，用户开始敲键盘时
+  // 焦点可能还停在别处 —— 表现同样是「敲了没反应」。
+  useEffect(() => {
+    if (session?.status === 'connected') {
+      getHandle()?.focus();
+    }
+  }, [getHandle, session?.status]);
   const fontSize = session?.fontSize ?? 13;
-  const filesTip = !access.canFileUse
-    ? '当前账号没有文件管理器权限（file:use）'
-    : !session?.sid
-      ? '终端会话建立后才能打开文件管理器'
-      : '在同一台资产上新开一个文件管理器窗口（SFTP）';
+  // WinRM（Windows）会话没有 SFTP 通道：文件管理器按钮直接不渲染，
+  // 而不是留一颗永远点不动的灰按钮。
+  const isWinrm = session?.protocol === 'winrm';
+  const filesTip = isWinrm
+    ? 'Windows（WinRM）会话不支持文件传输，需要传文件请改用 Linux 主机或远程桌面'
+    : !access.canFileUse
+      ? '当前账号没有文件管理器权限（file:use）'
+      : !session?.sid
+        ? '终端会话建立后才能打开文件管理器'
+        : '在同一台资产上新开一个文件管理器窗口（SFTP）';
 
   if (error) {
     return (
@@ -475,18 +495,20 @@ const TerminalConsolePage = () => {
             {session.sid}
           </span>
         ) : null}
-        <Tooltip title={filesTip}>
-          <Button
-            className="bastion-toolbar-files"
-            size="small"
-            type="text"
-            icon={<FolderOpenOutlined />}
-            disabled={!access.canFileUse || !session?.sid}
-            onClick={openFileManager}
-          >
-            文件管理
-          </Button>
-        </Tooltip>
+        {isWinrm ? null : (
+          <Tooltip title={filesTip}>
+            <Button
+              className="bastion-toolbar-files"
+              size="small"
+              type="text"
+              icon={<FolderOpenOutlined />}
+              disabled={!access.canFileUse || !session?.sid}
+              onClick={openFileManager}
+            >
+              文件管理
+            </Button>
+          </Tooltip>
+        )}
         <span className="bastion-toolbar-spacer" />
         <Tooltip title="重新连接">
           <Button
@@ -627,7 +649,7 @@ const TerminalConsolePage = () => {
           <TerminalPane
             active
             fontSize={session.fontSize}
-            inputEnabled={connected}
+            inputEnabled={inputEnabled}
             connected={connected}
             onData={sendInput}
             onResize={sendResize}

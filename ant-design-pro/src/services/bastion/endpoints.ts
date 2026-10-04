@@ -169,6 +169,8 @@ export type HostPayload = {
   protocol?: string;
   /** RDP 安全层：auto（默认）/ ssl（强制标准 RDP 安全层，绕开 NLA） */
   rdpSecurity?: string;
+  /** WinRM 认证方式：ntlm（默认）/ basic（明文，需目标机 AllowUnencrypted） */
+  winrmTransport?: string;
   osType?: string;
   groupId?: number | null;
   description?: string;

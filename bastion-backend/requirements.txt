@@ -9,6 +9,8 @@ simple-websocket>=1.0
 python-socketio>=5.11
 SQLAlchemy>=2.0
 paramiko>=3.5
+# Windows 主机 shell（WinRM）：网页终端里连 Windows 走 WSMan，NTLM 认证需要 [ntlm] 附加包
+pywinrm[ntlm]>=0.5
 cryptography>=42
 # AI 运维（AIOps）：调用 DeepSeek 的 OpenAI 兼容接口（流式 + Tool Calling）
 requests>=2.31

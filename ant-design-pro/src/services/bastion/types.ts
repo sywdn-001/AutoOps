@@ -95,6 +95,8 @@ export type HostItem = {
   protocol: string;
   /** RDP 安全层偏好：auto（默认，按客户端协商，含 NLA）/ ssl（强制标准 RDP 安全层） */
   rdpSecurity?: 'auto' | 'ssl' | string;
+  /** WinRM 认证方式：ntlm（默认）/ basic（明文，需目标机 AllowUnencrypted） */
+  winrmTransport?: 'ntlm' | 'basic' | string;
   osType: string;
   description: string;
   groupId: number | null;
@@ -459,9 +461,10 @@ export type TerminalTarget = {
   description: string;
   osType: string;
   /**
-   * 连接协议：`ssh` = 字符终端（`/terminal/console`），`rdp` = Windows 远程桌面
-   * （`/rdp/console`）。**已合并进同一张「可访问资产」列表**：同一个入口、同一颗
-   * 「连接」按钮，按协议决定弹哪种窗口，所以页面上不再有「远程桌面」专栏。
+   * 连接协议：`ssh` = Linux 字符终端，`winrm` = Windows 字符终端（WinRM/PowerShell），
+   * `rdp` = Windows 远程桌面（`/rdp/console`）。**已合并进同一张「可访问资产」列表**：
+   * 同一个入口、同一颗「连接」按钮，按协议决定弹哪种窗口（`rdp` 弹远程桌面窗口，
+   * `ssh`/`winrm` 都弹终端窗口），所以页面上不再有「远程桌面」专栏。
    */
   protocol: string;
   canSftp: boolean;

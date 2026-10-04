@@ -34,14 +34,32 @@ import {
  * 这台机器可以用哪些资产账号开窗口。
  *
  * 远程桌面只认口令账号（CredSSP/NLA 要在浏览器侧算 NTLM 应答，密钥账号根本没口令可算），
- * 所以在合并列表里先把密钥账号滤掉，用户不会选到一个注定失败的账号。
+ * WinRM 同样只认「用户名 + 口令」（WinRS 不支持私钥登录），所以在合并列表里先把密钥
+ * 账号滤掉，用户不会选到一个注定失败的账号。
  */
+const needsPasswordAccount = (protocol: string) =>
+  protocol === 'rdp' || protocol === 'winrm';
+
 const usableAccounts = (target: TerminalTarget) =>
-  target.protocol === 'rdp'
+  needsPasswordAccount(target.protocol)
     ? target.accounts.filter(
         (account) => (account.authType || 'password') === 'password',
       )
     : target.accounts;
+
+/**
+ * 同一台 Windows 机器可能同时挂着「远程桌面」与「WinRM 网页终端」两条入口
+ * （协议是主机级字段），地址后面缀一句通道说明，免得两行看起来一模一样。
+ */
+const protocolHint = (protocol: string) => {
+  if (protocol === 'winrm') {
+    return ' · WinRM 网页终端';
+  }
+  if (protocol === 'rdp') {
+    return ' · 远程桌面';
+  }
+  return '';
+};
 
 const TerminalLauncherPage = () => {
   const access = useAccess();
@@ -120,6 +138,7 @@ const TerminalLauncherPage = () => {
           </Space>
           <span className="bastion-launcher-addr">
             {record.address}:{record.port}
+            {protocolHint(record.protocol)}
           </span>
         </Space>
       ),
@@ -152,7 +171,9 @@ const TerminalLauncherPage = () => {
         if (!accounts.length) {
           return (
             <span className="bastion-launcher-warn">
-              {record.protocol === 'rdp' ? '无口令账号' : '无可用账号'}
+              {needsPasswordAccount(record.protocol)
+                ? '无口令账号'
+                : '无可用账号'}
             </span>
           );
         }
@@ -182,13 +203,15 @@ const TerminalLauncherPage = () => {
       width: 200,
       render: (_, record) => {
         const isRdp = record.protocol === 'rdp';
+        // WinRM 也没有 SFTP 通道（WinRS 只跑命令，不传文件），别给一个点了才报错的入口。
+        const hasFiles = !isRdp && record.protocol !== 'winrm';
         const accounts = usableAccounts(record);
         const accountId = picked[record.hostId] ?? accounts[0]?.id;
         const disabled = !record.canWebterm || !accountId;
         const reason = !record.canWebterm
           ? '该资产的授权未开放交互式登录'
-          : isRdp
-            ? '该主机下没有可用的口令账号（远程桌面需要口令认证）'
+          : needsPasswordAccount(record.protocol)
+            ? '该主机下没有可用的口令账号（远程桌面 / WinRM 都需要口令认证）'
             : '该主机下没有可用资产账号';
         const filesDisabled = !record.canSftp || !accountId;
         const filesReason = !record.canSftp
@@ -216,8 +239,8 @@ const TerminalLauncherPage = () => {
                 连接
               </Button>
             </Tooltip>
-            {/* 远程桌面没有 SFTP 通道，索性不渲染「文件」按钮，不给点了才报错的入口 */}
-            {isRdp ? null : (
+            {/* 远程桌面与 WinRM 都没有 SFTP 通道，索性不渲染「文件」按钮，不给点了才报错的入口 */}
+            {hasFiles ? (
               <Tooltip
                 title={filesDisabled ? filesReason : '弹出独立文件管理器窗口'}
               >
@@ -231,7 +254,7 @@ const TerminalLauncherPage = () => {
                   文件
                 </Button>
               </Tooltip>
-            )}
+            ) : null}
           </Space>
         );
       },
@@ -278,8 +301,8 @@ const TerminalLauncherPage = () => {
               <span>没有可连接的资产</span>
               <span className="bastion-launcher-addr">
                 需要管理员在「访问授权」里为你的账号配置「用户 × 主机 ×
-                账号」授权，并勾选交互式登录（Linux 走网页终端，Windows
-                走远程桌面）。
+                账号」授权，并勾选交互式登录（Linux 走网页终端，Windows 走 WinRM
+                网页终端或远程桌面）。
               </span>
             </Space>
           ),
