@@ -73,19 +73,76 @@
   border-color: #7f1d1d;
 }
 
-/* 失败提示：深色底上的告警卡片，避免浅色白卡糊在深色页面上 */
+/* 失败/提醒提示：深色底上的告警卡片，避免浅色白卡糊在深色页面上。
+   antd v6 的组件样式是**运行时注入 `<head>`** 的（排在打包 CSS 之后），
+   同优先级的选择器会被它盖掉 —— 之前就踩过：底色是我们写的深红，
+   文字色却被 antd 的浅色主题令牌改成深红，字与底糊成一片。
+   所以这里做到三件事：提高选择器优先级（`.bastion-rdp-alert.ant-alert`）、
+   按 `ant-alert-error` / `ant-alert-warning` 分别配色、颜色一律 `!important`。 */
 .bastion-rdp-alert {
   margin: 8px 12px 0;
-  background: #2a1215;
-  border: 1px solid #58181c;
 }
 
-.bastion-rdp-alert .ant-alert-message {
-  color: #ffa39e;
+.bastion-rdp-alert.ant-alert-error {
+  background: #2a1215 !important;
+  border: 1px solid #58181c !important;
 }
 
-.bastion-rdp-alert .ant-alert-description {
-  color: #d8b4b4;
+.bastion-rdp-alert.ant-alert-warning {
+  background: #2b2111 !important;
+  border: 1px solid #594214 !important;
+}
+
+/* antd v6 的标题类名是 `.ant-alert-title`（v5 才叫 `.ant-alert-message`）：
+   只写 v5 的名字会让标题保持浅色主题的近黑色，在深底上根本看不见。 */
+.bastion-rdp-alert.ant-alert .ant-alert-title,
+.bastion-rdp-alert.ant-alert .ant-alert-message {
+  color: #ffa39e !important;
+  font-weight: 600;
+}
+
+.bastion-rdp-alert.ant-alert-warning .ant-alert-title,
+.bastion-rdp-alert.ant-alert-warning .ant-alert-message {
+  color: #ffd591 !important;
+}
+
+.bastion-rdp-alert.ant-alert .ant-alert-description {
+  color: #f0c9c6 !important;
+}
+
+.bastion-rdp-alert.ant-alert-warning .ant-alert-description {
+  color: #ffe7ba !important;
+}
+
+.bastion-rdp-alert.ant-alert .ant-alert-icon {
+  color: #ff7875 !important;
+}
+
+.bastion-rdp-alert.ant-alert-warning .ant-alert-icon {
+  color: #ffc53d !important;
+}
+
+.bastion-rdp-alert.ant-alert .ant-btn {
+  color: #ffd6d3 !important;
+  border-color: #7f1d1d !important;
+  background: transparent !important;
+}
+
+.bastion-rdp-alert.ant-alert .ant-btn:hover:not(:disabled) {
+  color: #fff !important;
+  border-color: #a8071a !important;
+  background: #3a1a1d !important;
+}
+
+.bastion-rdp-alert.ant-alert-warning .ant-btn {
+  color: #ffe7ba !important;
+  border-color: #7c5914 !important;
+}
+
+.bastion-rdp-alert.ant-alert-warning .ant-btn:hover:not(:disabled) {
+  color: #fff !important;
+  border-color: #a8730f !important;
+  background: #3a2e14 !important;
 }
 
 /* 桌面舞台：画布始终铺满它，尺寸由 JS 同步给被控主机（分辨率跟随窗口） */

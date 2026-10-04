@@ -344,13 +344,12 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 | [audit-chain-detail.png](docs/screenshots/audit-chain-detail.png) | 审计详情抽屉里的「链式哈希」区块（实拍）：前块哈希 / 本块哈希 + `HMAC-SHA256` 标记 + 计算口径与边界说明，抽屉内同为蓝白底（`#f7faff` 底 + `#e6f0ff` 描边），下方「原始详情数据」仍原样可查 |
 | [web-rdp-win75.png](docs/screenshots/web-rdp-win75.png) | Windows 远程桌面（WebRDP）真机联调实拍：浏览器里**真的画出了 Windows 桌面**（Tailscale / 云更新服务管理器）而不是黑屏 —— 判定不看「有没有字节」，看画布像素统计（`nonBlackRatio=0.9997`、`distinct=218`）；上方工具条与状态条是本次真机实测的现场文字（**这张图取自本轮改造之前**：图中下方的「连接日志」面板与工具条里的「资产列表」按钮已按需求删掉，现在只留顶部状态条与错误 Alert） |
 | [rdp-recordings.png](docs/screenshots/rdp-recordings.png) | 审计中心 ·「远程桌面录像」列表：按操作人 / 资产账号 / 时长 / 体积 / 录制时间列出（**页面横幅已按用户反馈删除**，可见范围说明降级成表头文字；「回看」的 Tooltip 写明「在独立窗口里回放（会换一张 10 分钟有效的一次性票据，并在审计里记一条查看记录）」） |
-
 | [rdp-playback-popup.png](docs/screenshots/rdp-playback-popup.png) | **弹出式回放窗口**（`/rdp/play`）：顶部一行元信息（`录像回放 · #9 win-75` + 操作人 / 资产账号 / 时长 / 体积 / 录制时间）+「重新换票」「关闭窗口」，舞台里 `<video>` 正在**边流边放**那段录下来的 Windows 桌面（本次取证 `readyState=4`、`currentTime` 从 2.35 走到 5.35、`1600×910`、`error=null`） |
 | [rdp-session-interrupted.png](docs/screenshots/rdp-session-interrupted.png) | **在「会话记录」页点「中断」，RDP 会话真的被停掉**：顶部 toast「已中断该会话」，「当前在线会话」随即变空，下方记录里该会话变成黄标**已被中断**（库里 `status=terminated`、`end_reason=管理员强制中断`，审计里 `terminate_session` 与 `rdp_session_close` 相隔 118 毫秒成对出现） |
-
 | [terminal-rdp-tooltip.png](docs/screenshots/terminal-rdp-tooltip.png) | 网页终端入口页（**横幅已删**）：Linux 与 Windows 同列一张表；打开远程桌面前的口令下发告知挪到了 Windows 行「连接」按钮的 Tooltip 上（「CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计）」） |
 | [hosts-no-rdp-button.png](docs/screenshots/hosts-no-rdp-button.png) | 资产管理 · 主机列表实拍：**rdp 主机行不再有「远程桌面」按钮**（操作列只剩 账号管理 / 编辑 / 删除，`rdpButtons=0`）—— 远程桌面入口统一收在「网页终端」页，避免同一个动作有两个入口 |
 | [rdp-session-ended.png](docs/screenshots/rdp-session-ended.png) | 远程桌面断开后的落地界面实拍：弹窗写明结束原因（`user initiated disconnect`）、**本窗口将在 10 秒后自动关闭**（与 Linux 网页终端一致）、录像保存结果（`#2，8 秒`）与「留在本窗口 / 立即关闭」两个选择 |
+| [rdp-alert-readable.png](docs/screenshots/rdp-alert-readable.png) | 控制台「连接失败」告警的可读性修复实拍（深色底 + 亮字）：标题「连接失败」`#ffa39e`、描述 `#f0c9c6`、「重试」按钮 `#ffd6d3` + 红边，卡片底 `#2a1215` —— 实测计算色 `rgb(255, 163, 158)` / `rgb(240, 201, 198)` / `rgb(255, 214, 211)`；修复前标题被 antd v6 的浅色主题令牌压成 `rgba(0, 0, 0, 0.88)`，深底上几乎看不见 |
 
 已修复并在测试中固化的真实缺陷（节选，均带回归用例）：
 
