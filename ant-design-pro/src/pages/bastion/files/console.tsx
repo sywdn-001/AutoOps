@@ -36,8 +36,9 @@ import {
   Drawer,
   Form,
   Input,
-  message,
   Modal,
+  message,
+  Progress,
   Result,
   Space,
   Spin,
@@ -48,14 +49,15 @@ import {
   type UploadProps,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fileApi } from '@/services/bastion/endpoints';
 import { formatDateTime } from '@/services/bastion/constants';
+import { fileApi } from '@/services/bastion/endpoints';
 import type {
   FileCapabilities,
   FileDecision,
   FileEntry,
   FileListResult,
 } from '@/services/bastion/types';
+import { formatRate, uploadPercent } from './uploadProgress';
 import './files.css';
 
 /** 关闭文件管理器后本窗口自动关闭的倒计时秒数（与终端窗口同一口径）。 */
@@ -130,6 +132,38 @@ type PendingModal = {
   entry?: FileEntry;
 };
 
+/** 一个正在上传（或刚结束）的文件：进度条读的就是它 */
+type UploadTask = {
+  uid: string;
+  name: string;
+  size: number;
+  loaded: number;
+  total: number;
+  /** 浏览器侧发送速率（字节每秒），0 表示还没测出来 */
+  rate: number;
+  percent: number;
+  status: 'uploading' | 'done' | 'error';
+  message?: string;
+};
+
+/** 一行上传的可读说明：已传/总大小 · 百分比 · 速率（速率还没测出来就不显示） */
+const describeUpload = (item: UploadTask): string => {
+  if (item.status === 'error') {
+    return item.message || '上传失败';
+  }
+  const parts = [
+    `${formatSize(item.loaded)} / ${formatSize(item.total || item.size)}`,
+    `${item.percent}%`,
+  ];
+  if (item.status === 'uploading') {
+    const rate = formatRate(item.rate, formatSize);
+    if (rate) {
+      parts.push(rate);
+    }
+  }
+  return parts.join(' · ');
+};
+
 const FileConsolePage = () => {
   const access = useAccess();
   const [params] = useSearchParams();
@@ -153,12 +187,20 @@ const FileConsolePage = () => {
   const [form] = Form.useForm<{ value?: string }>();
   const [submitting, setSubmitting] = useState(false);
 
-  const [editor, setEditor] = useState<{ path: string; content: string; mtime: number }>();
+  const [editor, setEditor] = useState<{
+    path: string;
+    content: string;
+    mtime: number;
+  }>();
   const [editorLoading, setEditorLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [closing, setClosing] = useState<number>();
   const openedOnce = useRef(false);
+
+  // 上传进度：每个文件一行（文件名 / 进度条 / 已传字节 / 速率 / 百分比，可取消）
+  const [uploads, setUploads] = useState<UploadTask[]>([]);
+  const uploadAborts = useRef(new Map<string, AbortController>());
 
   const sid = caps?.sid;
 
@@ -227,7 +269,8 @@ const FileConsolePage = () => {
     () => entries.filter((entry) => selected.includes(entry.path)),
     [entries, selected],
   );
-  const decisionKey = (operation: string, target: string) => `${operation}|${target}`;
+  const decisionKey = (operation: string, target: string) =>
+    `${operation}|${target}`;
 
   const decisionFor = useCallback(
     (operation: string, target?: string): FileDecision | undefined => {
@@ -289,7 +332,8 @@ const FileConsolePage = () => {
     if (!sid || !selectedEntries.length) {
       return;
     }
-    const single = selectedEntries.length === 1 ? selectedEntries[0] : undefined;
+    const single =
+      selectedEntries.length === 1 ? selectedEntries[0] : undefined;
     if (single) {
       runChecks(SINGLE_TARGET_OPS, single.path);
     } else {
@@ -339,7 +383,11 @@ const FileConsolePage = () => {
         if (data.truncated) {
           message.warning(`文件较大，仅载入前 ${formatSize(data.readBytes)}`);
         }
-        setEditor({ path: data.path, content: data.content, mtime: data.mtime });
+        setEditor({
+          path: data.path,
+          content: data.content,
+          mtime: data.mtime,
+        });
       } catch (err) {
         message.error((err as Error)?.message || '读取文件失败');
       } finally {
@@ -447,9 +495,13 @@ const FileConsolePage = () => {
     if (next.kind === 'rename' && next.entry) {
       form.setFieldsValue({ value: next.entry.name });
     } else if (next.kind === 'chmod' && next.entry) {
-      form.setFieldsValue({ value: next.entry.modeOctal.replace(/^0+/, '') || '644' });
+      form.setFieldsValue({
+        value: next.entry.modeOctal.replace(/^0+/, '') || '644',
+      });
     } else if (next.kind === 'copy' || next.kind === 'move') {
-      form.setFieldsValue({ value: `${path === '/' ? '' : path}/${next.entry?.name ?? ''}` });
+      form.setFieldsValue({
+        value: `${path === '/' ? '' : path}/${next.entry?.name ?? ''}`,
+      });
     } else {
       form.setFieldsValue({ value: '' });
     }
@@ -461,7 +513,8 @@ const FileConsolePage = () => {
     }
     const values = await form.validateFields();
     const raw = (values.value ?? '').trim();
-    const absolute = (value: string) => (value.startsWith('/') ? value : `${path === '/' ? '' : path}/${value}`);
+    const absolute = (value: string) =>
+      value.startsWith('/') ? value : `${path === '/' ? '' : path}/${value}`;
     setSubmitting(true);
     try {
       if (pendingModal.kind === 'mkdir') {
@@ -471,13 +524,22 @@ const FileConsolePage = () => {
         await fileApi.write(sid, { path: absolute(raw), content: '' });
         message.success('文件已创建');
       } else if (pendingModal.kind === 'rename' && pendingModal.entry) {
-        await fileApi.rename(sid, { path: pendingModal.entry.path, newName: raw });
+        await fileApi.rename(sid, {
+          path: pendingModal.entry.path,
+          newName: raw,
+        });
         message.success('已重命名');
       } else if (pendingModal.kind === 'move' && pendingModal.entry) {
-        await fileApi.rename(sid, { path: pendingModal.entry.path, targetPath: raw });
+        await fileApi.rename(sid, {
+          path: pendingModal.entry.path,
+          targetPath: raw,
+        });
         message.success('已移动');
       } else if (pendingModal.kind === 'copy' && pendingModal.entry) {
-        await fileApi.copy(sid, { path: pendingModal.entry.path, targetPath: raw });
+        await fileApi.copy(sid, {
+          path: pendingModal.entry.path,
+          targetPath: raw,
+        });
         message.success('已复制');
       } else if (pendingModal.kind === 'chmod' && pendingModal.entry) {
         await fileApi.chmod(sid, { path: pendingModal.entry.path, mode: raw });
@@ -493,6 +555,24 @@ const FileConsolePage = () => {
     }
   };
 
+  const patchUpload = useCallback((uid: string, patch: Partial<UploadTask>) => {
+    setUploads((prev) =>
+      prev.map((item) => (item.uid === uid ? { ...item, ...patch } : item)),
+    );
+  }, []);
+
+  const dropUpload = useCallback((uid: string, delay = 0) => {
+    const remove = () => {
+      uploadAborts.current.delete(uid);
+      setUploads((prev) => prev.filter((item) => item.uid !== uid));
+    };
+    if (delay > 0) {
+      window.setTimeout(remove, delay);
+    } else {
+      remove();
+    }
+  }, []);
+
   const uploadProps = useMemo<UploadProps>(
     () => ({
       multiple: true,
@@ -502,11 +582,42 @@ const FileConsolePage = () => {
           options.onError?.(new Error('会话未就绪'));
           return;
         }
-        const file = options.file as File;
+        const file = options.file as File & { uid?: string };
+        const uid = String(file.uid ?? `${Date.now()}-${file.name}`);
+        const controller = new AbortController();
+        uploadAborts.current.set(uid, controller);
+        setUploads((prev) => [
+          ...prev.filter((item) => item.uid !== uid),
+          {
+            uid,
+            name: file.name,
+            size: file.size,
+            loaded: 0,
+            total: file.size,
+            rate: 0,
+            percent: 0,
+            status: 'uploading',
+          },
+        ]);
         fileApi
-          .upload(sid, path, file)
+          .upload(sid, path, file, true, {
+            signal: controller.signal,
+            onProgress: ({ loaded, total, rate }) => {
+              const span = total || file.size || 0;
+              // 发送完成前最多 99%：最后 1% 是服务端把文件写进目标机的耗时
+              const percent = uploadPercent(loaded, span);
+              patchUpload(uid, { loaded, total: span, rate, percent });
+              options.onProgress?.({ percent });
+            },
+          })
           .then((result) => {
             const failed = result.failed ?? [];
+            patchUpload(uid, {
+              percent: 100,
+              loaded: file.size,
+              rate: 0,
+              status: 'done',
+            });
             if (failed.length) {
               message.warning(`${failed[0]?.name}：${failed[0]?.message}`);
             } else {
@@ -514,14 +625,31 @@ const FileConsolePage = () => {
             }
             options.onSuccess?.(result);
             refresh();
+            dropUpload(uid, 2500);
           })
           .catch((err: Error) => {
+            if (controller.signal.aborted) {
+              message.info(`已取消上传 ${file.name}`);
+              dropUpload(uid);
+              return;
+            }
             message.error(err?.message || '上传失败');
+            patchUpload(uid, {
+              status: 'error',
+              rate: 0,
+              message: err?.message || '上传失败',
+            });
             options.onError?.(err);
+            dropUpload(uid, 8000);
           });
+        return {
+          abort: () => {
+            controller.abort();
+          },
+        };
       },
     }),
-    [sid, path, refresh],
+    [sid, path, refresh, patchUpload, dropUpload],
   );
 
   const closeSession = useCallback(async () => {
@@ -648,7 +776,11 @@ const FileConsolePage = () => {
       key: 'size',
       width: 100,
       render: (_: unknown, entry: FileEntry) =>
-        entry.isDir ? <span className="bastion-files-muted">—</span> : formatSize(entry.size),
+        entry.isDir ? (
+          <span className="bastion-files-muted">—</span>
+        ) : (
+          formatSize(entry.size)
+        ),
     },
     {
       title: '修改时间',
@@ -695,7 +827,9 @@ const FileConsolePage = () => {
                     下载
                   </Button>
                 </Tooltip>
-                <Tooltip title={locked('read') || locked('write') || '在线编辑并保存'}>
+                <Tooltip
+                  title={locked('read') || locked('write') || '在线编辑并保存'}
+                >
                   <Button
                     size="small"
                     type="link"
@@ -708,7 +842,11 @@ const FileConsolePage = () => {
                 </Tooltip>
               </>
             ) : (
-              <Button size="small" type="link" onClick={() => setPath(entry.path)}>
+              <Button
+                size="small"
+                type="link"
+                onClick={() => setPath(entry.path)}
+              >
                 打开
               </Button>
             )}
@@ -789,7 +927,9 @@ const FileConsolePage = () => {
   const cursor = selectedEntries.length === 0 ? path : selectedEntries[0]?.path;
 
   return (
-    <div className={`bastion-files-page${fullscreen ? ' bastion-console-fullscreen' : ''}`}>
+    <div
+      className={`bastion-files-page${fullscreen ? ' bastion-console-fullscreen' : ''}`}
+    >
       <div className="bastion-files-toolbar">
         <Tooltip title="回到资产列表（关闭本窗口）">
           <Button
@@ -806,7 +946,9 @@ const FileConsolePage = () => {
         </span>
         <Tag color="success">已连接</Tag>
         {caps.accountUsername ? (
-          <span className="bastion-files-chip">账号 {caps.accountUsername}</span>
+          <span className="bastion-files-chip">
+            账号 {caps.accountUsername}
+          </span>
         ) : null}
         <span className="bastion-files-chip" title="文件策略">
           策略 {caps.policyName || '默认文件策略'}
@@ -863,7 +1005,9 @@ const FileConsolePage = () => {
           <Button
             size="small"
             type="text"
-            icon={fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+            icon={
+              fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />
+            }
             onClick={toggleFullscreen}
           />
         </Tooltip>
@@ -879,6 +1023,46 @@ const FileConsolePage = () => {
           </Button>
         </Tooltip>
       </div>
+
+      {uploads.length ? (
+        <div className="bastion-files-uploads">
+          {uploads.map((item) => (
+            <div
+              key={item.uid}
+              className={`bastion-files-upload is-${item.status}`}
+            >
+              <span className="bastion-files-upload-name" title={item.name}>
+                {item.name}
+              </span>
+              <Progress
+                percent={item.percent}
+                size="small"
+                status={item.status === 'error' ? 'exception' : undefined}
+                showInfo={false}
+              />
+              <span className="bastion-files-upload-meta">
+                {describeUpload(item)}
+              </span>
+              <Tooltip
+                title={item.status === 'uploading' ? '取消上传' : '收起'}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<CloseOutlined />}
+                  onClick={() => {
+                    if (item.status === 'uploading') {
+                      uploadAborts.current.get(item.uid)?.abort();
+                    } else {
+                      dropUpload(item.uid);
+                    }
+                  }}
+                />
+              </Tooltip>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="bastion-files-pathbar">
         <Tooltip title="上级目录">
@@ -896,7 +1080,9 @@ const FileConsolePage = () => {
               <button type="button" onClick={() => setPath(item.path)}>
                 {item.name}
               </button>
-              {index < all.length - 1 ? <span className="bastion-files-muted">/</span> : null}
+              {index < all.length - 1 ? (
+                <span className="bastion-files-muted">/</span>
+              ) : null}
             </span>
           ))}
         </span>
@@ -914,14 +1100,19 @@ const FileConsolePage = () => {
         <div className="bastion-files-selection">
           <span>已选 {selectedEntries.length} 项</span>
           {selectedEntries.length === 1 ? (
-            <span className="bastion-files-muted">{selectedEntries[0]?.path}</span>
+            <span className="bastion-files-muted">
+              {selectedEntries[0]?.path}
+            </span>
           ) : null}
           <span className="bastion-files-spacer" />
           <Tooltip title={denied('download', cursor) || '下载选中文件'}>
             <Button
               size="small"
               icon={<DownloadOutlined />}
-              disabled={selectedEntries.length !== 1 || Boolean(denied('download', cursor))}
+              disabled={
+                selectedEntries.length !== 1 ||
+                Boolean(denied('download', cursor))
+              }
               onClick={() => cursor && void doDownload(cursor)}
             >
               下载
@@ -931,7 +1122,9 @@ const FileConsolePage = () => {
             <Button
               size="small"
               disabled={Boolean(denied('archive', cursor))}
-              onClick={() => void doArchive(selectedEntries.map((entry) => entry.path))}
+              onClick={() =>
+                void doArchive(selectedEntries.map((entry) => entry.path))
+              }
             >
               打包下载
             </Button>
@@ -966,7 +1159,11 @@ const FileConsolePage = () => {
             onChange: (keys) => setSelected(keys as string[]),
           }}
           scroll={{ y: 'calc(100vh - 190px)' }}
-          locale={{ emptyText: listing?.truncated ? '目录内容过多，仅显示前部分' : '空目录' }}
+          locale={{
+            emptyText: listing?.truncated
+              ? '目录内容过多，仅显示前部分'
+              : '空目录',
+          }}
         />
       </div>
 
@@ -976,22 +1173,27 @@ const FileConsolePage = () => {
           已连接 {caps.hostAddress}
         </span>
         <span>共 {listing?.count ?? 0} 项</span>
-        {listing?.truncated ? <span className="bastion-files-denied">列表已截断</span> : null}
+        {listing?.truncated ? (
+          <span className="bastion-files-denied">列表已截断</span>
+        ) : null}
         <span className="bastion-files-statusbar-right">
-          文件策略 {caps.policyName || '默认文件策略'} · 每个操作都会记入文件审计
+          文件策略 {caps.policyName || '默认文件策略'} ·
+          每个操作都会记入文件审计
         </span>
       </div>
 
       <Modal
         open={Boolean(pendingModal)}
-        title={{
-          mkdir: '新建目录',
-          newfile: '新建文件',
-          rename: '重命名',
-          move: '移动到',
-          copy: '复制到',
-          chmod: '修改权限',
-        }[pendingModal?.kind ?? 'mkdir']}
+        title={
+          {
+            mkdir: '新建目录',
+            newfile: '新建文件',
+            rename: '重命名',
+            move: '移动到',
+            copy: '复制到',
+            chmod: '修改权限',
+          }[pendingModal?.kind ?? 'mkdir']
+        }
         okText="确定"
         cancelText="取消"
         confirmLoading={submitting}
@@ -1018,7 +1220,11 @@ const FileConsolePage = () => {
             }
             rules={[{ required: true, message: '请填写内容' }]}
           >
-            <Input placeholder={pendingModal?.kind === 'chmod' ? '644' : '/data/backup'} />
+            <Input
+              placeholder={
+                pendingModal?.kind === 'chmod' ? '644' : '/data/backup'
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -1050,7 +1256,9 @@ const FileConsolePage = () => {
             value={editor?.content ?? ''}
             autoSize={{ minRows: 24, maxRows: 40 }}
             onChange={(event) =>
-              setEditor((prev) => (prev ? { ...prev, content: event.target.value } : prev))
+              setEditor((prev) =>
+                prev ? { ...prev, content: event.target.value } : prev,
+              )
             }
           />
         )}

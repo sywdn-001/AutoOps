@@ -170,7 +170,7 @@ python tools/console_check.py       # 真实 Chrome(CDP) 驱动网页终端与�
 终端工具条上点「文件管理」，会像终端一样**再弹一个独立窗口**（`/files/console`，同一条授权、独立 SFTP 会话）：
 
 - **可视化浏览**：进入即为该授权的主目录，面包屑可逐级跳转，表格列出名称/类型/大小/权限/修改时间，双击目录进入、支持刷新与排序；窗口标题带主机名，工具条显示账号、**当前生效的文件策略名**与会话号。
-- **能做的操作**：上传（多文件）、下载（单文件 + 打包下载 zip）、在线编辑并保存（带 mtime 冲突检测，文件被别人改过则拒绝覆盖）、新建文件/新建目录/重命名/移动/复制/删除（多选）、改权限（4 位八进制）。
+- **能做的操作**：上传（多文件，**带实时进度面板**：每个文件一行，显示文件名 / 已传字节 / 百分比 / 实时速率，可随时点 ✕ 取消）、下载（单文件 + 打包下载 zip）、在线编辑并保存（带 mtime 冲突检测，文件被别人改过则拒绝覆盖）、新建文件/新建目录/重命名/移动/复制/删除（多选）、改权限（4 位八进制）。
 - **两道闸一起判**：① `Grant` 授权开关——`SFTP` 决定能不能进这个窗口，`上传`/`下载`/`允许改文件` 决定具体动作，没开的按钮直接置灰并说明原因；② **文件策略**——按路径匹配规则（`glob`/正则/前缀/包含，优先级首条命中）判定该操作在该路径上是否允许，重命名/移动/复制会同时校验源路径与**目标路径**，任一被拦即整条拒绝。**已经打开的窗口也实时跟随授权变更**：管理员把「允许改文件」或 `SFTP` 关掉，下一次操作当场被拒（不需要重开窗口）。
 - **拒绝可见**：被拦时窗口内直接给出原因（如 `文件操作被策略「默认文件策略·敏感路径拦截」拦截：操作 [read] 源路径 [/.ssh/id_rsa] 命中规则 #1：禁止通过文件管理器访问 .ssh 目录`），不是静默失败。
 - **全量留痕**：每一次操作——**放行、被拒、失败**三种结果都写一条文件审计（用户/主机/会话号/操作/路径/目标路径/动作/风险级别/命中规则号与规则文本/原因/结果/字节数/耗时），并同时计入会话审计（`protocol=sftp`）；失败也会留痕（例如打包一个不存在的路径 → 404 并记一条 `result=failure`）。窗口关掉即结束 SFTP 会话，「文件记录」页可查。
@@ -324,7 +324,7 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 | **后台 UI 逐路由巡检（真实 Chrome CDP）** | `python tools/ui_check.py --admin-password <当前口令>` → **共 21 个路由/断言，通过 21，失败 0，exit 0**（注入令牌长度 397；每个路由都是真实渲染：/dashboard 1091 字、/audit/logs 1276 字、/audit/sessions 971 字、**新增 /file-policies 与 /audit/files**…；无 JS 错误、无「接口不存在」等异常标记，未登录访问审计页被正确弹回登录页；**登录页与主页均「无 Ant Design Pro 痕迹」且「品牌 Logo 为本地 SVG 且已加载」**。脚本内置登录态守卫，令牌无效直接判 FAIL——曾因参数解析 bug 出现过「巡检了 14 次登录页却 15/15 全绿」的假通过，已修） |
 | **网页终端 + 文件管理器巡检（真实 Chrome CDP 驱动键盘与鼠标）** | `python tools/console_check.py --admin-password <当前口令>` → **共 33 项，通过 33，失败 0，exit 0**（资产列表页 4 行资产、页面内不内嵌终端 → 真点「连接」弹出独立终端窗口 `/terminal/console?hostId=3&accountId=3`（埋点校验 `window.open` 第三参数含 `popup=yes,width=800,height=520,…`，且弹窗内 `window.opener` 仍在）→ 会话建立 → 无多标签栏 / 无实时审计面板 → 终端内逐键输入 `whoami` 回显 `opsadmin` → 状态条 `e2e-demo-01 SSH 已连接 00:20` 且时长走动 → Ctrl+F 搜索浮层开关 → 右键菜单（复制/清空屏幕/断开）→ **全屏四步**（工具条真进 `document.fullscreenElement`、再点真退出、`Ctrl+Shift+F` 进、再退出）→ **点「断开」后终端出现关窗倒计时并逐秒递减**（实测 `剩余=10` → `10 → 7`）→ 状态条 `已断开` → **倒计时归零后弹窗自动关闭**（`remaining=0`）→ 重开弹窗点工具条「资产列表」**关窗回到列表** → **点工具条「文件管理」弹出 `/files/console` 独立窗口，窗口内 SFTP 真列出 `readme.txt`/`docs`/`data`、路径条在顶层 `/`、工具条有「上传 / 新建目录」、带出文件策略名、该窗口无未捕获 JS 异常** → 审计页「删除选中 / 清除筛选结果」二次确认含留痕说明 → 资产列表页 `infoAlerts=0`） |
 | **SSH 网关内 `/ask-ai` 实测（选跑，会消耗真实模型调用）** | `python tools/gw_ai_check.py` → **共 9 项，通过 9，失败 0**（登录网关 → 菜单里选真机 `Ubuntu_Linux`（192.168.0.111）→ 粘贴形态 `/ask-ai 你好`：**粘贴标记被吞、远端 bash 没把它当命令执行、终端里没有「AI 出错」也没有 HTTP 400、出现 `[堡垒机] AI 上下文` 与提问行、流式原地重绘出真实答案正文、AI 回合之后 `echo` 照常可用**）。`tools/live_e2e_check.py` 故意不打真实模型（保证门禁便宜、可反复跑），这条补的正是「连上机器后到底能不能问 AI」——用户实测报的 `DeepSeek 返回 HTTP 400` 就发生在这条路上 |
-| 前端门禁 | `npx biome lint` → `Checked 290 files. No fixes applied.`（exit 0，1 条既有 CSS 特异性 warning）、`npx tsc --noEmit` → exit 0、`npx vitest run` → **9 files / 62 tests passed**（含 `src/components/Bastion/jsonText.test.ts` 9 条：截断 JSON 修复只保留完整条目、完整 JSON 不算截断、解析不了回退纯文本、机器词归一、失败消息里多出的 `HTTP 403` 行不挡载荷起点；新增 `src/pages/bastion/rdp/input.test.ts` 5 条：1:1 / 等比缩放 / 左右黑边 / 上下黑边 / 越界钳制）、`npm run build` → exit 0 |
+| 前端门禁 | `npx biome lint` → `Checked 290 files. No fixes applied.`（exit 0，1 条既有 CSS 特异性 warning）、`npx tsc --noEmit` → exit 0、`npx vitest run` → **10 files / 69 tests passed**（含 `src/components/Bastion/jsonText.test.ts` 9 条：截断 JSON 修复只保留完整条目、完整 JSON 不算截断、解析不了回退纯文本、机器词归一、失败消息里多出的 `HTTP 403` 行不挡载荷起点；新增 `src/pages/bastion/rdp/input.test.ts` 5 条：1:1 / 等比缩放 / 左右黑边 / 上下黑边 / 越界钳制、新增 `src/pages/bastion/files/uploadProgress.test.ts` 7 条：按已发字节算百分比 / **发送阶段封顶 99%**（最后 1% 留给服务端落盘）/ total 为 0 或数据异常返回 0 / 向下取整 / 封顶可调 / 速率文案 / 无速率时不给「0 B/s」）、`npm run build` → exit 0 |
 
 实测截图（`docs/screenshots/`，全部由本次 Chrome CDP 实测现场截取）：
 
@@ -349,6 +349,7 @@ ai_conversations / ai_messages / ai_tool_calls（谁在什么时候问了什么�
 | [terminal-rdp-tooltip.png](docs/screenshots/terminal-rdp-tooltip.png) | 网页终端入口页（**横幅已删**）：Linux 与 Windows 同列一张表；打开远程桌面前的口令下发告知挪到了 Windows 行「连接」按钮的 Tooltip 上（「CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计）」） |
 | [hosts-no-rdp-button.png](docs/screenshots/hosts-no-rdp-button.png) | 资产管理 · 主机列表实拍：**rdp 主机行不再有「远程桌面」按钮**（操作列只剩 账号管理 / 编辑 / 删除，`rdpButtons=0`）—— 远程桌面入口统一收在「网页终端」页，避免同一个动作有两个入口 |
 | [rdp-session-ended.png](docs/screenshots/rdp-session-ended.png) | 远程桌面断开后的落地界面实拍：弹窗写明结束原因（`user initiated disconnect`）、**本窗口将在 10 秒后自动关闭**（与 Linux 网页终端一致）、录像保存结果（`#2，8 秒`）与「留在本窗口 / 立即关闭」两个选择 |
+| [file-upload-progress.png](docs/screenshots/file-upload-progress.png) | 文件管理器**上传进度面板**实拍（深色窗口）：每个文件一行 = 文件名 + 进度条 + `已传 / 总大小 · 百分比 · 速率` + ✕ 取消。本轮真机取证（16 MB 演示文件、限速到约 1.7 MB/s）：`0 B / 16.0 MB · 0%` → `16.0 MB / 16.0 MB · 99%`（**发送阶段封顶**）→ `100%`（行变 `is-done`，随后文件出现在目录列表里）；中途点 ✕ 会立刻收起面板且不出现成功提示 |
 | [rdp-alert-readable.png](docs/screenshots/rdp-alert-readable.png) | 控制台「连接失败」告警的可读性修复实拍（深色底 + 亮字）：标题「连接失败」`#ffa39e`、描述 `#f0c9c6`、「重试」按钮 `#ffd6d3` + 红边，卡片底 `#2a1215` —— 实测计算色 `rgb(255, 163, 158)` / `rgb(240, 201, 198)` / `rgb(255, 214, 211)`；修复前标题被 antd v6 的浅色主题令牌压成 `rgba(0, 0, 0, 0.88)`，深底上几乎看不见 |
 
 已修复并在测试中固化的真实缺陷（节选，均带回归用例）：

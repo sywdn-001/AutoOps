@@ -758,7 +758,17 @@ export const fileApi = {
         { method: 'POST', data: body },
       ),
     ),
-  upload: (sid: string, directory: string, file: File, overwrite = true) => {
+  upload: (
+    sid: string,
+    directory: string,
+    file: File,
+    overwrite = true,
+    options?: {
+      signal?: AbortSignal;
+      /** 浏览器侧的发送进度（已发字节 / 总字节 / 速率 字节每秒） */
+      onProgress?: (progress: { loaded: number; total: number; rate: number }) => void;
+    },
+  ) => {
     const data = new FormData();
     data.append('file', file);
     data.append('path', directory);
@@ -766,7 +776,18 @@ export const fileApi = {
     return unwrap(
       request<ApiData<{ uploaded: FileUploadResult[]; failed: { name: string; message: string }[] }>>(
         `/api/files/sessions/${sid}/upload`,
-        { method: 'POST', data },
+        {
+          method: 'POST',
+          data,
+          signal: options?.signal,
+          onUploadProgress: (event) => {
+            options?.onProgress?.({
+              loaded: event.loaded ?? 0,
+              total: event.total ?? file.size,
+              rate: event.rate ?? 0,
+            });
+          },
+        },
       ),
     );
   },

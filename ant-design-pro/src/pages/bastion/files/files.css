@@ -63,6 +63,73 @@
   color: #64748b;
 }
 
+/* 上传进度：发送进度由浏览器侧上报，最后 1% 是服务端把文件写进目标机的耗时 */
+.bastion-files-uploads {
+  flex: 0 0 auto;
+  max-height: 128px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  background: #0b1220;
+  border-bottom: 1px solid #1f2937;
+}
+
+.bastion-files-upload {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.5fr) minmax(120px, 2fr) auto 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.bastion-files-upload-name {
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bastion-files-upload-meta {
+  color: #64748b;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bastion-files-upload.is-done .bastion-files-upload-meta {
+  color: #4ade80;
+}
+
+.bastion-files-upload.is-error .bastion-files-upload-meta {
+  color: #ff7875;
+}
+
+.bastion-files-upload .ant-btn {
+  color: #64748b;
+}
+
+.bastion-files-upload .ant-btn:hover {
+  color: #e6edf3;
+  background: #1e293b;
+}
+
+/* antd 的组件样式是运行时注入的，选择器写成两级才压得住 */
+.bastion-files-uploads .ant-progress-inner {
+  background: #1f2937 !important;
+}
+
+.bastion-files-uploads .ant-progress-bg {
+  background: #1677ff !important;
+}
+
+.bastion-files-upload.is-done .ant-progress-bg {
+  background: #52c41a !important;
+}
+
+.bastion-files-upload.is-error .ant-progress-bg {
+  background: #ff7875 !important;
+}
+
 /* 路径条 */
 .bastion-files-pathbar {
   display: flex;
@@ -140,7 +207,10 @@
 }
 
 .bastion-files-body .ant-table-tbody > tr.ant-table-row:hover > td,
-.bastion-files-body .ant-table-tbody > tr.ant-table-row > td.ant-table-cell-row-hover {
+.bastion-files-body
+  .ant-table-tbody
+  > tr.ant-table-row
+  > td.ant-table-cell-row-hover {
   background: #111c2e;
 }
 
