@@ -272,7 +272,16 @@ _TOOLS: list[Tool] = [
     # ---------------- 终端与执行 ----------------
     T("list_terminal_targets", "查看我当前有权登录的主机清单（含授权能力开关、命令策略名）——要执行命令前先看这个拿 hostId/accountId", "GET", "/api/terminal/targets", category="执行", card="可访问主机"),
     T("check_terminal_target", "连通性体检：能不能登上某台主机（真的连一次）", "POST", "/api/terminal/targets/{host_id}/check", "host_id:int!:主机 ID", permission=EXEC, category="执行", sensitive=True),
-    T("run_command", "在某台授权的机器上执行一条 shell 命令并取回输出（受命令策略管控、全程审计；需管理员密码确认）", "POST", "/api/terminal/exec", "hostId:int!:主机 ID;command:str!:要执行的命令;accountId:int:用哪个账号登录（留空=自动选）;timeout:int:超时秒数，默认 60;reason:str:为什么执行这条命令（会写进审计）", permission=EXEC, category="执行", sensitive=True),
+    T(
+        "run_command",
+        "在某台授权的机器上执行一条命令并取回输出。执行通道按主机的协议端点自动选：Linux 主机走 SSH（写 Bash/POSIX 命令），Windows 主机走 WinRM/PowerShell（写 PowerShell 命令）。受命令策略管控、全程审计；需管理员密码确认",
+        "POST",
+        "/api/terminal/exec",
+        "hostId:int!:主机 ID;command:str!:要执行的命令（按主机系统选命令语法：Linux 用 Bash、Windows 用 PowerShell）;accountId:int:用哪个账号登录（留空=自动选）;protocol:str:强制走哪个协议端点（ssh / winrm，留空=自动挑该主机可执行命令的端点）;timeout:int:超时秒数，默认 60;reason:str:为什么执行这条命令（会写进审计）",
+        permission=EXEC,
+        category="执行",
+        sensitive=True,
+    ),
     # ---------------- 文件管理器（SFTP）----------------
     T("list_file_sessions", "当前打开的文件管理器（SFTP）会话", "GET", "/api/files/sessions", category="文件", card="文件会话"),
     T("open_file_session", "打开一个 SFTP 文件会话，拿到 sid 后才能浏览/上传/下载文件", "POST", "/api/files/sessions", "hostId:int!:主机 ID;accountId:int:账号 ID", permission=EXEC, category="文件"),

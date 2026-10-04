@@ -704,6 +704,159 @@ def test_terminal_exec_rejects_hosts_without_grant(app, client, exec_ready, make
     assert "权限" in resp.get_json()["message"]
 
 
+def test_terminal_exec_routes_winrm_hosts_over_winrm(
+    app, client, exec_ready, make_host, make_account, make_grant, monkeypatch
+):
+    """WinRM 主机必须走 WinRM 客户端。
+
+    历史缺陷：这里无条件用 SSH 客户端建连，WinRM 主机的镜像端口是 5985，于是
+    AI 运维在 Windows 主机上跑命令会报「Error reading SSH protocol banner」。
+    """
+    user_id = exec_ready["user"]
+    host_id = make_host(name="win-exec", address="10.0.0.20", protocol="winrm", port=5985)
+    account_id = make_account(host_id, name="Administrator", username="Administrator")
+    make_grant(user_id, host_id, account_id=account_id)
+
+    captured: dict = {}
+
+    class FakeWinrmConnection:
+        pass
+
+    def fake_winrm_connect(target):
+        captured["target"] = target
+        return FakeWinrmConnection()
+
+    def fake_winrm_run(connection, script, timeout=None):
+        from app.winrm import ScriptResult
+
+        captured["script"] = script
+        captured["timeout"] = timeout
+        return ScriptResult(stdout="WIN-930NKGJCOED\r\n", stderr="", exit_code=0)
+
+    def fail_ssh_connect(target):  # pragma: no cover - 只用来断言「没走 SSH」
+        captured["ssh"] = target
+        raise AssertionError("WinRM 主机不该走 SSH 通道")
+
+    monkeypatch.setattr("app.winrm.connect", fake_winrm_connect)
+    monkeypatch.setattr("app.winrm.run_script", fake_winrm_run)
+    monkeypatch.setattr("app.winrm.close", lambda conn: captured.update(closed=True))
+    monkeypatch.setattr("app.ssh_client.connect", fail_ssh_connect)
+
+    token = _login(client, "ai-exec", "User1234")
+    resp = client.post(
+        "/api/terminal/exec",
+        json={"hostId": host_id, "accountId": account_id, "command": "hostname"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()["data"]
+    assert data["channel"] == "winrm" and data["protocol"] == "winrm"
+    assert "WIN-930NKGJCOED" in data["stdout"]
+    assert "ssh" not in captured
+    assert captured["target"].port == 5985
+    assert captured["script"] == "hostname" and captured.get("closed") is True
+    with app.app_context():
+        log = CommandLog.query.one()
+        assert log.action == "allow" and log.exit_status == 0
+        assert "WIN-930NKGJCOED" in log.output
+
+
+def test_terminal_exec_can_be_pinned_to_one_endpoint(
+    app, client, exec_ready, make_host, make_account, make_grant, monkeypatch
+):
+    """同一台机器既有 ssh 又有 winrm 时，payload 里的 protocol 点名哪个就走哪个。"""
+    from app.extensions import db
+    from app.models import HostProtocol
+
+    user_id = exec_ready["user"]
+    host_id = make_host(
+        name="multi-exec", address="10.0.0.22", protocol="winrm", port=5985
+    )
+    account_id = make_account(host_id, name="root", username="root")
+    make_grant(user_id, host_id, account_id=account_id)
+    # 再挂一个 ssh 端点：这台机器两套入口（make_host 只写镜像字段，不建端点行）
+    with app.app_context():
+        db.session.add(
+            HostProtocol(host_id=host_id, protocol="ssh", port=2222, status="active")
+        )
+        db.session.commit()
+
+    captured: dict = {}
+
+    class FakeSshConnection:
+        pass
+
+    def fake_ssh_connect(target):
+        captured["target"] = target
+        return FakeSshConnection()
+
+    def fake_run(connection, command, timeout=None):
+        captured["command"] = command
+        return 0, "up 3 days\n", ""
+
+    def fail_winrm_connect(target):  # pragma: no cover - 只用来断言「没走 WinRM」
+        captured["winrm"] = target
+        raise AssertionError("点名 ssh 时不该走 WinRM 通道")
+
+    monkeypatch.setattr("app.ssh_client.connect", fake_ssh_connect)
+    monkeypatch.setattr("app.ssh_client.run_single_command", fake_run)
+    monkeypatch.setattr("app.ssh_client.close", lambda conn: captured.update(closed=True))
+    monkeypatch.setattr("app.winrm.connect", fail_winrm_connect)
+
+    token = _login(client, "ai-exec", "User1234")
+    resp = client.post(
+        "/api/terminal/exec",
+        json={
+            "hostId": host_id,
+            "accountId": account_id,
+            "command": "uptime",
+            "protocol": "ssh",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()["data"]
+    assert data["channel"] == "ssh" and data["protocol"] == "ssh"
+    assert captured["target"].port == 2222  # 用的是 ssh 端点的端口，不是镜像的 5985
+    assert "winrm" not in captured
+    assert captured.get("closed") is True
+
+    # 点名一个跑不了命令的端点：要说清缺哪个端点、有哪些可用，而不是拿 SSH 硬试
+    resp = client.post(
+        "/api/terminal/exec",
+        json={
+            "hostId": host_id,
+            "accountId": account_id,
+            "command": "uptime",
+            "protocol": "rdp",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["code"] == "NO_CHARACTER_ENDPOINT"
+    assert "rdp" in body["message"]
+
+
+def test_terminal_exec_rejects_rdp_only_hosts(app, client, exec_ready, make_host, make_account, make_grant):
+    """只有 rdp 端点的机器是图形桌面，跑不了命令 —— 要回可读原因而不是拿 SSH 去试。"""
+    user_id = exec_ready["user"]
+    host_id = make_host(name="rdp-only", address="10.0.0.21", protocol="rdp", port=3389)
+    account_id = make_account(host_id, name="Administrator", username="Administrator")
+    make_grant(user_id, host_id, account_id=account_id)
+
+    token = _login(client, "ai-exec", "User1234")
+    resp = client.post(
+        "/api/terminal/exec",
+        json={"hostId": host_id, "accountId": account_id, "command": "whoami"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["code"] == "NO_CHARACTER_ENDPOINT"
+    assert "rdp" in body["message"]
+
+
 def test_run_command_tool_is_marked_sensitive_and_maps_to_the_exec_endpoint():
     tool = registry.TOOL_INDEX["run_command"]
     assert tool.sensitive is True

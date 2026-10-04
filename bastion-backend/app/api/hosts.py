@@ -696,7 +696,7 @@ def delete_account(host_id: int, account_id: int):
     return api_ok(None, "主机登录账号已删除")
 
 
-def _test_winrm_account(host, account, account_id: int):
+def _test_winrm_account(host, account, account_id: int, *, endpoint=None):
     """WinRM 资产的「测试连接」：读 whoami / 计算机名 / PowerShell 版本 / 系统版本。"""
     from flask import current_app
 
@@ -711,6 +711,8 @@ def _test_winrm_account(host, account, account_id: int):
         target = build_winrm_target(
             host,
             account,
+            port=endpoint.port if endpoint else None,
+            winrm_transport=endpoint.winrm_transport if endpoint else None,
             connect_timeout=current_app.config["SSH_CONNECT_TIMEOUT"],
             command_timeout=current_app.config["COMMAND_TIMEOUT"],
         )
@@ -776,14 +778,37 @@ def test_account(host_id: int, account_id: int):
     account = db.session.get(HostAccount, account_id)
     if host is None or account is None or account.host_id != host_id:
         return api_error("主机或登录账号不存在", 404, code="NOT_FOUND")
-    if (host.protocol or "ssh").strip().lower() == "winrm":
-        return _test_winrm_account(host, account, account_id)
+
+    # 「测试连接」走哪个端点决定用哪种客户端：一台主机可能同时有 ssh 与 winrm 端点
+    # （`?protocol=` 可以点名，留空用主端点）。历史缺陷：这里按主机级镜像 `host.protocol`
+    # 一刀切，多协议主机会拿错端口去连（比如 WinRM 主机的 5985 被 SSH 客户端连）。
+    wanted_protocol = (request.args.get("protocol") or "").strip().lower() or None
+    endpoint = (
+        host.endpoint_for(wanted_protocol) if wanted_protocol else host.endpoint_for()
+    )
+    if endpoint is None:
+        available = "、".join(host.protocol_names()) or "无"
+        return api_error(
+            f"该主机没有「{wanted_protocol}」这个端点（可用端点：{available}）",
+            400,
+            code="NO_ENDPOINT",
+        )
+
+    if endpoint.protocol == "winrm":
+        return _test_winrm_account(host, account, account_id, endpoint=endpoint)
+    if endpoint.protocol != "ssh":
+        return api_error(
+            f"该端点（{endpoint.protocol}）不支持「测试连接」：只有 ssh / winrm 端点能建连",
+            400,
+            code="NO_CHARACTER_ENDPOINT",
+        )
     from flask import current_app
 
     try:
         target = build_target(
             host,
             account,
+            port=endpoint.port,
             connect_timeout=current_app.config["SSH_CONNECT_TIMEOUT"],
             banner_timeout=current_app.config["SSH_BANNER_TIMEOUT"],
         )

@@ -110,7 +110,7 @@ bastion-backend/
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
 │   ├── winrm_gw_check.py       # 真实 SSH 网关里选一台 Windows（WinRM）主机跑 whoami/hostname（9 项断言：菜单里出现 WinRM 主机 → 进会话有 PowerShell 提示符与能力边界提示 → 输出是目标机的 → exit 回菜单）；**选跑，会在目标机上真执行两条只读命令**
 │   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
-└── tests/                      # 702 个用例（33 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+└── tests/                      # 705 个用例（33 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -492,9 +492,17 @@ python %TEMP%\_winrm_cdp.py 1 && python %TEMP%\_winrm_cdp.py 2    # 浏览器 CD
 
 `open_session(..., protocol=None)` 先解析端点点名：显式要 `winrm` 而这台机器没有该端点，就报「该主机没有「winrm」这个端点（可用：ssh、rdp）」；不指定则取该机指定的那个（否则退回第一个 ssh/winrm 端点）。端口与 WinRM 认证方式都取自**端点**（`endpoint.port` / `endpoint.winrm_transport`），两个 `build_target()` 都新增了 `port=` 覆盖参数。网页终端的 `terminal:open` 事件与 SSH 网关菜单都把端点协议传下去（网关菜单来自 `accessible_targets(user, protocols=("ssh","winrm"))` 的展开结果），rdp 票据与它的审计目的地也用 **rdp 端点**的端口。
 
+### AI 执行命令按端点选通道（第三轮实测反馈）
+
+AI 的 `run_command` 落到 `POST /api/terminal/exec`，这个接口现在**按主机的协议端点挑通道**：Linux 端点走 SSH（`connect` + `run_single_command`）、Windows 端点走 WinRM（`winrm::connect` + `run_script`，`result.timed_out` 翻成 504 `EXEC_TIMEOUT`），响应体带回 `channel` / `protocol` 说明命令**实际**跑在哪条通道上。修复前它一律按主机级 `protocol` 判断，Windows 主机被拿去连 SSH，于是报 `Error reading SSH protocol banner`。
+
+**点名协议必须照办**：显式传了 `protocol` 但该主机没有这个端点时**直接 400**（`NO_CHARACTER_ENDPOINT`，文案列出可用端点），不再静默换一条通道把命令跑掉；不点名时才自动在 `("ssh", "winrm")` 里挑第一个（一个都没有也报 400，并说明「rdp 是图形桌面」）。`app/ai/tools.py` 的 `run_command` 工具说明按主机系统分通道（让模型知道写 Bash 还是 PowerShell），并新增 `protocol` 参数强制指定。
+
+配套：`POST /api/hosts/<id>/accounts/<aid>/test` 支持 `?protocol=` 按端点测连接（未点名走主端点；rdp 端点 400 `NO_CHARACTER_ENDPOINT`）；`app/files/service.py` 的 SFTP 固定走 `host.endpoint_for("ssh")` 的端口（没有 ssh 端点 → 400 `NO_SSH_ENDPOINT`，文件管理器连不上就说清楚）。
+
 ### 回归
 
-`tests/test_host_protocols.py`（23 例）：模型兜底/端点优先/停用端点/镜像写回、`protocols[]` 的增删改与六类非法输入、入口列表按端点展开与按权限裁剪、rdp 票据用端点端口、合并（搬家完整性、同名同凭据复用、同名不同凭据改名且凭据不丢、地址不同 400、在线会话 409）、回填幂等、老主机无端点行仍可用。全量 `python -m pytest -q` → **702 passed（33 个文件）**。
+`tests/test_host_protocols.py`（23 例）：模型兜底/端点优先/停用端点/镜像写回、`protocols[]` 的增删改与六类非法输入、入口列表按端点展开与按权限裁剪、rdp 票据用端点端口、合并（搬家完整性、同名同凭据复用、同名不同凭据改名且凭据不丢、地址不同 400、在线会话 409）、回填幂等、老主机无端点行仍可用。通道选择另有三例：`test_terminal_exec_routes_winrm_hosts_over_winrm`（WinRM 主机走 winrm，SSH 通道被 monkeypatch 成 `AssertionError`）、`test_terminal_exec_rejects_rdp_only_hosts`（rdp 主机 400）、`test_terminal_exec_can_be_pinned_to_one_endpoint`（点名 ssh 真的走 ssh 端点的端口 2222，点名 rdp 400）。全量 `python -m pytest -q` → **705 passed（33 个文件）**。
 
 真机取证（CDP 驱动真实 Chrome，`win-75` 同时配 `winrm:5985` + `rdp:3389`）：`multiproto-launcher.png`（入口页一行两颗按钮）、`multiproto-winrm-console.png`、`multiproto-hosts-list.png`、`multiproto-host-form.png`、`multiproto-merge-modal.png` / `-options` / `-picked` / `-done`（**在真实 UI 上把一台同地址主机合并进来**）。
 
@@ -524,7 +532,7 @@ python %TEMP%\_winrm_cdp.py 1 && python %TEMP%\_winrm_cdp.py 2    # 浏览器 CD
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 702 passed（33 个文件）
+python -m pytest -q                       # 705 passed（33 个文件）
 python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）

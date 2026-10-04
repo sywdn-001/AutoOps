@@ -364,8 +364,18 @@ def open_file_session(
             status=429,
         )
 
-    # SFTP 建连必须在 app_context 之外进行，避免长时间占用请求内的会话/连接
-    target = build_target(host, account)
+    # SFTP 建连必须在 app_context 之外进行，避免长时间占用请求内的会话/连接。
+    # 端口取 **ssh 端点**：一台主机可能同时有 winrm/rdp 端点，镜像字段里的 port 可能是
+    # 5985 或 3389，拿它去连 SSH 会连到别的服务上。
+    ssh_endpoint = host.endpoint_for("ssh")
+    if ssh_endpoint is None:
+        available = "、".join(host.protocol_names()) or "无"
+        raise FileError(
+            f"该主机没有 SSH 端点（可用端点：{available}），文件管理器连不上",
+            code="NO_SSH_ENDPOINT",
+            status=400,
+        )
+    target = build_target(host, account, port=ssh_endpoint.port)
     try:
         connection = connect(target)
     except SSHError as exc:

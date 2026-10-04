@@ -36,7 +36,9 @@ import {
   Alert,
   App,
   Button,
+  Checkbox,
   Drawer,
+  Form,
   Popconfirm,
   Space,
   Table,
@@ -80,11 +82,13 @@ type HostQuery = {
 type HostFormValues = {
   name: string;
   address: string;
-  /** 这台机器提供的协议入口（可多选）：ssh / winrm / rdp */
+  /** 这台机器是 Linux 还是 Windows：ssh / windows（可都选，一台机器两套入口） */
   protocols: string[];
-  /** 每个协议各自的端口（与 `protocols` 同序动态渲染，提交时拼成端点数组） */
+  /** 选了「Windows」之后再勾这台机器实际开了哪些通道：winrm / rdp */
+  windowsChannels?: string[];
+  /** 每个通道各自的端口（与 `endpointChannels()` 同序动态渲染，提交时拼成端点数组） */
   protocolPorts?: Record<string, number>;
-  /** 兼容后端镜像字段：主协议 / 主端口（提交时由 `protocols[0]` 推导，表单不直接填） */
+  /** 兼容后端镜像字段：主协议 / 主端口（提交时由端点数组推导，表单不直接填） */
   protocol?: string;
   port?: number;
   rdpSecurity?: string;
@@ -108,14 +112,70 @@ type AccountFormValues = {
 };
 
 /**
- * 后端接受 ssh（网页终端 / SSH 网关）、winrm（Windows 网页终端，PowerShell over WinRS）
- * 与 rdp（Windows 远程桌面，走浏览器里的 WebRDP）
+ * 协议入口：Windows 的「命令行（WinRM）」与「远程桌面（RDP）」是同一台机器的两个通道，
+ * 界面上合成一个「Windows」选项（用户实测反馈：「合并 WinRM 和 RDP，两者都是 Windows」）。
+ * 底层数据模型仍是一个协议一条端点，通道还能单独勾。
  */
 const PROTOCOL_OPTIONS = [
-  { label: 'SSH（Linux / Unix 命令行）', value: 'ssh' },
-  { label: 'WinRM（Windows 命令行 / PowerShell）', value: 'winrm' },
-  { label: 'RDP（Windows 远程桌面）', value: 'rdp' },
+  { label: 'Linux / Unix（SSH 命令行）', value: 'ssh' },
+  { label: 'Windows（命令行 + 远程桌面）', value: 'windows' },
 ];
+
+/** 选了「Windows」之后再勾这台机器实际开了哪些通道（默认两个都开） */
+const WINDOWS_CHANNEL_OPTIONS = [
+  { label: '命令行（WinRM / PowerShell）', value: 'winrm' },
+  { label: '远程桌面（RDP）', value: 'rdp' },
+];
+const WINDOWS_CHANNELS_DEFAULT = ['winrm', 'rdp'];
+
+/**
+ * 表单里的「协议入口」（ssh / windows）展开成真正的端点协议：ssh / winrm / rdp。
+ *
+ * 端口、认证方式等字段都按展开后的通道渲染 —— 勾了 Linux 就只出 SSH 的那些字段，
+ * 不会再冒出「RDP 安全层」。
+ */
+const endpointChannels = (values: {
+  protocols?: string[];
+  windowsChannels?: string[];
+}): string[] => {
+  const picked = values.protocols ?? [];
+  const channels: string[] = [];
+  if (picked.includes('ssh')) {
+    channels.push('ssh');
+  }
+  if (picked.includes('windows')) {
+    const windows = values.windowsChannels ?? WINDOWS_CHANNELS_DEFAULT;
+    for (const channel of windows) {
+      if (!channels.includes(channel)) {
+        channels.push(channel);
+      }
+    }
+  }
+  return channels;
+};
+
+/** 反向：端点协议列表 → 表单里的「协议入口」分组 + Windows 通道（编辑回填用） */
+const formProtocolValues = (protocols: string[]) => {
+  const groups: string[] = [];
+  const windowsChannels: string[] = [];
+  for (const protocol of protocols) {
+    if (protocol === 'ssh') {
+      if (!groups.includes('ssh')) {
+        groups.push('ssh');
+      }
+      continue;
+    }
+    if (protocol === 'winrm' || protocol === 'rdp') {
+      if (!groups.includes('windows')) {
+        groups.push('windows');
+      }
+      if (!windowsChannels.includes(protocol)) {
+        windowsChannels.push(protocol);
+      }
+    }
+  }
+  return { groups, windowsChannels };
+};
 
 const OS_TYPE_OPTIONS = [
   { label: 'Linux', value: 'linux' },
@@ -300,9 +360,11 @@ const Hosts: React.FC = () => {
   };
 
   const submitHost = async (values: HostFormValues): Promise<boolean> => {
-    // 一台主机多协议：表单里是「协议多选 + 每个协议一个端口」，提交时拼成端点数组。
-    // 同时把第一个端点写进 protocol / port / winrmTransport 三个镜像字段（老代码路径要看）。
-    const endpoints = (values.protocols ?? []).map((protocol) => ({
+    // 表单里是「协议入口（Linux / Windows）+ Windows 通道多选 + 每个通道一个端口」，
+    // 提交时展开成端点数组（ssh / winrm / rdp），并把第一个端点写进
+    // protocol / port / winrmTransport 三个镜像字段（老代码路径要看）。
+    const channels = endpointChannels(values);
+    const endpoints = channels.map((protocol) => ({
       protocol,
       port: Number(
         values.protocolPorts?.[protocol] ??
@@ -454,7 +516,8 @@ const Hosts: React.FC = () => {
     }
   };
 
-  // 编辑时把端点表铺成表单：协议多选 + 每协议端口。老数据（没有端点行）退回镜像字段。
+  // 编辑时把端点表铺成表单：协议入口（ssh / windows）+ Windows 通道 + 每通道端口。
+  // 老数据（没有端点行）退回镜像字段。
   const editingEndpoints = editing
     ? editing.protocols?.length
       ? editing.protocols
@@ -467,11 +530,19 @@ const Hosts: React.FC = () => {
         ]
     : [];
 
+  // 端点协议（ssh / winrm / rdp）→ 表单里的「协议入口」分组 + Windows 通道
+  const editingGroups = formProtocolValues(
+    editingEndpoints.map((item) => item.protocol),
+  );
+
   const hostInitialValues: Partial<HostFormValues> = editing
     ? {
         name: editing.name,
         address: editing.address,
-        protocols: editingEndpoints.map((item) => item.protocol),
+        protocols: editingGroups.groups,
+        windowsChannels: editingGroups.windowsChannels.length
+          ? editingGroups.windowsChannels
+          : WINDOWS_CHANNELS_DEFAULT,
         protocolPorts: Object.fromEntries(
           editingEndpoints.map((item) => [item.protocol, item.port]),
         ),
@@ -491,6 +562,7 @@ const Hosts: React.FC = () => {
       }
     : {
         protocols: ['ssh'],
+        windowsChannels: WINDOWS_CHANNELS_DEFAULT,
         protocolPorts: { ssh: 22 },
         protocol: 'ssh',
         port: 22,
@@ -836,51 +908,71 @@ const Hosts: React.FC = () => {
           mode="multiple"
           options={PROTOCOL_OPTIONS}
           rules={[{ required: true, message: '至少选一个协议入口' }]}
-          extra="同一台机器可以有多个入口：ssh 走网页终端 / SSH 网关；winrm 走网页终端里的 Windows PowerShell；rdp 走浏览器里的 Windows 远程桌面。端口与认证方式按每个协议各自生效。"
+          extra="Linux / Unix 走 SSH；Windows 走「Windows」这一个选项，里面再勾命令行（WinRM）与远程桌面（RDP）—— 同一台机器两个通道可以同时开。端口与认证方式按每个通道各自生效。"
         />
-        <ProFormDependency name={['protocols']}>
-          {({ protocols }) => (
-            <>
-              {((protocols as string[]) ?? []).map((protocol) => (
-                <ProFormDigit
-                  // key 带协议名：勾上/取消某个协议时只重挂它自己那行端口，
-                  // 端口跟着协议走默认值（ssh 22 / winrm 5985 / rdp 3389）。
-                  key={`port-${protocol}`}
-                  name={['protocolPorts', protocol]}
-                  label={`${protocol.toUpperCase()} 端口`}
-                  min={1}
-                  max={65535}
-                  initialValue={PROTOCOL_DEFAULT_PORTS[protocol] ?? 22}
-                  rules={[{ required: true, message: '请输入端口' }]}
-                  extra={
-                    protocol === 'winrm'
-                      ? '默认 5985（HTTP）；目标机开了 HTTPS 就填 5986，会自动走 TLS'
-                      : protocol === 'rdp'
-                        ? '默认 3389'
-                        : '默认 22'
-                  }
-                />
-              ))}
-              {((protocols as string[]) ?? []).includes('rdp') ? (
-                <ProFormSelect
-                  name="rdpSecurity"
-                  label="RDP 安全层"
-                  options={RDP_SECURITY_OPTIONS}
-                  initialValue="auto"
-                  extra="默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
-                />
-              ) : null}
-              {((protocols as string[]) ?? []).includes('winrm') ? (
-                <ProFormSelect
-                  name="winrmTransport"
-                  label="WinRM 认证方式"
-                  options={WINRM_TRANSPORT_OPTIONS}
-                  initialValue="ntlm"
-                  extra="ntlm 是默认；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
-                />
-              ) : null}
-            </>
-          )}
+        <ProFormDependency name={['protocols', 'windowsChannels']}>
+          {(values) => {
+            const picked = (values.protocols as string[]) ?? [];
+            const showWindows = picked.includes('windows');
+            const channels = endpointChannels({
+              protocols: picked,
+              windowsChannels: values.windowsChannels as string[] | undefined,
+            });
+            return (
+              <>
+                {showWindows ? (
+                  <Form.Item
+                    name="windowsChannels"
+                    label="Windows 通道"
+                    rules={[
+                      { required: true, message: '至少选一个 Windows 通道' },
+                    ]}
+                    extra="这台机器实际开了哪些：WinRM 走网页终端里的 PowerShell；远程桌面走浏览器里的 WebRDP。只想开一个就取消另一个。"
+                  >
+                    <Checkbox.Group options={WINDOWS_CHANNEL_OPTIONS} />
+                  </Form.Item>
+                ) : null}
+                {channels.map((protocol) => (
+                  <ProFormDigit
+                    // key 带协议名：勾上/取消某个通道时只重挂它自己那行端口，
+                    // 端口跟着协议走默认值（ssh 22 / winrm 5985 / rdp 3389）。
+                    key={`port-${protocol}`}
+                    name={['protocolPorts', protocol]}
+                    label={`${protocol.toUpperCase()} 端口`}
+                    min={1}
+                    max={65535}
+                    initialValue={PROTOCOL_DEFAULT_PORTS[protocol] ?? 22}
+                    rules={[{ required: true, message: '请输入端口' }]}
+                    extra={
+                      protocol === 'winrm'
+                        ? '默认 5985（HTTP）；目标机开了 HTTPS 就填 5986，会自动走 TLS'
+                        : protocol === 'rdp'
+                          ? '默认 3389'
+                          : '默认 22'
+                    }
+                  />
+                ))}
+                {channels.includes('rdp') ? (
+                  <ProFormSelect
+                    name="rdpSecurity"
+                    label="RDP 安全层"
+                    options={RDP_SECURITY_OPTIONS}
+                    initialValue="auto"
+                    extra="默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
+                  />
+                ) : null}
+                {channels.includes('winrm') ? (
+                  <ProFormSelect
+                    name="winrmTransport"
+                    label="WinRM 认证方式"
+                    options={WINRM_TRANSPORT_OPTIONS}
+                    initialValue="ntlm"
+                    extra="ntlm 是默认；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
+                  />
+                ) : null}
+              </>
+            );
+          }}
         </ProFormDependency>
         <ProFormSelect
           name="osType"

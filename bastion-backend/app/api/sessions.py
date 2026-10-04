@@ -43,6 +43,14 @@ DB_EXEC_OUTPUT_LIMIT = 100_000
 """一次性执行的输出入库上限（超长截断，避免撑爆 SQLite）。"""
 
 
+CHARACTER_PROTOCOLS = ("ssh", "winrm")
+"""能「一条命令进、一段输出出」的端点协议；rdp 是图形桌面，跑不了命令。"""
+
+
+class _ExecTimeout(Exception):
+    """命令在目标机上没能在超时前结束（回 504，别和「连不上目标机」混在一起）。"""
+
+
 def _visible_all(actor) -> bool:
     return has_any_permission(actor, "session:view_all", "command:view_all")
 
@@ -540,6 +548,10 @@ def terminal_exec():
     4. 每次执行都会新建一条 ``SessionRecord``（``protocol="exec"``）并立刻关闭，
        所以「谁在什么时间、用哪个账号、在哪台机器上执行了什么、拿到什么输出」都有据可查。
 
+    执行通道按**端点**选：Linux 主机走 ssh，Windows 主机走 winrm（``payload["protocol"]``
+    可以点名，留空自动挑第一个 ssh/winrm 端点）。历史缺陷：这里曾经无条件用 SSH 客户端，
+    在 WinRM 主机上会把 5985 端口当 SSH 连，报「Error reading SSH protocol banner」。
+
     额外要求 ``ai:tool_exec`` 权限：这条通道是给 AI 用的，不能被普通终端权限顺带拿到。
     """
     import time as _time
@@ -550,6 +562,11 @@ def terminal_exec():
     from ..session_service import resolve_policy_for
     from ..settings_store import get_int
     from ..ssh_client import SSHError, build_target, close as ssh_close, connect, run_single_command
+    from ..winrm import WinrmError
+    from ..winrm import build_target as build_winrm_target
+    from ..winrm import close as winrm_close
+    from ..winrm import connect as winrm_connect
+    from ..winrm import run_script as winrm_run_script
 
     actor = load_actor()
     if actor is None:
@@ -582,6 +599,36 @@ def terminal_exec():
     grant, host, account = resolved.grant, resolved.host, resolved.account
     if account is None:
         return api_error("该主机下没有可用账号，请联系管理员配置资产账号", 400, code="NO_ACCOUNT")
+
+    # 一台主机可能同时有 ssh / winrm 端点：AI 远程执行要按端点挑通道，绝不能拿 SSH 去连
+    # WinRM 的端口（用户实测：在 WinRM 主机上跑命令报「Error reading SSH protocol banner」，
+    # 因为 SSH 客户端把 5985 当成了 SSH 服务）。payload 里可以点名 protocol，留空则挑第一个字符端点。
+    wanted_protocol = (payload.get("protocol") or "").strip().lower() or None
+    available = "、".join(host.protocol_names()) or "无"
+    if wanted_protocol:
+        # 点名了协议就照着办：该端点不存在、或者不是能跑命令的字符端点，直接说清楚，
+        # 不偷偷换一个端点执行（否则调用方以为命令跑在 A 通道，实际跑在 B 通道）。
+        endpoint = host.endpoint_for(wanted_protocol)
+        if endpoint is None or endpoint.protocol not in CHARACTER_PROTOCOLS:
+            return api_error(
+                f"该主机没有「{wanted_protocol}」这个能执行命令的端点（可用端点：{available}）",
+                400,
+                code="NO_CHARACTER_ENDPOINT",
+            )
+    else:
+        endpoint = next(
+            (item for item in host.protocol_endpoints() if item.protocol in CHARACTER_PROTOCOLS),
+            None,
+        )
+        if endpoint is None:
+            return api_error(
+                f"该主机的端点（{available}）都不能执行命令：只有 ssh / winrm 端点能跑命令，"
+                "rdp 是图形桌面",
+                400,
+                code="NO_CHARACTER_ENDPOINT",
+            )
+    channel = endpoint.protocol
+
     quota_ok, quota_reason = check_session_quota(actor, grant)
     if not quota_ok:
         return api_error(quota_reason, 429, code="QUOTA_EXCEEDED")
@@ -638,18 +685,35 @@ def terminal_exec():
             },
         )
 
-    target = build_target(
-        host,
-        account,
-        connect_timeout=Config.SSH_CONNECT_TIMEOUT,
-        banner_timeout=Config.SSH_BANNER_TIMEOUT,
-        keepalive=Config.SSH_KEEPALIVE,
-    )
     connection = None
+    winrm_connection = None
     try:
-        connection = connect(target)
-        status, out, err = run_single_command(connection, command, timeout=timeout)
-    except SSHError as exc:
+        if channel == "winrm":
+            winrm_target = build_winrm_target(
+                host,
+                account,
+                port=endpoint.port,
+                winrm_transport=endpoint.winrm_transport,
+                connect_timeout=Config.SSH_CONNECT_TIMEOUT,
+                command_timeout=timeout,
+            )
+            winrm_connection = winrm_connect(winrm_target)
+            result = winrm_run_script(winrm_connection, command, timeout=float(timeout))
+            if result.timed_out:
+                raise _ExecTimeout(f"命令在 {timeout:g} 秒内没有结束（WinRM 会话）")
+            status, out, err = result.exit_code, result.stdout, result.stderr
+        else:
+            target = build_target(
+                host,
+                account,
+                port=endpoint.port,
+                connect_timeout=Config.SSH_CONNECT_TIMEOUT,
+                banner_timeout=Config.SSH_BANNER_TIMEOUT,
+                keepalive=Config.SSH_KEEPALIVE,
+            )
+            connection = connect(target)
+            status, out, err = run_single_command(connection, command, timeout=timeout)
+    except _ExecTimeout as exc:
         log_command(
             session=record,
             command=command,
@@ -658,14 +722,34 @@ def terminal_exec():
             risk_level=decision.risk_level,
             matched_rule_id=decision.rule_id,
             matched_rule_pattern=decision.rule_pattern or "",
-            reason=f"连接目标机失败：{exc}",
+            reason=f"命令超时（通道：{channel}）",
+            started_at=record.started_at,
+            duration_ms=int((_time.monotonic() - started_at) * 1000),
+            exit_status=None,
+        )
+        close_session(record, status="failed", reason=f"命令超时：{exc}"[:120])
+        return api_error(f"命令执行超时：{exc}", 504, code="EXEC_TIMEOUT")
+    except (SSHError, WinrmError) as exc:
+        log_command(
+            session=record,
+            command=command,
+            output="",
+            action="allow",
+            risk_level=decision.risk_level,
+            matched_rule_id=decision.rule_id,
+            matched_rule_pattern=decision.rule_pattern or "",
+            reason=f"连接目标机失败（通道：{channel}）：{exc}",
             started_at=record.started_at,
             duration_ms=int((_time.monotonic() - started_at) * 1000),
             exit_status=None,
         )
         close_session(record, status="failed", reason=f"连接失败：{exc}"[:120])
-        return api_error(f"连接目标机失败：{exc}", 502, code="SSH_ERROR")
-    except Exception as exc:  # noqa: BLE001 - 包含 paramiko 的超时/通道异常
+        return api_error(
+            f"连接目标机失败（{channel}）：{exc}",
+            502,
+            code="WINRM_ERROR" if channel == "winrm" else "SSH_ERROR",
+        )
+    except Exception as exc:  # noqa: BLE001 - 包含 paramiko / pywinrm 的通道异常
         log_command(
             session=record,
             command=command,
@@ -674,15 +758,18 @@ def terminal_exec():
             risk_level=decision.risk_level,
             matched_rule_id=decision.rule_id,
             matched_rule_pattern=decision.rule_pattern or "",
-            reason=f"执行失败：{exc}",
+            reason=f"执行失败（通道：{channel}）：{exc}",
             started_at=record.started_at,
             duration_ms=int((_time.monotonic() - started_at) * 1000),
             exit_status=None,
         )
         close_session(record, status="failed", reason=f"执行失败：{exc}"[:120])
-        return api_error(f"执行失败：{exc}", 502, code="EXEC_ERROR")
+        return api_error(f"执行失败（{channel}）：{exc}", 502, code="EXEC_ERROR")
     finally:
-        ssh_close(connection)
+        if connection is not None:
+            ssh_close(connection)
+        if winrm_connection is not None:
+            winrm_close(winrm_connection)
 
     duration_ms = int((_time.monotonic() - started_at) * 1000)
     output = out if not err else f"{out}\n{err}" if out else err
@@ -718,6 +805,8 @@ def terminal_exec():
             "exitStatus": status,
             "stdout": out,
             "stderr": err,
+            "channel": channel,
+            "protocol": channel,
             "durationMs": duration_ms,
             "policy": policy_name,
             "riskLevel": decision.risk_level,
