@@ -64,6 +64,42 @@ export const SESSION_STATUS_META: Record<SessionStatus, TagMeta> = {
   denied: { text: '已拒绝', color: 'error' },
 };
 
+/**
+ * 会话结束原因的人话化。
+ *
+ * 后端现在就把原因写成人话了，但历史数据里还有套接字错误原文（例如「读取目标机失败：
+ * [WinError 10054] 远程主机强迫关闭了一个现有的连接。」），目标机偶尔也会直接甩英文，
+ * 所以展示时统一再过一道。
+ */
+const END_REASON_RULES: Array<[RegExp, string]> = [
+  [
+    /WinError 10054|forcibly closed|连接被对方重置|远程主机强迫关闭/i,
+    '目标主机断开了连接（对方可能重启、注销或网络中断）',
+  ],
+  [
+    /WinError 10061|积极拒绝|refused/i,
+    '目标主机拒绝了连接（远程桌面服务可能没启动，或端口不通）',
+  ],
+  [/WinError 10060|timed out|连接超时/i, '连接目标主机超时（网络不通或对方没有响应）'],
+  [/目标机关闭了连接/, '目标主机结束了远程桌面会话'],
+  [/客户端已断开/, '浏览器侧关闭了窗口'],
+];
+
+export const humanizeEndReason = (reason?: string | null): string => {
+  const text = (reason ?? '').trim();
+  if (!text) {
+    return '-';
+  }
+  const colon = text.indexOf('：');
+  const probe = colon >= 0 ? text.slice(colon + 1) : text;
+  for (const [pattern, message] of END_REASON_RULES) {
+    if (pattern.test(probe)) {
+      return message;
+    }
+  }
+  return text;
+};
+
 export const SESSION_SOURCE_META: Record<SessionSource, TagMeta> = {
   gateway: { text: 'SSH 网关', color: 'geekblue' },
   web: { text: '网页终端', color: 'green' },

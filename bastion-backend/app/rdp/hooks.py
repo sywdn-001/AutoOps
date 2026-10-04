@@ -72,20 +72,30 @@ def build_hooks(app) -> RdpConnectionHooks:
                     "serverCertificate": meta.get("certificate") or {},
                 },
             )
-            return record.id
+            # 交出去的是纯数据字典（不是 ORM 实例）：_run 结束时 db.session.remove()
+            # 会让实例 detach，线上就是这么丢过一次 rdp_session_close。带上 sid 是为了
+            # 让中继把这条会话登记进在线会话表（管理员才能在「会话记录」里中断它）。
+            return {"id": record.id, "sid": record.sid}
 
         return _run(_open)
 
-    def _close_session(session_id, counters: dict) -> None:
-        """按会话行 id 收口：重新取一次记录，写字节数、结束原因与 `rdp_session_close` 审计。"""
+    def _close_session(session, counters: dict) -> None:
+        """收口一条远程桌面会话：写字节数、结束原因与 `rdp_session_close` 审计。
+
+        `session` 是 `_open_session()` 交出来的引用（`{"id", "sid"}`），兼容历史上
+        只回行 id 的写法。被管理员中断或空闲清理时（`counters["forced"]`）状态写成
+        `terminated`，跟 SSH 会话被踢时的口径一致。
+        """
 
         def _close():
+            session_id = session.get("id") if isinstance(session, dict) else session
             record = db.session.get(SessionRecord, session_id) if session_id else None
             reason = (counters.get("reason") or "").strip() or "远程桌面会话结束"
+            status = "terminated" if counters.get("forced") else "closed"
             if record is not None:
                 close_session(
                     record,
-                    status="closed",
+                    status=status,
                     reason=reason,
                     bytes_in=int(counters.get("fromClient") or 0),
                     bytes_out=int(counters.get("fromServer") or 0),

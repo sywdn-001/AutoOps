@@ -53,7 +53,11 @@ def find_by_sid_prefix(prefix: str) -> list[dict]:
 
 
 def close(sid: str, reason: str = "管理员强制断开") -> bool:
-    """请求关闭某条在线会话；返回是否找到。"""
+    """请求关闭某条在线会话；返回是否找到。
+
+    `bridge`（SSH 网关 / 网页终端 / 文件管理器）与 `stop`（RDP 中继）二选一即可：
+    两者都是「调一下就能让转发循环退出」的对象，怎么退由注册方自己实现。
+    """
     entry = get(sid)
     if entry is None:
         return False
@@ -61,6 +65,12 @@ def close(sid: str, reason: str = "管理员强制断开") -> bool:
     if bridge is not None:
         try:
             bridge.stop(reason)
+        except Exception:  # noqa: BLE001
+            pass
+    stop = entry.get("stop")
+    if callable(stop):
+        try:
+            stop(reason)
         except Exception:  # noqa: BLE001
             pass
     unregister(sid)

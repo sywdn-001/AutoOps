@@ -149,6 +149,8 @@ const RdpConsolePage = () => {
 
   const countdownRef = useRef<number | undefined>(undefined);
   const remainRef = useRef(0);
+  /** 已经连上过一次：用来区分「连不上」和「连上之后通道断了」——后者不该再吓唬用户说连接失败。 */
+  const connectedRef = useRef(false);
 
   const [status, setStatus] = useState<RdpStatus>('connecting');
   const [error, setError] = useState<string>();
@@ -487,6 +489,7 @@ const RdpConsolePage = () => {
       setRecNote(undefined);
     }
     viewportRef.current = null;
+    connectedRef.current = false;
 
     teardown();
     setError(undefined);
@@ -551,6 +554,7 @@ const RdpConsolePage = () => {
 
       window.clearTimeout(timerRef.current);
       startedAt.current = Date.now();
+      connectedRef.current = true;
       setStatus('connected');
 
       live
@@ -570,9 +574,17 @@ const RdpConsolePage = () => {
           // wasm 的错误对象只在这里“见得到原形”，留着方便排障（界面上给的是人话）
           console.error('[rdp] 会话异常', err);
           const text = describeRdpError(err);
-          setError(text);
-          setStatus('failed');
-          void finishRecording();
+          if (connectedRef.current) {
+            // 连上之后才挂的：服务端关掉隧道（例如管理员中断会话）也会走到这里，
+            // 别把它当成“连接失败”让人以为是自己点错了，按「会话结束」收口。
+            handleSessionEnd(
+              `与堡垒机的远程桌面通道已断开：${text}（若管理员刚中断了这条会话，就是被中断了）`,
+            );
+          } else {
+            setError(text);
+            setStatus('failed');
+            void finishRecording();
+          }
           teardown();
         });
     } catch (err) {

@@ -58,6 +58,7 @@ from app.rdp.proxy import (
     TICKETS,
     TLS_CAPABLE_PROTOCOLS,
     handle_connection,
+    humanize_socket_error,
     perform_handshake,
     server_cert_info,
 )
@@ -791,7 +792,8 @@ def test_hosts_api_still_rejects_unknown_protocol(client, admin_headers):
 def test_hooks_open_and_close_session(app):
     """线上丢过一次 `rdp_session_close`：hooks 把 ORM 实例交给网关，回到新 app context 时已 detach。
 
-    契约：`open_session()` 只回会话行 id，`close_session()` 拿 id 重新取记录再收口。
+    契约：`open_session()` 只回纯数据引用 `{"id", "sid"}`（不是 ORM 实例），
+    `close_session()` 拿 id 重新取记录再收口。
     """
     from app.models import SessionRecord
     from app.rdp.hooks import build_hooks
@@ -799,17 +801,20 @@ def test_hooks_open_and_close_session(app):
     ticket = RdpTicketStore(ttl=120).issue(**_issue())
     hooks = build_hooks(app)
 
-    session_id = hooks.open_session(
+    session = hooks.open_session(
         ticket,
         {
             "negotiation": {"type": "RDP_NEG_RSP", "selectedProtocol": PROTOCOL_HYBRID_EX},
             "certificate": {"subject": "CN=WIN-930NKGJCOED", "selfSigned": True},
         },
     )
-    assert isinstance(session_id, int)
+    assert isinstance(session, dict)
+    assert isinstance(session.get("id"), int)
+    assert session.get("sid")
+    session_id = int(session["id"])
 
     hooks.close_session(
-        session_id,
+        session,
         {"fromClient": 1234, "fromServer": 5678, "reason": "客户端已断开"},
     )
 
@@ -826,4 +831,90 @@ def test_hooks_open_and_close_session(app):
         actions = [row.action for row in AuditLog.query.order_by(AuditLog.id).all()]
         assert "rdp_session_open" in actions
         assert "rdp_session_close" in actions
+
+
+def test_hooks_mark_forced_termination(app):
+    """被管理员中断 / 空闲清理收口时，状态必须是 `terminated`（跟 SSH 会话被踢一致）。"""
+    from app.models import SessionRecord
+    from app.rdp.hooks import build_hooks
+
+    ticket = RdpTicketStore(ttl=120).issue(**_issue())
+    hooks = build_hooks(app)
+    session = hooks.open_session(
+        ticket,
+        {
+            "negotiation": {"type": "RDP_NEG_RSP", "selectedProtocol": PROTOCOL_HYBRID_EX},
+            "certificate": {"subject": "CN=WIN-930NKGJCOED", "selfSigned": True},
+        },
+    )
+    hooks.close_session(
+        session,
+        {"fromClient": 11, "fromServer": 22, "reason": "管理员强制中断", "forced": True},
+    )
+
+    with app.app_context():
+        record = db.session.get(SessionRecord, session["id"])
+        assert record is not None
+        assert record.status == "terminated"
+        assert record.end_reason == "管理员强制中断"
+        assert record.bytes_in == 11
+        assert record.bytes_out == 22
+
+
+def test_tunnel_can_be_stopped_from_the_registry(tls_material):
+    """管理员在「会话记录」里点中断：在线会话表 `close()` → 隧道真的停 + 原因写成人话。"""
+    from app import session_registry
+
+    server = FakeRdpServer(tls_material)
+    server.start()
+    TICKETS.clear()
+    box: dict = {}
+    closed: list = []
+    try:
+        ticket = TICKETS.issue(**_issue(host_address="127.0.0.1", port=server.port))
+        ws = FakeWebSocket([build_request(f"127.0.0.1:{server.port}")])
+        hooks = RdpConnectionHooks(
+            open_session=lambda item, meta: {"id": 1, "sid": "s-stop"},
+            close_session=lambda record, counters: closed.append((record, counters)),
+            audit=lambda *a, **k: None,
+        )
+
+        def handle() -> None:
+            box["result"] = handle_connection(ws, ticket.id, hooks=hooks)
+
+        worker = threading.Thread(target=handle, name="rdp-stop-test", daemon=True)
+        worker.start()
+
+        deadline = time.time() + 10
+        while time.time() < deadline and session_registry.get("s-stop") is None:
+            time.sleep(0.02)
+        assert session_registry.get("s-stop") is not None, "远程桌面会话没有登记进在线会话表"
+
+        assert session_registry.close("s-stop", reason="管理员强制中断") is True
+        worker.join(timeout=TUNNEL_DEADLINE_SECONDS)
+        if worker.is_alive():
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            pytest.fail("中断后中继没有退出：handle_connection 仍然活着")
+        result = box["result"]
+    finally:
+        server.join(timeout=5)
+
+    assert result["reason"] == "管理员强制中断"
+    assert result["ok"] is True
+    assert closed and closed[0][1]["forced"] is True
+    assert closed[0][1]["reason"] == "管理员强制中断"
+    assert session_registry.get("s-stop") is None
+
+
+def test_socket_errors_are_humanized():
+    """人话文案：最常见的三种连接错误都不能再把 WinError 原文甩给操作员。"""
+    assert "目标主机断开了连接" in humanize_socket_error(
+        ConnectionResetError(10054, "远程主机强迫关闭了一个现有的连接。")
+    )
+    assert "目标主机拒绝了连接" in humanize_socket_error(
+        ConnectionRefusedError(10061, "由于目标计算机积极拒绝，无法连接。")
+    )
+    assert "超时" in humanize_socket_error(TimeoutError(10060, "连接尝试失败"))
+    # 认不出来的错误：原文照旧，别丢信息
+    assert humanize_socket_error(RuntimeError("莫名其妙")) == "莫名其妙"
 

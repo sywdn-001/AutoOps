@@ -79,6 +79,39 @@ NEGOTIATED_NAMES = {
 TLS_CAPABLE_PROTOCOLS = (PROTOCOL_SSL, PROTOCOL_HYBRID, PROTOCOL_HYBRID_EX)
 
 
+#: 目标机主动断开时各平台给的错误码（Windows WinError / POSIX errno）
+_REMOTE_CLOSED_CODES = frozenset({32, 10053, 10054, 104})
+#: 端口没人听：远程桌面服务没启动 / 被防火墙拒了
+_REMOTE_REFUSED_CODES = frozenset({10061, 111})
+#: 连不上又没被明确拒绝：网络不通或对方没响应
+_REMOTE_TIMEOUT_CODES = frozenset({10060, 110})
+
+
+def humanize_socket_error(exc: BaseException) -> str:
+    """把套接字异常翻成人话 —— 这段文字会直接出现在「会话记录」的结束原因和审计里。"""
+    text = str(exc).strip()
+    code = getattr(exc, "errno", None) or getattr(exc, "winerror", None)
+    lowered = text.lower()
+    if code in _REMOTE_CLOSED_CODES or any(
+        key in lowered
+        for key in (
+            "forcibly closed",
+            "broken pipe",
+            "reset by peer",
+            "connection reset",
+            "connection aborted",
+        )
+    ):
+        return "目标主机断开了连接（对方可能重启、注销或网络中断）"
+    if code in _REMOTE_REFUSED_CODES or "refused" in lowered:
+        return "目标主机拒绝了连接（远程桌面服务可能没启动，或端口不通）"
+    if code in _REMOTE_TIMEOUT_CODES or "timed out" in lowered:
+        return "连接目标主机超时（网络不通或对方没有响应）"
+    if "certificate" in lowered:
+        return "目标主机的证书校验没通过"
+    return text or exc.__class__.__name__
+
+
 class RdpProxyError(RuntimeError):
     """网关侧可预期的失败（要变成人话报错 + 审计）。"""
 
@@ -193,13 +226,17 @@ def perform_handshake(
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
-        raise RdpProxyError(f"连接 {host}:{port} 失败：{exc}") from exc
+        raise RdpProxyError(
+            f"连接目标主机 {host}:{port} 失败：{humanize_socket_error(exc)}"
+        ) from exc
     try:
         sock.settimeout(timeout)
         sock.sendall(x224_request)
         response = sock.recv(4096)
         if not response:
-            raise RdpProxyError(f"{host}:{port} 没有返回 X.224 响应（连接被对端关闭）")
+            raise RdpProxyError(
+                f"目标主机 {host}:{port} 没有回应协商请求（连接被对方关闭，端口可能不通）"
+            )
         negotiation = parse_x224_negotiation(response)
         if negotiation.get("type") == "RDP_NEG_FAILURE":
             name = negotiation.get("failureName", "")
@@ -207,20 +244,20 @@ def perform_handshake(
             if name == "HYBRID_REQUIRED_BY_SERVER":
                 hint = "（目标机要求 NLA/CredSSP，浏览器端 WASM 客户端支持；若仍失败请检查账号口令）"
             raise RdpProxyError(
-                f"{host}:{port} 拒绝安全层协商：{name}（失败码 {negotiation.get('failureCode')}）{hint}"
+                f"目标主机 {host}:{port} 不接受当前安全层（{name}，失败码 {negotiation.get('failureCode')}）{hint}"
             )
         selected = negotiation.get("selectedProtocol")
         if selected is None:
             raise RdpProxyError(
-                f"{host}:{port} 的 X.224 响应里没有协商结果（{negotiation.get('type')}）"
+                f"目标主机 {host}:{port} 的协商响应里没有安全层结果（{negotiation.get('type')}）"
             )
         if selected == PROTOCOL_RDP:
             raise RdpProxyError(
-                f"{host}:{port} 选择了 {NEGOTIATED_NAMES[PROTOCOL_RDP]}，"
-                "WebRDP 隧道需要 TLS，请在目标机上启用「仅允许运行使用网络级别身份验证的远程桌面的计算机连接」或改用 SSL"
+                f"目标主机 {host}:{port} 要求不带 TLS 的标准 RDP 安全层（{NEGOTIATED_NAMES[PROTOCOL_RDP]}），"
+                "网页远程桌面只能走 TLS；请在目标机上启用「仅允许运行使用网络级别身份验证的远程桌面的计算机连接」或改用 SSL"
             )
         if selected not in TLS_CAPABLE_PROTOCOLS:
-            raise RdpProxyError(f"{host}:{port} 协商出未知安全层：0x{int(selected):08x}")
+            raise RdpProxyError(f"目标主机 {host}:{port} 返回了无法识别的安全层（0x{int(selected):08x}）")
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
@@ -228,7 +265,9 @@ def perform_handshake(
         try:
             tls = context.wrap_socket(sock, server_hostname=host)
         except ssl.SSLError as exc:
-            raise RdpProxyError(f"{host}:{port} 的 TLS 握手失败：{exc}") from exc
+            raise RdpProxyError(
+                f"与目标主机 {host}:{port} 的 TLS 握手失败：{humanize_socket_error(exc)}"
+            ) from exc
         der = tls.getpeercert(binary_form=True)
         chain = [der] if der else []
         tls.settimeout(None)
@@ -269,6 +308,8 @@ def relay(
     tls_socket: ssl.SSLSocket,
     *,
     on_error: Callable[[str], None] | None = None,
+    stop: threading.Event | None = None,
+    on_activity: Callable[[], None] | None = None,
 ) -> dict:
     """把 WebSocket 与 TLS 套接字对接起来，返回双向字节数。
 
@@ -287,8 +328,14 @@ def relay(
     处理 WebSocket 方向），`send()` 遇到 `SSLWantWriteError` 就 `select` 等可写再接着写。
     全程没有任何一处会长时间阻塞，也就不需要锁；`ws.receive(timeout=…)` 是唯一会等待的调用，
     但它最多等 `RELAY_POLL_SECONDS`。
+
+    两个可选参数：
+    * ``stop``：外部（管理员在「会话记录」里点中断、空闲清理线程）置位后，中继会在
+      一个轮询周期内退出，结束原因由调用方改写成「管理员强制中断」这类人话；
+    * ``on_activity``：有字节流动时回调一次，用来喂在线会话表的 ``last_active``，
+      否则一条正在被人使用的远程桌面会被空闲清理当成僵尸会话掐掉。
     """
-    stop = threading.Event()
+    stop = stop or threading.Event()
     counters = {"fromClient": 0, "fromServer": 0, "reason": ""}
     previous_timeout = tls_socket.gettimeout()
     tls_socket.setblocking(False)
@@ -322,31 +369,43 @@ def relay(
                     try:
                         write_to_target(message)
                     except OSError as exc:
-                        counters["reason"] = counters["reason"] or f"写目标机失败：{exc}"
+                        counters["reason"] = counters["reason"] or (
+                            f"向目标主机发送数据失败：{humanize_socket_error(exc)}"
+                        )
                         break
                     counters["fromClient"] += len(message)
+                    if on_activity:
+                        on_activity()
             # 目标机 → 客户端：先把已经解密好的数据搬完，再回去看 WebSocket 方向
             while not stop.is_set():
                 try:
                     data = read_from_target()
                 except OSError as exc:
-                    counters["reason"] = counters["reason"] or f"读取目标机失败：{exc}"
+                    counters["reason"] = counters["reason"] or (
+                            f"与目标主机的连接中断：{humanize_socket_error(exc)}"
+                        )
                     stop.set()
                     break
                 if data is None:
                     break
                 if not data:
-                    counters["reason"] = counters["reason"] or "目标机关闭了连接"
+                    counters["reason"] = counters["reason"] or "目标主机结束了远程桌面会话"
                     stop.set()
                     break
                 ws.send(data)
                 counters["fromServer"] += len(data)
+                if on_activity:
+                    on_activity()
     except simple_websocket.ConnectionClosed:
-        counters["reason"] = counters["reason"] or "客户端已断开"
+        counters["reason"] = counters["reason"] or "浏览器侧关闭了窗口"
     except OSError as exc:
-        counters["reason"] = counters["reason"] or f"中继失败：{exc}"
+        counters["reason"] = counters["reason"] or (
+                            f"远程桌面通道异常：{humanize_socket_error(exc)}"
+                        )
     except Exception as exc:  # pragma: no cover - 保底
-        counters["reason"] = counters["reason"] or f"中继异常：{exc}"
+        counters["reason"] = counters["reason"] or (
+                            f"远程桌面通道异常：{humanize_socket_error(exc)}"
+                        )
         logger.debug("RDP 中继异常", exc_info=True)
     finally:
         stop.set()
@@ -379,6 +438,81 @@ class RdpConnectionHooks:
     audit: Callable[..., None] | None = None
 
 
+class _StopRequest:
+    """外部要求断开这条隧道时的开关（管理员点「中断」/ 空闲清理线程调用）。
+
+    `session_registry.close()` 会调 `request(reason)`：置位事件让中继循环在一个轮询周期内
+    退出，并顺手关掉 WebSocket，让浏览器那边立刻显示「会话已被中断」。
+    """
+
+    def __init__(self, ws: simple_websocket.Server) -> None:
+        self.event = threading.Event()
+        self.requested = False
+        self.reason = ""
+        self._ws = ws
+
+    def request(self, reason: str = "") -> None:
+        self.requested = True
+        self.reason = (reason or "").strip() or "会话已被中断"
+        self.event.set()
+        _safe_close(self._ws, 1000, self.reason)
+
+
+def _session_sid(session: Any) -> str:
+    """从 `open_session()` 的返回值里取会话 sid（兼容历史上只回行 id 的写法）。"""
+    if isinstance(session, dict):
+        return str(session.get("sid") or "")
+    return str(getattr(session, "sid", "") or "")
+
+
+def _register_live_session(sid: str, ticket: RdpTicket, stop_request: _StopRequest) -> None:
+    """登记到在线会话表 —— 这样管理员才能从「会话记录」里把这条远程桌面踢掉。"""
+    from ..session_registry import register
+
+    register(
+        sid,
+        kind="rdp",
+        user_id=ticket.user_id,
+        username=ticket.username,
+        host_id=ticket.host_id,
+        host_name=ticket.host_name,
+        host_address=f"{ticket.host_address}:{ticket.port}",
+        account_username=ticket.account_username,
+        grant_id=ticket.grant_id,
+        client_ip=ticket.client_ip,
+        protocol="rdp",
+        stop=stop_request.request,
+    )
+
+
+def _forget_live_session(sid: str) -> None:
+    from ..session_registry import unregister
+
+    unregister(sid)
+
+
+def _activity_toucher(sid: str) -> Callable[[], None] | None:
+    """把「隧道里有字节流动」喂给在线会话表的 `last_active`（一秒最多碰一次锁）。
+
+    不喂的话，`last_active` 会永远停在注册那一刻，一条正在被人用的远程桌面会被空闲清理
+    当成僵尸会话掐掉。
+    """
+    if not sid:
+        return None
+    last = [0.0]
+
+    def touch() -> None:
+        now = time.monotonic()
+        if now - last[0] < 1.0:
+            return
+        last[0] = now
+        from ..session_registry import touch as registry_touch
+
+        registry_touch(sid)
+
+    return touch
+
+
 def handle_connection(
     ws: simple_websocket.Server,
     ticket_id: str,
@@ -391,7 +525,7 @@ def handle_connection(
 
     ticket = TICKETS.consume(ticket_id)
     if ticket is None:
-        result["reason"] = "票据无效或已过期"
+        result["reason"] = "连接票据无效或已过期（请回资产列表重新连接）"
         _safe_error(ws, ERROR_NEGOTIATION, 401)
         _safe_close(ws, 1008, "Invalid ticket")
         return result
@@ -401,11 +535,11 @@ def handle_connection(
     try:
         message = ws.receive(timeout=REQUEST_TIMEOUT)
     except Exception as exc:
-        result["reason"] = f"读取 RDCleanPath 请求失败：{exc}"
+        result["reason"] = f"浏览器没有把连接请求发上来（{humanize_socket_error(exc)}）"
         _safe_close(ws, 1002, "No request")
         return result
     if not isinstance(message, (bytes, bytearray)):
-        result["reason"] = "首条消息不是二进制 RDCleanPath 请求"
+        result["reason"] = "浏览器发来的连接请求格式不对（不是二进制 RDCleanPath）"
         _safe_error(ws, ERROR_NEGOTIATION, 400)
         _safe_close(ws, 1003, "Binary request expected")
         return result
@@ -413,7 +547,7 @@ def handle_connection(
     try:
         request = parse_request(bytes(message))
     except CleanPathError as exc:
-        result["reason"] = f"RDCleanPath 请求不合法：{exc}"
+        result["reason"] = f"浏览器发来的连接请求无法解析（{exc}）"
         _safe_error(ws, ERROR_NEGOTIATION, 400)
         _safe_close(ws, 1003, "Bad request")
         return result
@@ -422,7 +556,7 @@ def handle_connection(
     result["destination"] = f"{host}:{port}"
     # 关键安全约束：客户端只能在票据授权的那台主机上开隧道，防止被当成任意端口转发器
     if not ticket.matches(host, port):
-        result["reason"] = f"客户端请求的目标 {host}:{port} 与票据授权的主机不一致"
+        result["reason"] = f"浏览器请求的目标 {host}:{port} 与票据授权的主机不一致"
         if hooks.audit:
             hooks.audit(ticket, "rdp_denied", result["reason"], result="denied")
         _safe_error(ws, ERROR_GENERAL, 403)
@@ -446,18 +580,40 @@ def handle_connection(
     try:
         ws.send(build_response(f"{host}:{port}", x224_response, chain))
     except Exception as exc:
-        result["reason"] = f"回送 RDCleanPath 响应失败：{exc}"
+        result["reason"] = f"把协商结果回给浏览器失败（{humanize_socket_error(exc)}）"
         _safe_close(ws, 1011, "Send failed")
         return result
 
     session = None
+    sid = ""
+    stop_request = _StopRequest(ws)
     if hooks.open_session:
         try:
             session = hooks.open_session(ticket, {"certificate": info, "negotiation": result["negotiation"]})
+            sid = _session_sid(session)
         except Exception:  # pragma: no cover - 审计不能挡住业务
             logger.exception("写 RDP 会话记录失败 ticket=%s", ticket.id[:12])
 
-    counters = relay(ws, tls)
+    if sid:
+        _register_live_session(sid, ticket, stop_request)
+
+    try:
+        counters = relay(
+            ws,
+            tls,
+            stop=stop_request.event,
+            on_activity=_activity_toucher(sid),
+        )
+    finally:
+        if sid:
+            _forget_live_session(sid)
+
+    if stop_request.requested:
+        # 管理员点中断 / 空闲清理：原因以调用方的说法为准 ——
+        # 中继那边往往只看到「连接被重置」，说出来不像人话
+        counters["reason"] = stop_request.reason
+        counters["forced"] = True
+
     result["bytesFromClient"] = counters["fromClient"]
     result["bytesFromServer"] = counters["fromServer"]
     result["reason"] = counters["reason"]

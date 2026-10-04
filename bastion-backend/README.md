@@ -107,7 +107,7 @@ bastion-backend/
 │   ├── gw_ai_check.py          # 真实 SSH 网关里跑一次 /ask-ai（9 项断言：选真机进会话 → 粘贴形态提问 → 无「AI 出错/HTTP 400」→ 有真实答案 → 回合后终端仍可用）；**选跑，会消耗一次真实模型调用**
 │   ├── console_check.py        # 真实 Chrome(CDP) 驱动网页终端与文件管理器（33 项断言：window.open 弹窗建连/状态条/搜索/右键/全屏往返/断开倒计时与自动关窗/「资产列表」关窗/「文件管理」弹独立窗口 SFTP 列目录/清除入口）
 │   └── verify_audit_chain.py   # 审计链式哈希离线校验：逐行重算 + 区分「链前遗留/链内空洞」+ 库外锚点（--print-head 抄锚点 / --expect-head TABLE=HASH 复核，对不上 exit 1）
-└── tests/                      # 604 个用例（31 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
+└── tests/                      # 607 个用例（31 个文件，含真实 SSH 协议栈、真实 SFTP 服务端与网页终端 Socket.IO 端到端）
 ```
 
 ---
@@ -379,8 +379,8 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 | 文件 | 行 | 干什么 |
 | --- | --- | --- |
 | `cleanpath.py` | 369 | RDCleanPath 的 X.224 / TLS / 凭据封包与解包：`perform_handshake()` 按协商结果决定是否起 TLS，解析服务器证书与 `selectedProtocol`。**坑：X.224 的 length 字段是小端**，写反了包就是废包 |
-| `proxy.py` | 533 | `RdpWebSocketMiddleware`（在 `app.wsgi_app` 外再包一层，**必须在 `socketio.init_app` 之后**）接住 `/api/rdp/ws` 的升级请求，做浏览器 ↔ 网关 ↔ 目标机 3389 的字节中继；`RdpTicketStore`（`TICKET_TTL_SECONDS = 120`，用一次即作废）；`build_hooks()` 把会话记录与审计挂到同一套 `session_service` / 审计上 |
-| `hooks.py` | 141 | `_open_session()` / `_close_session()`：**跨 app context 的收口**。开会话时只把记录 **id** 交给网关，绝不交出 ORM 实例 —— `_run()` 结束会 `db.session.remove()`，实例随即 detach，收口时再碰它必抛 `DetachedInstanceError`（线上就这样丢过一条 `rdp_session_close`） |
+| `proxy.py` | 689 | `RdpWebSocketMiddleware`（在 `app.wsgi_app` 外再包一层，**必须在 `socketio.init_app` 之后**）接住 `/api/rdp/ws` 的升级请求，做浏览器 ↔ 网关 ↔ 目标机 3389 的字节中继；`RdpTicketStore`（`TICKET_TTL_SECONDS = 120`，用一次即作废）；`build_hooks()` 把会话记录与审计挂到同一套 `session_service` / 审计上；**RDP 会话也会登记进 `session_registry`**（`kind="rdp"`、`stop=_StopRequest.request`），于是 `POST /api/sessions/<id>/terminate` 与空闲清理都能真的停掉隧道；断线原因经 `humanize_socket_error()` 翻成人话 |
+| `hooks.py` | 150 | `_open_session()` / `_close_session()`：**跨 app context 的收口**。开会话时只把记录 **id** 交给网关，绝不交出 ORM 实例 —— `_run()` 结束会 `db.session.remove()`，实例随即 detach，收口时再碰它必抛 `DetachedInstanceError`（线上就这样丢过一条 `rdp_session_close`）；本轮改成交回**值字典 `{"id", "sid"}`**（同样跨 context 安全，`sid` 供在线表登记），`_close_session()` 兼容字典与裸 id，被强制中断时收口为 `terminated` |
 | `__init__.py` | 48 | 导出 |
 
 ### 接口（`rdp` 蓝图，7 条；`/api/rdp/ws` 是 WebSocket，走中间件不进 `url_map`）
@@ -416,7 +416,7 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 
 ### 回归
 
-`tests/test_rdp_gateway.py`（41 例）：RDCleanPath 封包/解包（含 X.224 小端 length）、`X224_CC_HYBRID_EX` 协商、票据 TTL 与一次性、WebSocket 中继、`_open_session` / `_close_session` 跨 app context 的会话记录与审计收口（断言 `status=closed`、字节数、`end_reason`、`ended_at` 与 open/close 两条审计都在），以及网页终端列表「两类主机合并 + 按权限码分协议」。隧道用例带 **30 秒看门狗**：卡住时先 `faulthandler.dump_traceback(all_threads=True)` 打出所有线程的栈和现场（`server.received` / `ws.sent`）再 `fail`，绝不无限挂住测试会话。
+`tests/test_rdp_gateway.py`（44 例）：RDCleanPath 封包/解包（含 X.224 小端 length）、`X224_CC_HYBRID_EX` 协商、票据 TTL 与一次性、WebSocket 中继、`_open_session` / `_close_session` 跨 app context 的会话记录与审计收口（断言 `status=closed`、字节数、`end_reason`、`ended_at` 与 open/close 两条审计都在），以及网页终端列表「两类主机合并 + 按权限码分协议」。隧道用例带 **30 秒看门狗**：卡住时先 `faulthandler.dump_traceback(all_threads=True)` 打出所有线程的栈和现场（`server.received` / `ws.sent`）再 `fail`，绝不无限挂住测试会话。另覆盖**会话中断链路**（通用 `stop` 真能停隧道、`forced` 收口成 `terminated`）与 `humanize_socket_error()` 的人话映射。
 
 `tests/test_rdp_recording.py`（39 例）：录像上传的 mime/体积/权限/主机准入校验、列表可见性（`session:view_all` / `audit:view` 看全部，否则只看自己）、`Range` 206 与 416、`Content-Disposition: inline`、三段审计，以及回放票据 —— 10 分钟有效、绑定单条录像（拿 A 的票拉 B 必 401）、过期/换 `scope`/拿登录 token 冒充一律 401、签票只写一条 `rdp_recording_viewed`。
 
@@ -446,7 +446,7 @@ python tools/verify_audit_chain.py --expect-head audit_logs=<哈希>   # 复核�
 ## 九、测试
 
 ```bash
-python -m pytest -q                       # 604 passed（31 个文件）
+python -m pytest -q                       # 607 passed（31 个文件）
 python -m pytest tests/test_audit_chain.py tests/test_audit_chain_tamper.py tests/test_password_change_effective.py -q   # 审计链式哈希（含 3 条对抗用例：清哈希/老库前缀/截断锚点）+ 改口令真的生效
 python -m pytest tests/test_policy.py -q  # 策略引擎
 python -m pytest tests/test_files_service.py tests/test_files_api.py -q   # SFTP 文件管理器（真 SFTP 服务端）

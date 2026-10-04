@@ -40,6 +40,7 @@ import {
   formatBytes,
   formatDuration,
   formatLatency,
+  humanizeEndReason,
   RISK_OPTIONS,
   SESSION_SOURCE_META,
   SESSION_STATUS_META,
@@ -418,7 +419,11 @@ const SessionSummary: React.FC<{ item: SessionItem }> = ({ item }) => (
         label: '流量（↑ 上行 / ↓ 下行）',
         children: `↑ ${formatBytes(item.bytesIn)} / ↓ ${formatBytes(item.bytesOut)}`,
       },
-      { key: 'endReason', label: '结束原因', children: item.endReason || '-' },
+      {
+        key: 'endReason',
+        label: '结束原因',
+        children: humanizeEndReason(item.endReason),
+      },
       {
         key: 'riskLevel',
         label: '风险等级',
