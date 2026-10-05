@@ -253,7 +253,7 @@ AutoOps/
 │   ├── 需求对照.md 使用手册.md 审计与安全.md 验证记录.md   (Chinese deep-dive pages)
 │   ├── i18n/README.en.md       # this file
 │   └── screenshots/            # 40+ real-machine screenshots
-├── LICENSE  README.md  修改.md  清单.md
+├── LICENSE  README.md
 ```
 
 ## Configuration
@@ -301,8 +301,8 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 
 The entry-by-entry verification log (criteria, commands, results and screenshots) is in
 [docs/验证记录.md](../验证记录.md); requirement-by-requirement mapping in
-[docs/需求对照.md](../需求对照.md); detailed inventory in [清单.md](../../清单.md); per-round
-changes and metric shifts in [修改.md](../../修改.md) (all Chinese).
+[docs/需求对照.md](../需求对照.md); walkthroughs in [docs/使用手册.md](../使用手册.md);
+audit pipeline and security notes in [docs/审计与安全.md](../审计与安全.md) (all Chinese).
 
 ## Contributing
 

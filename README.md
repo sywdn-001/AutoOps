@@ -255,7 +255,7 @@ AutoOps/
 │   ├── 需求对照.md 使用手册.md 审计与安全.md 验证记录.md
 │   ├── i18n/README.en.md       # 英文 README
 │   └── screenshots/            # 40+ 张实测截图
-├── LICENSE  README.md  修改.md  清单.md
+├── LICENSE  README.md
 ```
 
 ## 配置说明
@@ -303,8 +303,9 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 ```
 
 逐条的验证记录（每条实测的判据、命令、结果与截图）见 [docs/验证记录.md](docs/验证记录.md)，
-需求与扩展需求逐条对照见 [docs/需求对照.md](docs/需求对照.md)，详细数据见 [清单.md](清单.md)，
-每一轮的改动与口径变化见 [修改.md](修改.md)。
+需求与扩展需求逐条对照见 [docs/需求对照.md](docs/需求对照.md)，使用流程见
+[docs/使用手册.md](docs/使用手册.md)，审计数据流与安全须知见
+[docs/审计与安全.md](docs/审计与安全.md)。
 
 ## 贡献指南
 
