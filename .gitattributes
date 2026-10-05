@@ -1,0 +1,23 @@
+# 统一换行符：仓库一律用 LF 入库。
+# 本项目在 Windows 上开发、部署到 Linux；如果让 git 按平台自动转换（core.autocrlf），
+# 检出的文件会变成 CRLF，① 脚本（.sh / shebang）在 Linux 上会报 `bad interpreter`，
+# ② 格式化/lint 门禁（biome）会因为「换行符与格式化结果不一致」整片报错。
+* text=auto eol=lf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.pdf binary
+*.xlsx binary
+*.docx binary

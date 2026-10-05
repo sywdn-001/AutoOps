@@ -74,8 +74,16 @@ const ProfilePane: React.FC<{ user: MeInfo }> = ({ user }) => {
         bordered
         size="middle"
         items={[
-          { key: 'username', label: '登录账号', children: user.username || '-' },
-          { key: 'displayName', label: '姓名', children: user.displayName || '-' },
+          {
+            key: 'username',
+            label: '登录账号',
+            children: user.username || '-',
+          },
+          {
+            key: 'displayName',
+            label: '姓名',
+            children: user.displayName || '-',
+          },
           {
             key: 'role',
             label: '角色',
@@ -91,7 +99,12 @@ const ProfilePane: React.FC<{ user: MeInfo }> = ({ user }) => {
           {
             key: 'isAdmin',
             label: '管理员',
-            children: user.isAdmin || user.isSuperuser ? <Tag color="red">是</Tag> : <Tag>否</Tag>,
+            children:
+              user.isAdmin || user.isSuperuser ? (
+                <Tag color="red">是</Tag>
+              ) : (
+                <Tag>否</Tag>
+              ),
           },
           { key: 'email', label: '邮箱', children: user.email || '-' },
           { key: 'phone', label: '手机', children: user.phone || '-' },
@@ -99,24 +112,42 @@ const ProfilePane: React.FC<{ user: MeInfo }> = ({ user }) => {
             key: 'status',
             label: '账号状态',
             children:
-              user.status === 'active' ? <Tag color="green">正常</Tag> : <Tag color="red">已停用</Tag>,
+              user.status === 'active' ? (
+                <Tag color="green">正常</Tag>
+              ) : (
+                <Tag color="red">已停用</Tag>
+              ),
           },
           {
             key: 'gateway',
             label: 'SSH 网关',
-            children: user.gatewayEnabled ? <Tag color="green">已开放</Tag> : <Tag>未开放</Tag>,
+            children: user.gatewayEnabled ? (
+              <Tag color="green">已开放</Tag>
+            ) : (
+              <Tag>未开放</Tag>
+            ),
           },
           {
             key: 'webterm',
             label: '网页终端',
-            children: user.webtermEnabled ? <Tag color="green">已开放</Tag> : <Tag>未开放</Tag>,
+            children: user.webtermEnabled ? (
+              <Tag color="green">已开放</Tag>
+            ) : (
+              <Tag>未开放</Tag>
+            ),
           },
           {
             key: 'lastLoginAt',
             label: '最近登录时间',
-            children: user.lastLoginAt ? String(user.lastLoginAt).replace('T', ' ').slice(0, 19) : '-',
+            children: user.lastLoginAt
+              ? String(user.lastLoginAt).replace('T', ' ').slice(0, 19)
+              : '-',
           },
-          { key: 'lastLoginIp', label: '最近登录 IP', children: user.lastLoginIp || '-' },
+          {
+            key: 'lastLoginIp',
+            label: '最近登录 IP',
+            children: user.lastLoginIp || '-',
+          },
         ]}
       />
       <Card size="small" title="权限清单（决定你能碰哪些机器、能做什么操作）">
@@ -145,7 +176,11 @@ const SecurityPane: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const submit = useCallback(
-    async (values: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
+    async (values: {
+      oldPassword: string;
+      newPassword: string;
+      confirmPassword: string;
+    }) => {
       if (values.newPassword !== values.confirmPassword) {
         message.error('两次输入的新密码不一致');
         return;
@@ -174,13 +209,21 @@ const SecurityPane: React.FC = () => {
   return (
     <Row gutter={24}>
       <Col xs={24} md={12}>
-        <Form form={form} layout="vertical" onFinish={submit} requiredMark={false}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={submit}
+          requiredMark={false}
+        >
           <Form.Item
             name="oldPassword"
             label="当前密码"
             rules={[{ required: true, message: '请输入当前密码' }]}
           >
-            <Input.Password autoComplete="current-password" placeholder="当前登录密码" />
+            <Input.Password
+              autoComplete="current-password"
+              placeholder="当前登录密码"
+            />
           </Form.Item>
           <Form.Item
             name="newPassword"
@@ -201,7 +244,10 @@ const SecurityPane: React.FC = () => {
             dependencies={['newPassword']}
             rules={[{ required: true, message: '请再次输入新密码' }]}
           >
-            <Input.Password autoComplete="new-password" placeholder="再次输入新密码" />
+            <Input.Password
+              autoComplete="new-password"
+              placeholder="再次输入新密码"
+            />
           </Form.Item>
           <Form.Item>
             <Space>
@@ -226,8 +272,12 @@ const SecurityPane: React.FC = () => {
           title="密码规则"
           description={
             <Space orientation="vertical" size={4}>
-              <Text>· 长度至少 8 位，且至少包含两类字符（大写 / 小写 / 数字 / 符号）</Text>
-              <Text>· 修改成功后旧密码立即失效，SSH 网关与网页终端都改用新密码</Text>
+              <Text>
+                · 长度至少 8 位，且至少包含两类字符（大写 / 小写 / 数字 / 符号）
+              </Text>
+              <Text>
+                · 修改成功后旧密码立即失效，SSH 网关与网页终端都改用新密码
+              </Text>
               <Text>· 连续多次登录失败会临时锁定账号，可联系管理员解锁</Text>
             </Space>
           }
@@ -250,7 +300,12 @@ const ActivityPane: React.FC<{ activities: AuditItem[]; loading: boolean }> = ({
       pending={loading ? '加载中…' : undefined}
       items={activities.map((item) => ({
         key: item.id,
-        color: item.result === 'failure' ? 'red' : item.result === 'denied' ? 'orange' : 'green',
+        color:
+          item.result === 'failure'
+            ? 'red'
+            : item.result === 'denied'
+              ? 'orange'
+              : 'green',
         children: (
           <Space orientation="vertical" size={2}>
             <Text strong>
@@ -262,7 +317,9 @@ const ActivityPane: React.FC<{ activities: AuditItem[]; loading: boolean }> = ({
               {item.targetName ? ` · 目标 ${item.targetName}` : ''}
               {item.ip ? ` · ${item.ip}` : ''}
             </Text>
-            <Text type="secondary">{item.ts ? String(item.ts).replace('T', ' ').slice(0, 19) : ''}</Text>
+            <Text type="secondary">
+              {item.ts ? String(item.ts).replace('T', ' ').slice(0, 19) : ''}
+            </Text>
           </Space>
         ),
       }))}
@@ -305,7 +362,11 @@ const AccountSettings: React.FC = () => {
   return (
     <PageContainer
       header={{ title: '个人设置', breadcrumb: {} }}
-      content={<Paragraph type="secondary">查看自己的身份与权限，并维护登录密码。</Paragraph>}
+      content={
+        <Paragraph type="secondary">
+          查看自己的身份与权限，并维护登录密码。
+        </Paragraph>
+      }
     >
       <Card>
         <Tabs
@@ -317,7 +378,12 @@ const AccountSettings: React.FC = () => {
             {
               key: 'profile',
               label: '基本资料',
-              children: loading || !me ? <Skeleton active paragraph={{ rows: 8 }} /> : <ProfilePane user={me} />,
+              children:
+                loading || !me ? (
+                  <Skeleton active paragraph={{ rows: 8 }} />
+                ) : (
+                  <ProfilePane user={me} />
+                ),
             },
             {
               key: 'security',
@@ -327,7 +393,9 @@ const AccountSettings: React.FC = () => {
             {
               key: 'activity',
               label: '最近操作',
-              children: <ActivityPane activities={activities} loading={loading} />,
+              children: (
+                <ActivityPane activities={activities} loading={loading} />
+              ),
             },
           ]}
         />

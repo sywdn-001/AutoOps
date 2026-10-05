@@ -34,6 +34,8 @@ export default defineConfig({
       ],
     },
     passWithNoTests: true,
-    testTimeout: 15000,
+    // 30s：`src/app.test.tsx` 里 `await import('./app')` 会把整个 Umi/antd 运行时拉进来，
+    // 本机实测要 15~45s；15s 的默认阈值在这台机器上会稳定超时（不是断言失败）。
+    testTimeout: 30000,
   },
 });

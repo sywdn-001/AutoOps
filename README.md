@@ -291,9 +291,10 @@ AutoOps/
 ├── ant-design-pro/             # 前端：Ant Design Pro 6 + Umi Max 4，业务页全部重写
 │   └── src/pages/bastion/      # 堡垒机业务页（资产、终端、文件、远程桌面、审计…）
 ├── docs/
-│   ├── 需求对照.md 使用手册.md 审计与安全.md 验证记录.md
-│   ├── i18n/README.en.md       # 英文 README
-│   └── screenshots/            # 40+ 张实测截图
+│   ├── 图文教程.md              # 逐步配图的操作教程（中）
+│   ├── 使用手册.md 审计与安全.md 需求对照.md 验证记录.md
+│   ├── i18n/                   # 英文：README.en.md、manual.en.md、tutorial.en.md
+│   └── screenshots/            # 60+ 张实测截图（含 tutorial/ 教程配图）
 ├── LICENSE  README.md
 ```
 
@@ -331,7 +332,7 @@ export BASTION_API=http://192.168.1.10:5000     # Linux / macOS
 
 ## 验证记录
 
-后端 705 个用例、前端 85 个单测，加上三套真机联调脚本：
+后端 705 个用例、前端 70 个单测，加上三套真机联调脚本：
 
 ```bash
 cd bastion-backend && python -m pytest -q          # 705 passed（33 个文件）
@@ -345,6 +346,23 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 需求与扩展需求逐条对照见 [docs/需求对照.md](docs/需求对照.md)，使用流程见
 [docs/使用手册.md](docs/使用手册.md)，审计数据流与安全须知见
 [docs/审计与安全.md](docs/审计与安全.md)。
+
+## 文档
+
+**从零上手看这篇**：[图文教程](docs/图文教程.md) —— 从起服务到纳管机器、授权、开终端、
+看审计，每一步都配一张真实操作截图（配图由 `bastion-backend/tools/tutorial_shots.py`
+驱动真实 Chrome 逐步生成，改完代码重跑即可刷新）。
+
+| 文档 | English | 内容 |
+| --- | --- | --- |
+| [docs/图文教程.md](docs/图文教程.md) | [tutorial.en.md](docs/i18n/tutorial.en.md) | 逐步配图的操作教程 |
+| [docs/使用手册.md](docs/使用手册.md) | [manual.en.md](docs/i18n/manual.en.md) | 每个页面的字段与操作说明 |
+| [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
+| [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
+| [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
+
+全部文档的索引见 [docs/README.md](docs/README.md)；仓库英文介绍见
+[docs/i18n/README.en.md](docs/i18n/README.en.md)。
 
 ## 贡献指南
 

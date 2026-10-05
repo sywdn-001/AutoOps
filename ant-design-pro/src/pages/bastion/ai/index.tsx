@@ -21,9 +21,9 @@ import {
   SearchOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { PageContainer } from '@ant-design/pro-components';
 import { Bubble, Conversations, Sender } from '@ant-design/x';
 import { XMarkdown } from '@ant-design/x-markdown';
-import { PageContainer } from '@ant-design/pro-components';
 import { history, useAccess } from '@umijs/max';
 import {
   Alert,
@@ -35,16 +35,17 @@ import {
   Form,
   Input,
   Modal,
+  message,
   Popconfirm,
   Space,
   Spin,
   Tag,
   Tooltip,
   Typography,
-  message,
 } from 'antd';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { JsonCards } from '@/components/Bastion';
 import type {
   AiCard,
   AiConversationRecord,
@@ -62,7 +63,6 @@ import {
   listAiConversations,
   streamAiChat,
 } from '@/services/bastion/ai';
-import { JsonCards } from '@/components/Bastion';
 import { AiCardView } from './cards';
 import './ai.css';
 
@@ -127,8 +127,14 @@ const flattenText = (value: React.ReactNode): string => {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   if (Array.isArray(value)) return value.map(flattenText).join('');
-  if (value && typeof value === 'object' && 'props' in (value as { props?: unknown })) {
-    return flattenText((value as { props?: { children?: React.ReactNode } }).props?.children);
+  if (
+    value &&
+    typeof value === 'object' &&
+    'props' in (value as { props?: unknown })
+  ) {
+    return flattenText(
+      (value as { props?: { children?: React.ReactNode } }).props?.children,
+    );
   }
   return '';
 };
@@ -166,7 +172,9 @@ const AiCode = (
     }
     return <code className="bastion-ai-code">{flattenText(children)}</code>;
   }
-  return <code className={block ? 'bastion-ai-code' : undefined}>{children}</code>;
+  return (
+    <code className={block ? 'bastion-ai-code' : undefined}>{children}</code>
+  );
 };
 
 const asString = (value: unknown): string | undefined =>
@@ -177,8 +185,9 @@ const asNumber = (value: unknown): number | undefined =>
 
 /** 后端错误信封（{success:false,message,code}）里可以直接给用户看的中文 message */
 const apiErrorMessage = (error: unknown): string | undefined => {
-  const payload = (error as { response?: { data?: { message?: unknown } } } | undefined)?.response
-    ?.data;
+  const payload = (
+    error as { response?: { data?: { message?: unknown } } } | undefined
+  )?.response?.data;
   const text = payload?.message;
   return typeof text === 'string' && text.trim() ? text : undefined;
 };
@@ -194,19 +203,26 @@ const apiErrorMessage = (error: unknown): string | undefined => {
  */
 const notifyError = (error: unknown, fallback: string) => {
   if (apiErrorMessage(error)) return;
-  message.error(error instanceof Error && error.message ? error.message : fallback);
+  message.error(
+    error instanceof Error && error.message ? error.message : fallback,
+  );
 };
 
 const AiPage = () => {
   const access = useAccess();
   const [status, setStatus] = useState<AiStatus>();
-  const [tools, setTools] = useState<{ tools: AiToolInfo[]; groups: AiToolCategory[] }>({
+  const [tools, setTools] = useState<{
+    tools: AiToolInfo[];
+    groups: AiToolCategory[];
+  }>({
     tools: [],
     groups: [],
   });
   const [toolsOpen, setToolsOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [conversations, setConversations] = useState<AiConversationRecord[]>([]);
+  const [conversations, setConversations] = useState<AiConversationRecord[]>(
+    [],
+  );
   const [activeId, setActiveId] = useState<number>();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
@@ -220,7 +236,10 @@ const AiPage = () => {
   const [confirming, setConfirming] = useState(false);
   /** 后端返回的确认失败原因（如「管理员账号或密码错误」），就地显示在弹窗里 */
   const [confirmError, setConfirmError] = useState<string>();
-  const [confirmForm] = Form.useForm<{ adminUsername?: string; adminPassword: string }>();
+  const [confirmForm] = Form.useForm<{
+    adminUsername?: string;
+    adminPassword: string;
+  }>();
 
   const streamRef = useRef<AbortController | undefined>(undefined);
   const conversationIdRef = useRef<number | undefined>(undefined);
@@ -245,7 +264,11 @@ const AiPage = () => {
         setStatus(info);
         if (info.canUse) {
           const catalog = await fetchAiTools();
-          if (alive) setTools({ tools: catalog.tools ?? [], groups: catalog.groups ?? [] });
+          if (alive)
+            setTools({
+              tools: catalog.tools ?? [],
+              groups: catalog.groups ?? [],
+            });
           await loadConversations();
         }
       } catch (error) {
@@ -266,9 +289,14 @@ const AiPage = () => {
     [],
   );
 
-  const patchTurn = useCallback((key: string, patch: (turn: ChatTurn) => ChatTurn) => {
-    setTurns((prev) => prev.map((turn) => (turn.key === key ? patch(turn) : turn)));
-  }, []);
+  const patchTurn = useCallback(
+    (key: string, patch: (turn: ChatTurn) => ChatTurn) => {
+      setTurns((prev) =>
+        prev.map((turn) => (turn.key === key ? patch(turn) : turn)),
+      );
+    },
+    [],
+  );
 
   /** message_end：收口这条气泡（状态、耗时、token 用量） */
   const markMessageEnd = useCallback(
@@ -298,13 +326,19 @@ const AiPage = () => {
         }
         case 'reasoning': {
           if (delta) {
-            patchTurn(key, (turn) => ({ ...turn, reasoning: turn.reasoning + delta }));
+            patchTurn(key, (turn) => ({
+              ...turn,
+              reasoning: turn.reasoning + delta,
+            }));
           }
           break;
         }
         case 'content': {
           if (delta) {
-            patchTurn(key, (turn) => ({ ...turn, content: turn.content + delta }));
+            patchTurn(key, (turn) => ({
+              ...turn,
+              content: turn.content + delta,
+            }));
           }
           break;
         }
@@ -318,7 +352,10 @@ const AiPage = () => {
             sensitive: Boolean(event.sensitive),
             status: asString(event.status) ?? 'running',
           };
-          patchTurn(key, (turn) => ({ ...turn, toolCalls: [...turn.toolCalls, call] }));
+          patchTurn(key, (turn) => ({
+            ...turn,
+            toolCalls: [...turn.toolCalls, call],
+          }));
           break;
         }
         case 'tool_result': {
@@ -333,7 +370,8 @@ const AiPage = () => {
                     summary: asString(event.summary) ?? item.summary,
                     preview: asString(event.preview) ?? item.preview,
                     durationMs: asNumber(event.durationMs) ?? item.durationMs,
-                    confirmedBy: asString(event.confirmedBy) ?? item.confirmedBy,
+                    confirmedBy:
+                      asString(event.confirmedBy) ?? item.confirmedBy,
                     card: (event.card as AiCard | null) ?? item.card,
                   }
                 : item,
@@ -342,7 +380,9 @@ const AiPage = () => {
           break;
         }
         case 'cards': {
-          const cards = Array.isArray(event.cards) ? (event.cards as AiCard[]) : [];
+          const cards = Array.isArray(event.cards)
+            ? (event.cards as AiCard[])
+            : [];
           patchTurn(key, (turn) => ({ ...turn, cards }));
           break;
         }
@@ -374,7 +414,9 @@ const AiPage = () => {
           patchTurn(key, (turn) => ({
             ...turn,
             toolCalls: turn.toolCalls.map((item) => {
-              const found = pendingCalls.find((call) => call.callId === item.callId);
+              const found = pendingCalls.find(
+                (call) => call.callId === item.callId,
+              );
               return found ? { ...item, status: 'pending' } : item;
             }),
           }));
@@ -400,7 +442,11 @@ const AiPage = () => {
       streamRef.current = controller;
       setStreaming(true);
       try {
-        await streamAiChat(payload, (event) => applyEvent(key, event), controller.signal);
+        await streamAiChat(
+          payload,
+          (event) => applyEvent(key, event),
+          controller.signal,
+        );
       } catch (error) {
         if ((error as Error)?.name !== 'AbortError') {
           patchTurn(key, (turn) => ({
@@ -426,7 +472,14 @@ const AiPage = () => {
       const assistantKey = nextKey('assistant');
       setTurns((prev) => [
         ...prev,
-        { key: userKey, role: 'user', content: value, reasoning: '', cards: [], toolCalls: [] },
+        {
+          key: userKey,
+          role: 'user',
+          content: value,
+          reasoning: '',
+          cards: [],
+          toolCalls: [],
+        },
         {
           key: assistantKey,
           role: 'assistant',
@@ -476,7 +529,8 @@ const AiPage = () => {
       // 后端的中文原因（如「管理员账号或密码错误」）就地显示在弹窗里：
       // 请求层的 toast 一闪而过，且绝不能再把 axios 的 "Request failed with status code 400" 当提示
       setConfirmError(
-        apiErrorMessage(error) ?? (error instanceof Error ? error.message : '确认失败'),
+        apiErrorMessage(error) ??
+          (error instanceof Error ? error.message : '确认失败'),
       );
     } finally {
       setConfirming(false);
@@ -489,7 +543,11 @@ const AiPage = () => {
     if (!conversationId) return;
     setConfirming(true);
     try {
-      await confirmAiOperation({ conversationId, approve: false, reason: '用户在页面上拒绝了该操作' });
+      await confirmAiOperation({
+        conversationId,
+        approve: false,
+        reason: '用户在页面上拒绝了该操作',
+      });
       setConfirmOpen(false);
       confirmForm.resetFields();
       const key = resumeTurnKeyRef.current ?? nextKey('assistant');
@@ -582,7 +640,9 @@ const AiPage = () => {
         label: (
           <span className="bastion-ai-conv-label">
             {/* 标题单行省略：列表项改成自适应高度之后，长标题不能再靠固定高度裁掉 */}
-            <span className="bastion-ai-conv-title">{item.title || '未命名对话'}</span>
+            <span className="bastion-ai-conv-title">
+              {item.title || '未命名对话'}
+            </span>
             <span className="bastion-ai-conv-meta">
               {item.messageCount ?? 0} 条 · 工具 {item.toolCount ?? 0}
             </span>
@@ -613,7 +673,9 @@ const AiPage = () => {
     if (turn.role === 'user') {
       return <div className="bastion-ai-user-text">{turn.content}</div>;
     }
-    const pendingCalls = turn.toolCalls.filter((call) => call.status === 'pending');
+    const pendingCalls = turn.toolCalls.filter(
+      (call) => call.status === 'pending',
+    );
     const items = [];
     if (turn.reasoning) {
       items.push({
@@ -628,10 +690,16 @@ const AiPage = () => {
         label: (
           <span className="bastion-ai-collapse-label">
             工具调用 {turn.toolCalls.length} 次
-            {pendingCalls.length > 0 ? <Tag color="warning">待确认 {pendingCalls.length}</Tag> : null}
+            {pendingCalls.length > 0 ? (
+              <Tag color="warning">待确认 {pendingCalls.length}</Tag>
+            ) : null}
           </span>
         ),
-        children: <div className="bastion-ai-tools">{turn.toolCalls.map(renderToolCall)}</div>,
+        children: (
+          <div className="bastion-ai-tools">
+            {turn.toolCalls.map(renderToolCall)}
+          </div>
+        ),
       });
     }
     return (
@@ -660,13 +728,20 @@ const AiPage = () => {
           </span>
         ) : null}
         {turn.error ? (
-          <Alert className="bastion-ai-error" type="error" showIcon message={turn.error} />
+          <Alert
+            className="bastion-ai-error"
+            type="error"
+            showIcon
+            message={turn.error}
+          />
         ) : null}
         {turn.elapsedMs ? (
           <div className="bastion-ai-meta">
             {turn.status === 'max_rounds' ? '已达单轮工具调用上限 · ' : ''}
             用时 {(turn.elapsedMs / 1000).toFixed(1)}s
-            {turn.usage?.completion_tokens ? ` · 输出 ${turn.usage.completion_tokens} tokens` : ''}
+            {turn.usage?.completion_tokens
+              ? ` · 输出 ${turn.usage.completion_tokens} tokens`
+              : ''}
           </div>
         ) : null}
       </div>
@@ -674,7 +749,10 @@ const AiPage = () => {
   };
 
   const renderToolCall = (call: ToolCallState) => {
-    const tag = STATUS_TAG[call.status] ?? { color: 'default', text: call.status };
+    const tag = STATUS_TAG[call.status] ?? {
+      color: 'default',
+      text: call.status,
+    };
     return (
       <div className="bastion-ai-tool" key={call.callId}>
         <div className="bastion-ai-tool-head">
@@ -682,8 +760,12 @@ const AiPage = () => {
           <Text strong>{call.name}</Text>
           {call.sensitive ? <Tag color="red">敏感操作</Tag> : null}
           {call.permission ? <Tag>{call.permission}</Tag> : null}
-          {call.durationMs ? <Text type="secondary">{call.durationMs}ms</Text> : null}
-          {call.confirmedBy ? <Text type="secondary">确认人 {call.confirmedBy}</Text> : null}
+          {call.durationMs ? (
+            <Text type="secondary">{call.durationMs}ms</Text>
+          ) : null}
+          {call.confirmedBy ? (
+            <Text type="secondary">确认人 {call.confirmedBy}</Text>
+          ) : null}
         </div>
         {call.description ? (
           <div className="bastion-ai-tool-desc">{call.description}</div>
@@ -693,7 +775,9 @@ const AiPage = () => {
             <JsonCards value={call.args} compact />
           </div>
         ) : null}
-        {call.summary ? <div className="bastion-ai-tool-summary">{call.summary}</div> : null}
+        {call.summary ? (
+          <div className="bastion-ai-tool-summary">{call.summary}</div>
+        ) : null}
         {call.preview ? (
           <div className="bastion-ai-tool-preview">
             <JsonCards value={call.preview} compact />
@@ -747,18 +831,31 @@ const AiPage = () => {
           </Button>
         ) : null,
         <Tooltip key="reload" title="刷新对话列表">
-          <Button icon={<ReloadOutlined />} onClick={() => void loadConversations()} />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => void loadConversations()}
+          />
         </Tooltip>,
       ]}
     >
       {disabledReason ? (
-        <Alert className="bastion-ai-disabled" type="warning" showIcon message={disabledReason} />
+        <Alert
+          className="bastion-ai-disabled"
+          type="warning"
+          showIcon
+          message={disabledReason}
+        />
       ) : null}
       <div className="bastion-ai">
         {/* 左侧：贴页全高的平铺列表，只有一条右侧分隔线，没有任何浮层/圆角/阴影外壳 */}
         <aside className="bastion-ai-side">
           <div className="bastion-ai-side-head">
-            <Button block type="primary" icon={<PlusOutlined />} onClick={startNewConversation}>
+            <Button
+              block
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={startNewConversation}
+            >
               新建对话
             </Button>
           </div>
@@ -798,7 +895,9 @@ const AiPage = () => {
             ) : bubbleItems.length === 0 ? (
               <div className="bastion-ai-welcome">
                 <RobotOutlined className="bastion-ai-welcome-icon" />
-                <div className="bastion-ai-welcome-title">告诉我要做什么，我来操作并给你证据</div>
+                <div className="bastion-ai-welcome-title">
+                  告诉我要做什么，我来操作并给你证据
+                </div>
                 <div className="bastion-ai-welcome-hints">
                   {[
                     '列出当前所有在线会话',
@@ -829,7 +928,12 @@ const AiPage = () => {
                     // borderless：AI 的正文直接落在页面上，不再被套进一层描边的「气泡卡片」里
                     // —— 工具调用块、AI 卡片都在它里面，外面再包一层就等于「卡片套卡片」
                     variant: 'borderless',
-                    avatar: <Avatar icon={<RobotOutlined />} style={{ background: '#1677ff' }} />,
+                    avatar: (
+                      <Avatar
+                        icon={<RobotOutlined />}
+                        style={{ background: '#1677ff' }}
+                      />
+                    ),
                   },
                 }}
               />
@@ -874,7 +978,8 @@ const AiPage = () => {
           className="bastion-ai-tool-search"
         />
         <Paragraph type="secondary" className="bastion-ai-tool-tip">
-          工具目录按当前登录账号的权限过滤：AI 只能用你本人能用的能力，调用时复用你的 JWT，
+          工具目录按当前登录账号的权限过滤：AI
+          只能用你本人能用的能力，调用时复用你的 JWT，
           后端仍会再校验一次权限并写审计。
         </Paragraph>
         <Collapse
@@ -894,7 +999,9 @@ const AiPage = () => {
                         {tool.method} {tool.path}
                       </Text>
                     </div>
-                    <div className="bastion-ai-tool-item-desc">{tool.description}</div>
+                    <div className="bastion-ai-tool-item-desc">
+                      {tool.description}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -933,21 +1040,40 @@ const AiPage = () => {
             </div>
           }
         />
-        <Form form={confirmForm} layout="vertical" className="bastion-ai-confirm-form">
-          <Form.Item name="adminUsername" label="管理员账号（留空则用当前账号）">
-            <Input allowClear placeholder="留空则用当前登录账号" autoComplete="off" />
+        <Form
+          form={confirmForm}
+          layout="vertical"
+          className="bastion-ai-confirm-form"
+        >
+          <Form.Item
+            name="adminUsername"
+            label="管理员账号（留空则用当前账号）"
+          >
+            <Input
+              allowClear
+              placeholder="留空则用当前登录账号"
+              autoComplete="off"
+            />
           </Form.Item>
           <Form.Item
             name="adminPassword"
             label="管理员密码"
             rules={[{ required: true, message: '请输入管理员密码' }]}
           >
-            <Input.Password placeholder="请输入密码以确认执行" autoComplete="new-password" />
+            <Input.Password
+              placeholder="请输入密码以确认执行"
+              autoComplete="new-password"
+            />
           </Form.Item>
         </Form>
         {/* 功能性错误提示（后端拒绝原因，如「管理员账号或密码错误」），不是说明性提示条 */}
         {confirmError ? (
-          <Alert className="bastion-ai-confirm-error" type="error" showIcon message={confirmError} />
+          <Alert
+            className="bastion-ai-confirm-error"
+            type="error"
+            showIcon
+            message={confirmError}
+          />
         ) : null}
         <Space>
           <Popconfirm
@@ -961,7 +1087,11 @@ const AiPage = () => {
               拒绝执行
             </Button>
           </Popconfirm>
-          <Button type="primary" loading={confirming} onClick={() => void submitConfirm()}>
+          <Button
+            type="primary"
+            loading={confirming}
+            onClick={() => void submitConfirm()}
+          >
             确认执行
           </Button>
         </Space>

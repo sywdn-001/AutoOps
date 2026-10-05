@@ -19,11 +19,15 @@ export const AiCardView = ({ card }: { card: AiCard }) => {
       key: col.key,
       ellipsis: true,
       render: (value: unknown) =>
-        value === null || value === undefined || value === '' ? '-' : String(value),
+        value === null || value === undefined || value === ''
+          ? '-'
+          : String(value),
     }));
     return (
       <div className="bastion-ai-card">
-        {card.title ? <div className="bastion-ai-card-title">{card.title}</div> : null}
+        {card.title ? (
+          <div className="bastion-ai-card-title">{card.title}</div>
+        ) : null}
         <Table
           size="small"
           rowKey={(_, index) => String(index)}
@@ -38,7 +42,9 @@ export const AiCardView = ({ card }: { card: AiCard }) => {
   if (card.type === 'keyvalue') {
     return (
       <div className="bastion-ai-card">
-        {card.title ? <div className="bastion-ai-card-title">{card.title}</div> : null}
+        {card.title ? (
+          <div className="bastion-ai-card-title">{card.title}</div>
+        ) : null}
         <Descriptions size="small" column={1} bordered>
           {(card.items ?? []).map((item) => (
             <Descriptions.Item key={item.label} label={item.label}>
@@ -79,7 +85,9 @@ export const AiCardView = ({ card }: { card: AiCard }) => {
   if (card.type === 'steps') {
     return (
       <div className="bastion-ai-card">
-        {card.title ? <div className="bastion-ai-card-title">{card.title}</div> : null}
+        {card.title ? (
+          <div className="bastion-ai-card-title">{card.title}</div>
+        ) : null}
         <Steps
           direction="vertical"
           size="small"

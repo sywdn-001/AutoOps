@@ -101,6 +101,7 @@ class Shot:
     anonymous: bool = False
     keys: list[str] = field(default_factory=list)
     note: str = ""
+    timeout: float = 25.0  # 就绪判据的等待上限；RDP 协商慢的页面要放宽
 
 
 XTERM_READY = "!!document.querySelector('.xterm-rows')"
@@ -278,6 +279,77 @@ def login(base: str, user: str, password: str) -> str:
     return token
 
 
+def run_shots(
+    picked: list[Shot],
+    out_dir: Path,
+    *,
+    base: str,
+    cdp: str,
+    token: str,
+    width: int,
+    height: int,
+) -> list[str]:
+    """按清单逐项出图，返回「未就绪、保留了旧图」的名字。
+
+    单独抽出来是给 `tutorial_shots.py` 复用：同一套 CDP 机制，不同清单。
+    """
+    tab = open_tab(cdp)
+    tab.send(
+        "Emulation.setDeviceMetricsOverride",
+        width=width,
+        height=height,
+        deviceScaleFactor=1,
+        mobile=False,
+    )
+    # 先落到同源页面，才能写 localStorage
+    tab.navigate(f"{base}/user/login")
+    tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
+
+    failures: list[str] = []
+    try:
+        for shot in picked:
+            if shot.anonymous:
+                tab.evaluate("localStorage.removeItem('bastion_token')")
+            else:
+                tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
+            tab.navigate(f"{base}{shot.route}")
+            ready = tab.wait_for(shot.wait, timeout=shot.timeout)
+            if shot.action:
+                result = tab.evaluate(shot.action)
+                if result != "CLICKED" and result != "FOCUSED":
+                    print(f"  [warn] {shot.name}: 交互未生效（{result}）")
+            for item in shot.keys:
+                if item.startswith("Sleep:"):
+                    time.sleep(float(item.split(":", 1)[1]))
+                elif item.startswith("ClickSelector:"):
+                    result = tab.click_selector(item.split(":", 1)[1])
+                    if result != "CLICKED":
+                        print(f"  [warn] {shot.name}: 元素没找到（{item}）")
+                elif item.startswith("("):
+                    tab.evaluate(item)
+                elif item == "Enter":
+                    tab.key("Enter", "Enter", 13, text="\r")
+                elif item == "ArrowDown":
+                    tab.key("ArrowDown", "ArrowDown", 40)
+                else:
+                    tab.evaluate("document.querySelector('.xterm-helper-textarea')?.focus()")
+                    tab.type_text(item)
+            time.sleep(shot.settle)
+
+            target = out_dir / shot.name
+            tmp = out_dir / f".{shot.name}.new"
+            tab.shot(tmp)
+            if ready:
+                os.replace(tmp, target)
+            else:
+                failures.append(shot.name)
+                tmp.unlink(missing_ok=True)
+            print(f"  [{'OK' if ready else 'WAIT_TIMEOUT'}] {shot.name}  ({shot.note})")
+    finally:
+        tab.ws.close()
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="用真实 Chrome 截取后台 UI 现状图")
     parser.add_argument("--base", default=os.environ.get("BASTION_BASE", DEFAULT_BASE))
@@ -312,60 +384,16 @@ def main() -> int:
 
     out_dir = Path(args.out)
     token = login(args.base, args.admin_user, args.admin_password)
-    tab = open_tab(args.cdp)
-    tab.send(
-        "Emulation.setDeviceMetricsOverride",
+    failures = run_shots(
+        picked,
+        out_dir,
+        base=args.base,
+        cdp=args.cdp,
+        token=token,
         width=args.width,
         height=args.height,
-        deviceScaleFactor=1,
-        mobile=False,
     )
-    # 先落到同源页面，才能写 localStorage
-    tab.navigate(f"{args.base}/user/login")
-    tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
 
-    failures: list[str] = []
-    for shot in picked:
-        if shot.anonymous:
-            tab.evaluate("localStorage.removeItem('bastion_token')")
-        else:
-            tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
-        tab.navigate(f"{args.base}{shot.route}")
-        ready = tab.wait_for(shot.wait, timeout=25.0)
-        if shot.action:
-            result = tab.evaluate(shot.action)
-            if result != "CLICKED" and result != "FOCUSED":
-                print(f"  [warn] {shot.name}: 交互未生效（{result}）")
-        for item in shot.keys:
-            if item.startswith("Sleep:"):
-                time.sleep(float(item.split(":", 1)[1]))
-            elif item.startswith("ClickSelector:"):
-                result = tab.click_selector(item.split(":", 1)[1])
-                if result != "CLICKED":
-                    print(f"  [warn] {shot.name}: 元素没找到（{item}）")
-            elif item.startswith("("):
-                tab.evaluate(item)
-            elif item == "Enter":
-                tab.key("Enter", "Enter", 13, text="\r")
-            elif item == "ArrowDown":
-                tab.key("ArrowDown", "ArrowDown", 40)
-            else:
-                tab.evaluate("document.querySelector('.xterm-helper-textarea')?.focus()")
-                tab.type_text(item)
-        time.sleep(shot.settle)
-
-        target = out_dir / shot.name
-        tmp = out_dir / f".{shot.name}.new"
-        tab.shot(tmp)
-        status = "OK" if ready else "WAIT_TIMEOUT"
-        if ready:
-            os.replace(tmp, target)
-        else:
-            failures.append(shot.name)
-            tmp.unlink(missing_ok=True)
-        print(f"  [{status}] {shot.name}  ({shot.note})")
-
-    tab.ws.close()
     print(f"\n截图目录：{out_dir}")
     if failures:
         print(f"未就绪、保留旧图的：{', '.join(failures)}")

@@ -14,11 +14,23 @@
  * **审计口径不因为好看而让步**：任何一层都能点「原始 JSON」看到未经改写的原文，
  * 可视化只是换个看法，不隐藏证据。
  */
-import { Descriptions, Popover, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import {
+  Descriptions,
+  Popover,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import React from 'react';
 import { parseMaybeJson } from './jsonText';
 
-export { parseMaybeJson, repairTruncatedJson, splitToolMessage } from './jsonText';
+export {
+  parseMaybeJson,
+  repairTruncatedJson,
+  splitToolMessage,
+} from './jsonText';
 
 const { Text, Paragraph } = Typography;
 
@@ -63,15 +75,27 @@ export const RawJson: React.FC<{ value: unknown; maxHeight?: number }> = ({
 /** 渲染用稳定 key：优先业务标识，退化成位置 + 内容摘要（避免用数组下标当 key） */
 const rowKey = (row: unknown, position: string): string => {
   if (isRecord(row)) {
-    for (const field of ['id', 'key', 'code', 'name', 'username', 'title', 'label']) {
+    for (const field of [
+      'id',
+      'key',
+      'code',
+      'name',
+      'username',
+      'title',
+      'label',
+    ]) {
       const value = row[field];
-      if (value !== undefined && value !== null && isScalar(value)) return `${field}:${String(value)}`;
+      if (value !== undefined && value !== null && isScalar(value))
+        return `${field}:${String(value)}`;
     }
   }
   return `#${position}:${scalarText(row).slice(0, 24)}`;
 };
 
-const LongText: React.FC<{ value: string; lines?: number }> = ({ value, lines }) => {
+const LongText: React.FC<{ value: string; lines?: number }> = ({
+  value,
+  lines,
+}) => {
   if (value.length <= CELL_TEXT_LIMIT || lines === undefined) {
     return (
       <Tooltip title={value.length > CELL_TEXT_LIMIT ? value : undefined}>
@@ -80,7 +104,10 @@ const LongText: React.FC<{ value: string; lines?: number }> = ({ value, lines })
     );
   }
   return (
-    <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }} ellipsis={{ rows: lines, expandable: true }}>
+    <Paragraph
+      style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}
+      ellipsis={{ rows: lines, expandable: true }}
+    >
       {value}
     </Paragraph>
   );
@@ -88,11 +115,19 @@ const LongText: React.FC<{ value: string; lines?: number }> = ({ value, lines })
 
 /** 表格单元格 / 键值项里的单个值 */
 export const JsonCell: React.FC<{ value: unknown }> = ({ value }) => {
-  if (value === null || value === undefined || value === '') return <Text type="secondary">-</Text>;
-  if (typeof value === 'boolean') return <Tag color={value ? 'success' : 'default'}>{value ? '是' : '否'}</Tag>;
+  if (value === null || value === undefined || value === '')
+    return <Text type="secondary">-</Text>;
+  if (typeof value === 'boolean')
+    return (
+      <Tag color={value ? 'success' : 'default'}>{value ? '是' : '否'}</Tag>
+    );
   if (isScalar(value)) return <LongText value={String(value)} />;
-  const size = Array.isArray(value) ? value.length : Object.keys(value as object).length;
-  const label = Array.isArray(value) ? `数组 · ${size} 项` : `对象 · ${size} 个字段`;
+  const size = Array.isArray(value)
+    ? value.length
+    : Object.keys(value as object).length;
+  const label = Array.isArray(value)
+    ? `数组 · ${size} 项`
+    : `对象 · ${size} 个字段`;
   return (
     <Popover
       trigger="click"
@@ -129,12 +164,17 @@ const columnsFromRows = (rows: unknown[]): { key: string; title: string }[] => {
   let widestArray = 0;
   for (const row of rows) {
     if (isRecord(row)) {
-      for (const key of Object.keys(row)) if (!keys.includes(key)) keys.push(key);
+      for (const key of Object.keys(row))
+        if (!keys.includes(key)) keys.push(key);
     } else if (Array.isArray(row)) {
       widestArray = Math.max(widestArray, row.length);
     }
   }
-  if (keys.length === 0) return Array.from({ length: widestArray }, (_, i) => ({ key: String(i), title: `[${i}]` }));
+  if (keys.length === 0)
+    return Array.from({ length: widestArray }, (_, i) => ({
+      key: String(i),
+      title: `[${i}]`,
+    }));
   return keys.map((key) => ({ key, title: key }));
 };
 
@@ -159,7 +199,11 @@ export const JsonCards: React.FC<{
 
   if (!json) {
     if (typeof data === 'string') {
-      return depth > 0 ? <LongText value={data} lines={4} /> : <LongText value={data} lines={12} />;
+      return depth > 0 ? (
+        <LongText value={data} lines={4} />
+      ) : (
+        <LongText value={data} lines={12} />
+      );
     }
     return <Text>{scalarText(data)}</Text>;
   }
@@ -178,7 +222,9 @@ export const JsonCards: React.FC<{
   const header = (
     <Space size={8} wrap>
       {title ? <Text strong>{title}</Text> : null}
-      {truncated ? <Tag color="warning">后端已截断，这里按完整条目渲染</Tag> : null}
+      {truncated ? (
+        <Tag color="warning">后端已截断，这里按完整条目渲染</Tag>
+      ) : null}
       {compact ? null : <RawToggle value={data} />}
     </Space>
   );
@@ -190,7 +236,9 @@ export const JsonCards: React.FC<{
         return (
           <Space size={4} wrap>
             {Object.entries(data).map(([position, item]) => (
-              <Tag key={`${position}:${scalarText(item)}`}>{scalarText(item)}</Tag>
+              <Tag key={`${position}:${scalarText(item)}`}>
+                {scalarText(item)}
+              </Tag>
             ))}
           </Space>
         );
@@ -207,8 +255,14 @@ export const JsonCards: React.FC<{
             ellipsis: true,
             render: (cell: unknown) => <JsonCell value={cell} />,
           }))}
-          dataSource={data.map((row, index) => (isRecord(row) ? { __key: String(index), ...row } : { __key: String(index), value: row }))}
-          pagination={data.length > 10 ? { pageSize: 10, size: 'small' } : false}
+          dataSource={data.map((row, index) =>
+            isRecord(row)
+              ? { __key: String(index), ...row }
+              : { __key: String(index), value: row },
+          )}
+          pagination={
+            data.length > 10 ? { pageSize: 10, size: 'small' } : false
+          }
           scroll={{ x: 'max-content' }}
         />
       );
@@ -234,7 +288,13 @@ export const JsonCards: React.FC<{
           />
         ) : null}
         {nested.map(([label, item]) => (
-          <div key={label} style={{ borderLeft: '2px solid rgba(0,0,0,0.06)', paddingLeft: 12 }}>
+          <div
+            key={label}
+            style={{
+              borderLeft: '2px solid rgba(0,0,0,0.06)',
+              paddingLeft: 12,
+            }}
+          >
             <JsonCards value={item} title={label} depth={depth + 1} />
           </div>
         ))}

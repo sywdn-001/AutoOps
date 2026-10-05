@@ -5,7 +5,11 @@
  * 运行状态、监听地址、在线会话数、接入命令、认证方式、主机密钥指纹与登录横幅。
  * 本页只读展示，端口/横幅等可写参数统一在「参数设置」里修改。
  */
-import { CloudServerOutlined, LaptopOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  CloudServerOutlined,
+  LaptopOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,

@@ -5,7 +5,7 @@
  * 再断言 `getInitialState()` 在「已在登录页」与「不在登录页」两种情况下分别如何取当前用户、
  * 取不到时如何回退，以及 `layout` 配置里这几项（品牌、菜单、`footerRender: false`）不被改回去。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock all heavy dependencies before importing app
 const mockReplace = vi.fn();
@@ -55,6 +55,13 @@ vi.mock('../config/defaultSettings', () => ({
 }));
 
 describe('app getInitialState', () => {
+  // 第一次 `import('./app')` 要把整个 Umi + antd 运行时拉进来，本机实测几十秒；
+  // 不预热的话这笔开销会算在「第一个用例」的 testTimeout 上（20~90s 随机），
+  // 于是出现「同一条用例单跑超时、跑第二遍就过」的假失败。
+  beforeAll(async () => {
+    await import('./app');
+  }, 180000);
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockHistory.location = {

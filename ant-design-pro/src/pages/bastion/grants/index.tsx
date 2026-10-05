@@ -38,8 +38,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoolTag, CopyText, TimeCell, WindowText } from '@/components/Bastion';
 import { WEEKDAY_OPTIONS } from '@/services/bastion/constants';
 import {
-  type GrantPayload,
   filePolicyApi,
+  type GrantPayload,
   grantApi,
   hostApi,
   policyApi,
@@ -293,7 +293,9 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const [userOptions, setUserOptions] = useState<OptionItem[]>([]);
   const [hostOptions, setHostOptions] = useState<OptionItem[]>([]);
   const [policyOptions, setPolicyOptions] = useState<OptionItem[]>([]);
-  const [filePolicyOptions, setFilePolicyOptions] = useState<{ label: string; value: number }[]>([]);
+  const [filePolicyOptions, setFilePolicyOptions] = useState<
+    { label: string; value: number }[]
+  >([]);
   const [accountOptions, setAccountOptions] = useState<HostAccountItem[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);

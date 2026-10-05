@@ -7,7 +7,11 @@
  * 规则语义：按「优先级」从小到大逐条匹配，第一条命中的规则生效；都没命中走策略的默认动作。
  * 改名/移动/复制会同时拿源路径与目标路径过策略，任一被拦即拒绝。
  */
-import { type ActionType, PageContainer, ProTable } from '@ant-design/pro-components';
+import {
+  type ActionType,
+  PageContainer,
+  ProTable,
+} from '@ant-design/pro-components';
 import { useAccess } from '@umijs/max';
 import {
   Alert,
@@ -97,10 +101,16 @@ const FilePoliciesPage: React.FC = () => {
   const [rulesFor, setRulesFor] = useState<FilePolicyItem | null>(null);
   const [rules, setRules] = useState<FileRuleItem[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
-  const [policyModal, setPolicyModal] = useState<{ open: boolean; target?: FilePolicyItem }>({
+  const [policyModal, setPolicyModal] = useState<{
+    open: boolean;
+    target?: FilePolicyItem;
+  }>({
     open: false,
   });
-  const [ruleModal, setRuleModal] = useState<{ open: boolean; target?: FileRuleItem }>({
+  const [ruleModal, setRuleModal] = useState<{
+    open: boolean;
+    target?: FileRuleItem;
+  }>({
     open: false,
   });
   const [saving, setSaving] = useState(false);
@@ -152,7 +162,8 @@ const FilePoliciesPage: React.FC = () => {
   );
 
   const operationLabel = useCallback(
-    (value: string) => operations.find((item) => item.value === value)?.label || value,
+    (value: string) =>
+      operations.find((item) => item.value === value)?.label || value,
     [operations],
   );
 
@@ -234,10 +245,16 @@ const FilePoliciesPage: React.FC = () => {
     setSaving(true);
     try {
       if (ruleModal.target) {
-        await fileRuleApi.update(ruleModal.target.id, values as FileRulePayload);
+        await fileRuleApi.update(
+          ruleModal.target.id,
+          values as FileRulePayload,
+        );
         message.success('规则已更新');
       } else {
-        await fileRuleApi.create({ ...values, policyId: rulesFor.id } as FileRulePayload);
+        await fileRuleApi.create({
+          ...values,
+          policyId: rulesFor.id,
+        } as FileRulePayload);
         message.success('规则已添加');
       }
       setRuleModal({ open: false });
@@ -285,14 +302,19 @@ const FilePoliciesPage: React.FC = () => {
         dataIndex: 'operation',
         width: 140,
         render: (_, row) =>
-          row.operation === '*' ? <Tag>全部操作</Tag> : <span>{operationLabel(row.operation)}</span>,
+          row.operation === '*' ? (
+            <Tag>全部操作</Tag>
+          ) : (
+            <span>{operationLabel(row.operation)}</span>
+          ),
       },
       {
         title: '匹配方式',
         dataIndex: 'matchType',
         width: 120,
         render: (_, row) =>
-          FILE_MATCH_OPTIONS.find((item) => item.value === row.matchType)?.label || row.matchType,
+          FILE_MATCH_OPTIONS.find((item) => item.value === row.matchType)
+            ?.label || row.matchType,
       },
       {
         title: '路径 / 模式',
@@ -310,7 +332,8 @@ const FilePoliciesPage: React.FC = () => {
         title: '启用',
         dataIndex: 'enabled',
         width: 80,
-        render: (_, row) => (row.enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+        render: (_, row) =>
+          row.enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
       },
       {
         title: '操作',
@@ -365,7 +388,12 @@ const FilePoliciesPage: React.FC = () => {
         >
           <Button disabled={!canManage}>重置内置策略</Button>
         </Popconfirm>,
-        <Button key="create" type="primary" disabled={!canManage} onClick={() => openPolicyModal()}>
+        <Button
+          key="create"
+          type="primary"
+          disabled={!canManage}
+          onClick={() => openPolicyModal()}
+        >
           新建策略
         </Button>,
       ]}
@@ -419,7 +447,12 @@ const FilePoliciesPage: React.FC = () => {
             valueType: 'option',
             width: 230,
             render: (_, row) => [
-              <Button key="rules" type="link" size="small" onClick={() => openRules(row)}>
+              <Button
+                key="rules"
+                type="link"
+                size="small"
+                onClick={() => openRules(row)}
+              >
                 规则配置
               </Button>,
               <Button
@@ -451,7 +484,11 @@ const FilePoliciesPage: React.FC = () => {
               pageSize: params.pageSize,
               keyword: params.name,
             });
-            return { data: res.data ?? [], total: res.total ?? 0, success: true };
+            return {
+              data: res.data ?? [],
+              total: res.total ?? 0,
+              success: true,
+            };
           } catch (err) {
             message.error((err as Error)?.message || '加载文件策略失败');
             return { data: [], total: 0, success: false };
@@ -459,7 +496,11 @@ const FilePoliciesPage: React.FC = () => {
         }}
       />
 
-      <Evaluator operations={operations} policies={policyOptions} onNeedOptions={loadOptions} />
+      <Evaluator
+        operations={operations}
+        policies={policyOptions}
+        onNeedOptions={loadOptions}
+      />
 
       <Drawer
         open={Boolean(rulesFor)}
@@ -468,7 +509,11 @@ const FilePoliciesPage: React.FC = () => {
         onClose={() => setRulesFor(null)}
         destroyOnHidden
         extra={
-          <Button type="primary" disabled={!canManage} onClick={() => openRuleModal()}>
+          <Button
+            type="primary"
+            disabled={!canManage}
+            onClick={() => openRuleModal()}
+          >
             新增规则
           </Button>
         }
@@ -527,10 +572,18 @@ const FilePoliciesPage: React.FC = () => {
       >
         <Form form={ruleForm} layout="vertical" preserve={false}>
           <Space size={12} align="start" wrap>
-            <Form.Item name="priority" label="优先级" rules={[{ required: true }]}>
+            <Form.Item
+              name="priority"
+              label="优先级"
+              rules={[{ required: true }]}
+            >
               <InputNumber min={1} max={9999} style={{ width: 110 }} />
             </Form.Item>
-            <Form.Item name="operation" label="适用操作" rules={[{ required: true }]}>
+            <Form.Item
+              name="operation"
+              label="适用操作"
+              rules={[{ required: true }]}
+            >
               <Select
                 style={{ width: 200 }}
                 options={[{ value: '*', label: '全部操作' }, ...operations]}
@@ -539,12 +592,20 @@ const FilePoliciesPage: React.FC = () => {
             <Form.Item name="action" label="动作" rules={[{ required: true }]}>
               <Select style={{ width: 110 }} options={FILE_ACTION_OPTIONS} />
             </Form.Item>
-            <Form.Item name="riskLevel" label="风险等级" rules={[{ required: true }]}>
+            <Form.Item
+              name="riskLevel"
+              label="风险等级"
+              rules={[{ required: true }]}
+            >
               <Select style={{ width: 120 }} options={RISK_OPTIONS} />
             </Form.Item>
           </Space>
           <Space size={12} align="start" wrap>
-            <Form.Item name="matchType" label="匹配方式" rules={[{ required: true }]}>
+            <Form.Item
+              name="matchType"
+              label="匹配方式"
+              rules={[{ required: true }]}
+            >
               <Select style={{ width: 200 }} options={FILE_MATCH_OPTIONS} />
             </Form.Item>
             <Form.Item
@@ -561,7 +622,10 @@ const FilePoliciesPage: React.FC = () => {
             </Text>
           </Paragraph>
           <Form.Item name="description" label="说明">
-            <Input maxLength={120} placeholder="例如：禁止修改系统目录下的文件" />
+            <Input
+              maxLength={120}
+              placeholder="例如：禁止修改系统目录下的文件"
+            />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
@@ -595,7 +659,8 @@ const Evaluator: React.FC<{
     }
   }, [onNeedOptions, operations.length, policies.length]);
 
-  const needsTarget = operation === 'rename' || operation === 'move' || operation === 'copy';
+  const needsTarget =
+    operation === 'rename' || operation === 'move' || operation === 'copy';
 
   const submit = useCallback(async () => {
     const values = await form.validateFields();
@@ -620,13 +685,25 @@ const Evaluator: React.FC<{
     <Card title="操作试算" style={{ marginTop: 16 }}>
       <Form form={form} layout="inline" initialValues={{ operation: 'delete' }}>
         <Form.Item name="operation" label="操作" rules={[{ required: true }]}>
-          <Select style={{ width: 200 }} options={operations} placeholder="选择文件操作" />
+          <Select
+            style={{ width: 200 }}
+            options={operations}
+            placeholder="选择文件操作"
+          />
         </Form.Item>
-        <Form.Item name="path" label="路径" rules={[{ required: true, message: '请输入路径' }]}>
+        <Form.Item
+          name="path"
+          label="路径"
+          rules={[{ required: true, message: '请输入路径' }]}
+        >
           <Input style={{ width: 240 }} placeholder="/etc/passwd" />
         </Form.Item>
         {needsTarget ? (
-          <Form.Item name="targetPath" label="目标路径" rules={[{ required: true }]}>
+          <Form.Item
+            name="targetPath"
+            label="目标路径"
+            rules={[{ required: true }]}
+          >
             <Input style={{ width: 240 }} placeholder="/tmp/backup" />
           </Form.Item>
         ) : null}
@@ -635,7 +712,10 @@ const Evaluator: React.FC<{
             allowClear
             style={{ width: 200 }}
             placeholder="默认文件策略"
-            options={policies.map((item) => ({ value: item.value, label: item.label }))}
+            options={policies.map((item) => ({
+              value: item.value,
+              label: item.label,
+            }))}
           />
         </Form.Item>
         <Form.Item>
@@ -660,7 +740,9 @@ const Evaluator: React.FC<{
           }
           description={
             <Descriptions size="small" column={1}>
-              <Descriptions.Item label="判定说明">{decision.reason}</Descriptions.Item>
+              <Descriptions.Item label="判定说明">
+                {decision.reason}
+              </Descriptions.Item>
               <Descriptions.Item label="命中规则">
                 {decision.ruleId ? (
                   <Space size={8} wrap>

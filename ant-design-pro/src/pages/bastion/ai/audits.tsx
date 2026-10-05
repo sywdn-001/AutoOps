@@ -33,13 +33,22 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useRef, useState } from 'react';
-import { JsonCards, MonoCell, splitToolMessage, TimeCell } from '@/components/Bastion';
+import {
+  JsonCards,
+  MonoCell,
+  splitToolMessage,
+  TimeCell,
+} from '@/components/Bastion';
 import type {
   AiConversationRecord,
   AiMessageRecord,
   AiToolCallRecord,
 } from '@/services/bastion/ai';
-import { getAiConversation, listAiConversations, listAiToolCalls } from '@/services/bastion/ai';
+import {
+  getAiConversation,
+  listAiConversations,
+  listAiToolCalls,
+} from '@/services/bastion/ai';
 import { humanAuditMessage } from '@/services/bastion/constants';
 import { AiCards } from './cards';
 
@@ -62,7 +71,11 @@ const CALL_STATUS: Record<string, { color: string; text: string }> = {
 };
 
 const sourceText = (source?: string) =>
-  source === 'shell' ? 'SSH 网关 /ask-ai' : source === 'web' ? '网页对话' : source || '-';
+  source === 'shell'
+    ? 'SSH 网关 /ask-ai'
+    : source === 'web'
+      ? '网页对话'
+      : source || '-';
 
 /**
  * 工具返回内容 / 工具入参：交给 `JsonCards` 摊成卡片，纯文本才按原文显示。
@@ -73,7 +86,13 @@ const sourceText = (source?: string) =>
  *
  * @param inline 放在表格单元格/气泡里（限宽限高、不留原始 JSON 入口，详情抽屉里再看原文）
  */
-const PayloadBlock = ({ value, inline = false }: { value?: unknown; inline?: boolean }) => {
+const PayloadBlock = ({
+  value,
+  inline = false,
+}: {
+  value?: unknown;
+  inline?: boolean;
+}) => {
   if (value === null || value === undefined || value === '') {
     return <Text type="secondary">-</Text>;
   }
@@ -93,7 +112,9 @@ const ToolMessage = ({ content }: { content?: string | null }) => {
   const { head, payloadText, json } = splitToolMessage(content ?? '');
   if (!payloadText) {
     return (
-      <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{head || '（空）'}</Paragraph>
+      <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+        {head || '（空）'}
+      </Paragraph>
     );
   }
   return (
@@ -180,7 +201,9 @@ const AiAuditsPage = () => {
       dataIndex: 'toolCount',
       width: 90,
       render: (_, row) => (
-        <Tag color={(row.toolCount ?? 0) > 0 ? 'geekblue' : 'default'}>{row.toolCount ?? 0}</Tag>
+        <Tag color={(row.toolCount ?? 0) > 0 ? 'geekblue' : 'default'}>
+          {row.toolCount ?? 0}
+        </Tag>
       ),
     },
     {
@@ -202,7 +225,12 @@ const AiAuditsPage = () => {
   ];
 
   const toolColumns: ProColumns<AiToolCallRecord>[] = [
-    { title: '时间', dataIndex: 'createdAt', width: 180, render: (_, row) => <TimeCell value={row.createdAt} /> },
+    {
+      title: '时间',
+      dataIndex: 'createdAt',
+      width: 180,
+      render: (_, row) => <TimeCell value={row.createdAt} />,
+    },
     {
       title: '调用人',
       dataIndex: 'username',
@@ -218,7 +246,9 @@ const AiAuditsPage = () => {
           <Text strong>{row.toolName}</Text>
           <Space size={4}>
             {row.sensitive ? <Tag color="red">敏感</Tag> : null}
-            {row.requiredPermission ? <Tag>{row.requiredPermission}</Tag> : null}
+            {row.requiredPermission ? (
+              <Tag>{row.requiredPermission}</Tag>
+            ) : null}
           </Space>
         </Space>
       ),
@@ -228,7 +258,10 @@ const AiAuditsPage = () => {
       dataIndex: 'status',
       width: 100,
       render: (_, row) => {
-        const meta = CALL_STATUS[row.status] ?? { color: 'default', text: row.status };
+        const meta = CALL_STATUS[row.status] ?? {
+          color: 'default',
+          text: row.status,
+        };
         return <Tag color={meta.color}>{meta.text}</Tag>;
       },
     },
@@ -293,7 +326,10 @@ const AiAuditsPage = () => {
         style={{ marginBottom: 12 }}
       >
         {item.reasoning ? (
-          <Paragraph type="secondary" style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+          <Paragraph
+            type="secondary"
+            style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}
+          >
             {item.reasoning}
           </Paragraph>
         ) : null}
@@ -304,7 +340,9 @@ const AiAuditsPage = () => {
             {item.content || '（空）'}
           </Paragraph>
         )}
-        {item.cards && item.cards.length > 0 ? <AiCards cards={item.cards} /> : null}
+        {item.cards && item.cards.length > 0 ? (
+          <AiCards cards={item.cards} />
+        ) : null}
       </Card>
     );
   };
@@ -315,7 +353,9 @@ const AiAuditsPage = () => {
       subTitle="用户说了什么、AI 回了什么、调用了什么工具——与人工操作同一套留痕口径"
       extra={[
         <Tag key="scope" color={access.canAiViewAll ? 'red' : 'default'}>
-          {access.canAiViewAll ? '可查看全部人的对话（ai:view_all）' : '仅可查看自己的对话'}
+          {access.canAiViewAll
+            ? '可查看全部人的对话（ai:view_all）'
+            : '仅可查看自己的对话'}
         </Tag>,
         <Tooltip key="reload" title="刷新">
           <a
@@ -351,7 +391,11 @@ const AiAuditsPage = () => {
                     keyword: params.title as string | undefined,
                     username: params.username as string | undefined,
                   });
-                  return { data: body.data ?? [], success: true, total: body.total ?? 0 };
+                  return {
+                    data: body.data ?? [],
+                    success: true,
+                    total: body.total ?? 0,
+                  };
                 }}
               />
             ),
@@ -374,9 +418,15 @@ const AiAuditsPage = () => {
                     toolName: params.toolName as string | undefined,
                     status: params.status as string | undefined,
                     sensitive:
-                      params.sensitive === undefined ? undefined : Boolean(params.sensitive),
+                      params.sensitive === undefined
+                        ? undefined
+                        : Boolean(params.sensitive),
                   });
-                  return { data: body.data ?? [], success: true, total: body.total ?? 0 };
+                  return {
+                    data: body.data ?? [],
+                    success: true,
+                    total: body.total ?? 0,
+                  };
                 }}
               />
             ),
@@ -385,7 +435,9 @@ const AiAuditsPage = () => {
       />
 
       <Drawer
-        title={detail ? `对话详情 · ${detail.title || `#${detail.id}`}` : '对话详情'}
+        title={
+          detail ? `对话详情 · ${detail.title || `#${detail.id}`}` : '对话详情'
+        }
         width={880}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
@@ -398,17 +450,36 @@ const AiAuditsPage = () => {
           <Empty description="没有取到对话内容" />
         ) : (
           <>
-            <Descriptions size="small" column={2} bordered style={{ marginBottom: 16 }}>
+            <Descriptions
+              size="small"
+              column={2}
+              bordered
+              style={{ marginBottom: 16 }}
+            >
               <Descriptions.Item label="对话 ID">{detail.id}</Descriptions.Item>
-              <Descriptions.Item label="发起人">{detail.username || '-'}</Descriptions.Item>
-              <Descriptions.Item label="来源">{sourceText(detail.source)}</Descriptions.Item>
-              <Descriptions.Item label="模型">{detail.model || '-'}</Descriptions.Item>
-              <Descriptions.Item label="关联主机">
-                {detail.hostName ? `${detail.hostName}（${detail.hostAddress || '-'}）` : '-'}
+              <Descriptions.Item label="发起人">
+                {detail.username || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="会话 ID">{detail.sid || '-'}</Descriptions.Item>
-              <Descriptions.Item label="创建时间">{detail.createdAt || '-'}</Descriptions.Item>
-              <Descriptions.Item label="最近活动">{detail.updatedAt || '-'}</Descriptions.Item>
+              <Descriptions.Item label="来源">
+                {sourceText(detail.source)}
+              </Descriptions.Item>
+              <Descriptions.Item label="模型">
+                {detail.model || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="关联主机">
+                {detail.hostName
+                  ? `${detail.hostName}（${detail.hostAddress || '-'}）`
+                  : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="会话 ID">
+                {detail.sid || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间">
+                {detail.createdAt || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="最近活动">
+                {detail.updatedAt || '-'}
+              </Descriptions.Item>
             </Descriptions>
             {(detail.messages ?? []).length === 0 ? (
               <Alert type="info" showIcon message="这条对话还没有落库的消息" />
@@ -432,11 +503,19 @@ const AiAuditsPage = () => {
                       dataIndex: 'status',
                       width: 100,
                       render: (value: string) => {
-                        const meta = CALL_STATUS[value] ?? { color: 'default', text: value };
+                        const meta = CALL_STATUS[value] ?? {
+                          color: 'default',
+                          text: value,
+                        };
                         return <Tag color={meta.color}>{meta.text}</Tag>;
                       },
                     },
-                    { title: '确认人', dataIndex: 'confirmedBy', width: 100, render: (v: string) => v || '-' },
+                    {
+                      title: '确认人',
+                      dataIndex: 'confirmedBy',
+                      width: 100,
+                      render: (v: string) => v || '-',
+                    },
                     {
                       title: '入参',
                       dataIndex: 'arguments',
@@ -447,11 +526,17 @@ const AiAuditsPage = () => {
                       title: '结果',
                       dataIndex: 'resultSummary',
                       render: (v: string, row: AiToolCallRecord) => (
-                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Space
+                          direction="vertical"
+                          size={4}
+                          style={{ width: '100%' }}
+                        >
                           <Text type={row.error ? 'danger' : undefined}>
                             {humanAuditMessage(v) || row.error || '-'}
                           </Text>
-                          {row.resultPreview ? <PayloadBlock value={row.resultPreview} /> : null}
+                          {row.resultPreview ? (
+                            <PayloadBlock value={row.resultPreview} />
+                          ) : null}
                         </Space>
                       ),
                     },

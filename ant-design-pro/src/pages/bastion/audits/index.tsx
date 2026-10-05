@@ -30,16 +30,22 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   DescParagraph,
   JsonBlock,
   MonoCell,
   TimeCell,
 } from '@/components/Bastion';
+import { humanAuditMessage } from '@/services/bastion/constants';
 import type { PurgePayload } from '@/services/bastion/endpoints';
 import { auditApi } from '@/services/bastion/endpoints';
-import { humanAuditMessage } from '@/services/bastion/constants';
 import type {
   AuditChainStatus,
   AuditChainVerifyResult,
@@ -121,14 +127,12 @@ const ACTION_META: Record<string, { text: string; color: string }> = {
   failure: { text: '失败', color: 'error' },
 };
 
-const TABLE_LABEL: Record<
-  'audit_logs' | 'command_logs' | 'file_logs',
-  string
-> = {
-  audit_logs: '操作日志',
-  command_logs: '命令流水',
-  file_logs: '文件流水',
-};
+const TABLE_LABEL: Record<'audit_logs' | 'command_logs' | 'file_logs', string> =
+  {
+    audit_logs: '操作日志',
+    command_logs: '命令流水',
+    file_logs: '文件流水',
+  };
 
 const tagFromMeta = (
   raw: string | null | undefined,
@@ -205,10 +209,8 @@ const ChainBadge: React.FC<{
   const verifyErrors = useMemo(() => {
     if (!verify) return null;
     const firstTable = (
-      (Object.keys(verify.tables) as Array<keyof typeof verify.tables>).find(
-        (k) => !verify.tables[k].ok,
-      )
-    );
+      Object.keys(verify.tables) as Array<keyof typeof verify.tables>
+    ).find((k) => !verify.tables[k].ok);
     if (!firstTable) return null;
     const t = verify.tables[firstTable];
     return {
@@ -317,14 +319,15 @@ const ChainBadge: React.FC<{
           ) : (
             <Row gutter={[12, 12]}>
               {status
-                ? (Object.keys(status.counts) as Array<
-                    keyof typeof status.counts
-                  >).map((key) => {
+                ? (
+                    Object.keys(status.counts) as Array<
+                      keyof typeof status.counts
+                    >
+                  ).map((key) => {
                     const c = status.counts[key];
                     const h = status.heads[key];
                     // 健康度看**链内**空洞：升级前遗留的空哈希行（pendingPrefix）是合法的，不该把链判红
-                    const pendingInside =
-                      c.pendingInside ?? c.pending ?? 0;
+                    const pendingInside = c.pendingInside ?? c.pending ?? 0;
                     const pendingPrefix = c.pendingPrefix ?? 0;
                     const ok =
                       verify?.tables?.[key]?.ok ??
@@ -386,9 +389,8 @@ const ChainBadge: React.FC<{
                             </Text>
                             {pendingPrefix > 0 ? (
                               <Text type="secondary">
-                                升级前遗留{' '}
-                                <Text strong>{pendingPrefix}</Text> 行（无哈希 ·
-                                不影响完整性）
+                                升级前遗留 <Text strong>{pendingPrefix}</Text>{' '}
+                                行（无哈希 · 不影响完整性）
                               </Text>
                             ) : null}
                           </Space>
@@ -550,20 +552,23 @@ const AuditsPage: React.FC = () => {
     return payload;
   }, []);
 
-  const runPurge = useCallback(async (payload: PurgePayload) => {
-    setPurging(true);
-    try {
-      const result = await auditApi.purge(payload);
-      message.success(`已清除 ${result.deleted} 条审计日志`);
-      setSelectedKeys([]);
-      actionRef.current?.reload();
-      void loadChainStatus();
-    } catch (error) {
-      console.debug('purge audits failed', error);
-    } finally {
-      setPurging(false);
-    }
-  }, [loadChainStatus]);
+  const runPurge = useCallback(
+    async (payload: PurgePayload) => {
+      setPurging(true);
+      try {
+        const result = await auditApi.purge(payload);
+        message.success(`已清除 ${result.deleted} 条审计日志`);
+        setSelectedKeys([]);
+        actionRef.current?.reload();
+        void loadChainStatus();
+      } catch (error) {
+        console.debug('purge audits failed', error);
+      } finally {
+        setPurging(false);
+      }
+    },
+    [loadChainStatus],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -628,16 +633,14 @@ const AuditsPage: React.FC = () => {
             showSearch: true,
             optionFilterProp: 'label',
           },
-          render: (_, record) =>
-            tagFromMeta(record.category, CATEGORY_META),
+          render: (_, record) => tagFromMeta(record.category, CATEGORY_META),
         }
       : {
           title: '类别',
           dataIndex: 'category',
           width: 140,
           fieldProps: { placeholder: '类别' },
-          render: (_, record) =>
-            tagFromMeta(record.category, CATEGORY_META),
+          render: (_, record) => tagFromMeta(record.category, CATEGORY_META),
         },
     actionOptions.length > 0
       ? {
@@ -733,10 +736,7 @@ const AuditsPage: React.FC = () => {
   ];
 
   return (
-    <PageContainer
-      style={{ paddingTop: 8 }}
-      pageHeaderRender={false}
-    >
+    <PageContainer style={{ paddingTop: 8 }} pageHeaderRender={false}>
       <div style={{ marginBottom: 8 }}>
         <Space direction="vertical" size={0} style={{ width: '100%' }}>
           <Title level={3} style={{ margin: 0, color: '#0f172a' }}>
@@ -797,10 +797,7 @@ const AuditsPage: React.FC = () => {
             return { data: res.data, total: res.total, success: res.success };
           }}
           toolBarRender={() => [
-            <Button
-              key="refresh"
-              onClick={() => actionRef.current?.reload()}
-            >
+            <Button key="refresh" onClick={() => actionRef.current?.reload()}>
               刷新
             </Button>,
             access.canAdmin ? (
@@ -821,9 +818,7 @@ const AuditsPage: React.FC = () => {
                   loading={purging}
                 >
                   删除选中
-                  {selectedKeys.length > 0
-                    ? `（${selectedKeys.length}）`
-                    : ''}
+                  {selectedKeys.length > 0 ? `（${selectedKeys.length}）` : ''}
                 </Button>
               </Popconfirm>
             ) : null,
@@ -833,8 +828,8 @@ const AuditsPage: React.FC = () => {
                 title="清除当前筛选结果？"
                 description={
                   <>
-                    将按当前搜索条件永久删除匹配的全部审计日志（当前共{' '}
-                    {total} 条），无法恢复。未设置筛选条件时等同于清空全部。
+                    将按当前搜索条件永久删除匹配的全部审计日志（当前共 {total}{' '}
+                    条），无法恢复。未设置筛选条件时等同于清空全部。
                     <br />
                     清除动作本身会写入一条审计留痕。
                   </>
@@ -937,9 +932,7 @@ const AuditsPage: React.FC = () => {
                   label: '消息',
                   span: 2,
                   children: (
-                    <DescParagraph
-                      value={humanAuditMessage(detail.message)}
-                    />
+                    <DescParagraph value={humanAuditMessage(detail.message)} />
                   ),
                 },
                 {
@@ -1029,11 +1022,11 @@ const AuditsPage: React.FC = () => {
                   type="secondary"
                   style={{ marginBottom: 0, fontSize: 12 }}
                 >
-                  哈希由服务器 SECRET_KEY 派生出的专用 HMAC 密钥计算：本块哈希
-                  = HMAC(chain_key, 表名 + 前块哈希 + 规范化字段序列)。
+                  哈希由服务器 SECRET_KEY 派生出的专用 HMAC 密钥计算：本块哈希 =
+                  HMAC(chain_key, 表名 + 前块哈希 + 规范化字段序列)。
                   改字段、清空哈希、动连接关系，逐行校验都会点名到具体行；但链只能证明
-                  「手上这串是连续的」——整段删尾行要拿库外锚点（CLI --print-head /
-                  --expect-head）比对才抓得住。
+                  「手上这串是连续的」——整段删尾行要拿库外锚点（CLI --print-head
+                  / --expect-head）比对才抓得住。
                 </Paragraph>
               </Space>
             </Card>

@@ -22,7 +22,9 @@ const closersOf = (stack: string[]): string =>
     .join('');
 
 /** 扫一遍括号结构（字符串里的括号不算），得到未闭合容器与「是否停在字符串中间」 */
-const scanStructure = (text: string): { stack: string[]; inString: boolean } => {
+const scanStructure = (
+  text: string,
+): { stack: string[]; inString: boolean } => {
   const stack: string[] = [];
   let inString = false;
   let escaped = false;
@@ -75,7 +77,12 @@ const lastSafeEnd = (text: string): number => {
       let next = index + 1;
       while (next < text.length && /\s/u.test(text[next])) next += 1;
       const following = text[next];
-      if (next >= text.length || following === ',' || following === '}' || following === ']') {
+      if (
+        next >= text.length ||
+        following === ',' ||
+        following === '}' ||
+        following === ']'
+      ) {
         safe = index + 1;
       }
     }
@@ -95,13 +102,16 @@ export const repairTruncatedJson = (
   const cleaned = text.replace(TRUNCATED_MARK, '').trim();
   if (!cleaned) return undefined;
   const direct = parseOrUndefined(cleaned);
-  if (direct !== undefined) return { data: direct, truncated: cleaned !== text.trim() };
+  if (direct !== undefined)
+    return { data: direct, truncated: cleaned !== text.trim() };
 
   const safeEnd = lastSafeEnd(cleaned);
   if (safeEnd <= 0) return undefined;
   const head = cleaned.slice(0, safeEnd).replace(/[,\s]+$/u, '');
   if (scanStructure(head).inString) return undefined;
-  const parsed = parseOrUndefined(`${head}${closersOf(scanStructure(head).stack)}`);
+  const parsed = parseOrUndefined(
+    `${head}${closersOf(scanStructure(head).stack)}`,
+  );
   return parsed === undefined ? undefined : { data: parsed, truncated: true };
 };
 
@@ -113,14 +123,19 @@ export const parseMaybeJson = (
   value: unknown,
 ): { data: unknown; json: boolean; truncated: boolean } => {
   if (typeof value !== 'string') {
-    return { data: value, json: Boolean(value) && typeof value === 'object', truncated: false };
+    return {
+      data: value,
+      json: Boolean(value) && typeof value === 'object',
+      truncated: false,
+    };
   }
   const text = value.trim();
   if (!text.startsWith('{') && !text.startsWith('[')) {
     return { data: value, json: false, truncated: false };
   }
   const direct = parseOrUndefined(text);
-  if (direct !== undefined) return { data: direct, json: true, truncated: false };
+  if (direct !== undefined)
+    return { data: direct, json: true, truncated: false };
   const repaired = repairTruncatedJson(text);
   if (repaired) return { data: repaired.data, json: true, truncated: true };
   return { data: value, json: false, truncated: false };
@@ -167,13 +182,17 @@ export const splitToolMessage = (
   let summary = humanAuditMessage(rawSummary);
   /** 后端历史记录里出现过 `失败：失败：权限不足…` 这种重复状态词，展示层吃掉一层 */
   if (status && summary.startsWith(status)) {
-    summary = summary.slice(status.length).replace(/^[：:\s]+/u, '').trim();
+    summary = summary
+      .slice(status.length)
+      .replace(/^[：:\s]+/u, '')
+      .trim();
   }
   let head = headText;
   if (name) {
     const label = status ? ` ${status}` : '';
     if (!summary || summary === status) head = `[工具 ${name}]${label}`;
-    else if (summary.startsWith('（') || summary.startsWith('(')) head = `[工具 ${name}]${label}${summary}`;
+    else if (summary.startsWith('（') || summary.startsWith('('))
+      head = `[工具 ${name}]${label}${summary}`;
     else head = `[工具 ${name}]${label}：${summary}`;
   }
 
