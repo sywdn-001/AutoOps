@@ -1,0 +1,57 @@
+name: ❓ 使用提问 / Question
+description: 照着文档做还是卡住了？把「想做什么、卡在哪」写清楚。/ Stuck following the docs?
+title: "[模块] 我想……但是卡在…… / [area] I want to … but …"
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提问之前请先确认你看过这两份（多数「怎么用」的问题里面都有答案）：
+        [图文教程](https://github.com/sywdn-001/AutoOps/blob/main/docs/%E5%9B%BE%E6%96%87%E6%95%99%E7%A8%8B.md) ·
+        [使用手册](https://github.com/sywdn-001/AutoOps/blob/main/docs/%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)。
+        如果你怀疑是 bug，请改用 🐞 Bug 报告模板。
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 你想做什么 / What you are trying to do
+      placeholder: 我想给一个新同学只开某台机器的某个账号，而且不让他敲 rm…
+    validations:
+      required: true
+
+  - type: textarea
+    id: stuck
+    attributes:
+      label: 卡在哪一步 / Where you got stuck
+      description: 你照哪份文档做的、做到第几步、看到什么。报错原文一起贴上
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: 你已经试过什么 / What you already tried
+      description: 试过哪些页面、哪些参数、翻过哪份文档
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境 / Environment
+      value: |
+        - 版本 / Version：（`git rev-parse --short HEAD`）
+        - 部署方式 / How it runs：（源码运行 / 其他）
+        - 你的角色 / Your role：（超级管理员 / 运维 / 审计员）
+        - 被管主机 / Managed host：（发行版或 Windows 版本 + 协议端点）
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息 / Anything else
+      description: 截图、接口返回、审计记录 id 都可以放这里（别贴密钥与口令）
+    validations:
+      required: false

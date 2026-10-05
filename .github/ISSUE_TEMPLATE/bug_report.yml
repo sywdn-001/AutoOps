@@ -1,0 +1,112 @@
+name: 🐞 Bug 报告 / Bug report
+description: 有东西坏了，或者行为和文档不一致？用这个模板。/ Something is broken? Use this.
+title: "[模块] 一句话说清现象 / [area] one-line symptom"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间提 issue！填得越具体，修得越快。
+
+        先花 30 秒做三件事：**搜一遍已有 issue**（含已关闭的）、**翻一眼 [文档索引](https://github.com/sywdn-001/AutoOps/blob/main/docs/README.md)**、**确认你跑的是最新代码**。
+        每个字段怎么填、什么是「能复现」的好例子，见 **[提交 Issue 指南](https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md)**。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前自检 / Preflight
+      options:
+        - label: 我搜过已有 issue（含已关闭），这不是重复的 / I searched existing issues (closed ones too)
+          required: true
+        - label: 我读过文档，确认这不是「设计就是这样」/ I checked the docs first
+          required: true
+        - label: 我在最新代码（main）上仍然能复现 / I can still reproduce it on latest main
+          required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: 后端仓库里 `git rev-parse --short HEAD` 的输出，或你用的镜像 tag
+      placeholder: "6f5d04a"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的部分 / Area
+      options:
+        - 登录与身份权限（用户、角色、访问授权）
+        - 资产管理（主机、协议端点、账号、分组、合并）
+        - 策略（命令策略 / 文件策略）
+        - 网页终端（SSH / WinRM）
+        - 文件管理器（SFTP）
+        - 远程桌面（WebRDP 与录像）
+        - SSH 网关（ssh -p 2222）
+        - 审计中心（会话、命令、文件、AI、录像、哈希链）
+        - AI 运维助手
+        - 部署与配置（密钥、端口、反向代理、构建产物）
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境 / Environment
+      description: 照着填，不知道的写「不确定」也比空着好
+      value: |
+        - 部署方式 / How it runs：（源码 `python run.py` / 打包二进制 / 其他）
+        - 后端 / Backend：Python 版本、`curl -s http://127.0.0.1:5000/api/health` 的输出
+        - 前端 / Frontend：浏览器与版本、`node -v`，是 `npm run dev` 还是用后端挂的 `dist/`
+        - 系统 / OS：堡垒机所在系统、浏览器所在系统
+        - 被管主机 / Managed host：发行版或 Windows 版本 + 协议端点（如 `ssh:22`、`winrm:5985`、`rdp:3389`）
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 从登录开始编号，不要跳步；只见过一两次就写「偶发，约 N/10 次」
+      value: |
+        1. admin 登录后台
+        2. 打开「资产管理 / 主机列表」
+        3. …
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望发生什么 / What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际发生了什么 / What actually happened
+      description: 报错原文、接口返回的 JSON、界面截图（图片可以直接拖进这个框）都可以贴这里
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志与证据 / Logs and evidence
+      description: 跑服务那个终端的报错段（往前多贴二三十行）、浏览器 Console / Network 的报错、审计中心那条记录的 id 与 action
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: 我试过什么 / What I already tried（可选）
+      description: 排除了哪些可能、换个浏览器或换台主机会不会一样、重启后还在不在
+    validations:
+      required: false

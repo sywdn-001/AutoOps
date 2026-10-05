@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 先翻文档 / Read the docs first
+    url: https://github.com/sywdn-001/AutoOps/tree/main/docs
+    about: 图文教程、使用手册、审计与安全、验证记录 —— 多数「怎么用」的问题这里已经有答案。
+  - name: 🧭 怎么提一个好 issue / How to file a good issue
+    url: https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md
+    about: 模板每个字段怎么填、什么算「能复现」、可能被追问什么，都写在这份指南里。
+  - name: 🔐 安全漏洞 / Security issue
+    url: https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md
+    about: 安全漏洞请不要公开开 issue —— 请用 Security 面板的「Report a vulnerability」或私信维护者。

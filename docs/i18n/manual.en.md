@@ -2,8 +2,6 @@
 
 > 中文版：[使用手册](../%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)
 
-> This page was split out of the matching chapters of the root [README](../../README.md); its content matches the implementation. All screenshots live in `docs/screenshots/`.
-
 > **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
 > code are still a work in progress — if any part of this user manual reads awkwardly, please bear
 > with me (and tell me if you can).
