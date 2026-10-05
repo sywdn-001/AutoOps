@@ -13,7 +13,6 @@ dayjs.extend(relativeTime);
 import {
   AvatarDropdown,
   ErrorBoundary,
-  Footer,
   LangDropdown,
   OfflineBanner,
 } from '@/components';
@@ -104,7 +103,8 @@ export const layout: RunTimeLayoutConfig = ({
       content: initialState?.currentUser?.name,
       fontColor: 'rgba(0,0,0,0.06)',
     },
-    footerRender: () => <Footer />,
+    // 用户要求：页面底部不再显示版权与标语（原先的 <Footer /> 已整体移除）
+    footerRender: false,
     onPageChange: () => {
       const { location } = history;
       // 如果没有登录，重定向到 login

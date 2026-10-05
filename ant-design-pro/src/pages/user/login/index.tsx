@@ -12,7 +12,6 @@ import { Helmet, SelectLang, useModel } from '@umijs/max';
 import { Alert, App } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { startTransition, useState } from 'react';
-import { Footer } from '@/components';
 import { setToken } from '@/services/bastion/client';
 import { authApi } from '@/services/bastion/endpoints';
 import Settings from '../../../../config/defaultSettings';
@@ -215,7 +214,6 @@ const Login: React.FC = () => {
           </div>
         </LoginForm>
       </div>
-      <Footer />
     </div>
   );
 };
