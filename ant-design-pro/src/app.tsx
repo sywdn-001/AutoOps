@@ -1,3 +1,11 @@
+/**
+ * Umi 运行时配置（应用外壳）。
+ *
+ * 三件事：① `getInitialState()` 拉当前登录用户与权限，供 `useAccess()` 使用，
+ * 未登录时把请求引到登录页；② `layout` 配置 ProLayout（品牌名、菜单、右侧头像下拉、
+ * `footerRender: false` —— 页面底部不显示版权与标语）；③ `request` 统一处理后端信封
+ * （`{success,message,data}`）的错误提示与 401 跳登录。
+ */
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';

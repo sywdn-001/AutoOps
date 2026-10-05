@@ -1,3 +1,11 @@
+/**
+ * `recordingUpload.ts` 的单元测试：钉住录像分片上传队列的行为。
+ *
+ * 录像丢了就再也补不回来，所以这里断言的是「宁慢勿乱」：分片严格串行（乱序即坏视频）、
+ * 失败自动重试两次、重试用尽只记失败且后续分片照发、`drain()` 等待期间新入队的分片也要等完、
+ * `newUploadId()` 在非安全上下文（局域网 IP 没有 `crypto.randomUUID`）下逐级回退且始终是
+ * 8–64 位小写十六进制。
+ */
 import { describe, expect, it, vi } from 'vitest';
 
 import { ChunkQueue, newUploadId } from './recordingUpload';

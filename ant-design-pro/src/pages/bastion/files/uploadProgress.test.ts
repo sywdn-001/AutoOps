@@ -1,3 +1,9 @@
+/**
+ * `uploadProgress.ts` 的单元测试：钉住上传进度条的百分比与速率文案。
+ *
+ * 关键判据是「发送完成前最多 99%」——最后 1% 留给服务端把字节真正写进目标机，
+ * 否则浏览器显示 100% 时文件其实还没落盘，用户会以为已经传完。
+ */
 import { describe, expect, it } from 'vitest';
 import { formatRate, uploadPercent } from './uploadProgress';
 

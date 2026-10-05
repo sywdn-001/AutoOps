@@ -1,3 +1,10 @@
+/**
+ * `app.tsx` 的单元测试：钉住运行时外壳的关键行为。
+ *
+ * 先 mock 掉 umi 与所有重型依赖（历史对象、`@/components`、pro-components、图标），
+ * 再断言 `getInitialState()` 在「已在登录页」与「不在登录页」两种情况下分别如何取当前用户、
+ * 取不到时如何回退，以及 `layout` 配置里这几项（品牌、菜单、`footerRender: false`）不被改回去。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock all heavy dependencies before importing app

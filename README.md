@@ -15,6 +15,14 @@
   <b>中文</b> · <a href="docs/i18n/README.en.md">English</a>
 </p>
 
+> **关于本项目**：本仓库由 **AI 辅助开发**（人提需求、把关与验收，AI 写代码、跑门禁、做真机取证），
+> 因此每个源文件的开头都有一段 **AI 生成的文件简介**，说明这个文件负责什么、与哪些模块交互、
+> 有哪些容易踩的坑 —— 打开任何一个文件都能先看懂它，再决定要不要改。
+> 自研代码（`bastion-backend/app`、`bastion-backend/tools`、`bastion-backend/tests`、
+> `ant-design-pro/src/pages/bastion`、`ant-design-pro/src/components/Bastion`、
+> `ant-design-pro/src/services/bastion`，以及被本项目改造过的 `src/app.tsx`、`src/app.test.tsx`）
+> 已 100% 覆盖；`ant-design-pro` 上游模板残留页与语言包保持原样，未作改动。
+
 ## 功能特性
 
 - **身份与权限审计** — 用户、角色、主机、账号、授权逐条落库：谁能连哪台机器、用哪个账号、能开网页终端还是只能事后看录像，全部配得出来。

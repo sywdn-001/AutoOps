@@ -15,6 +15,16 @@
   <a href="../../README.md">中文</a> · <b>English</b>
 </p>
 
+> **About this project**: this repository is **AI-assisted** (a human sets the requirements, reviews and
+> accepts the result; AI writes the code, runs the gates and gathers real-machine evidence), so every
+> source file starts with an **AI-generated file summary** describing what the file is responsible for,
+> which modules it talks to, and which traps it already knows about — you can understand any file before
+> deciding to change it. Coverage is 100% for the code we wrote (`bastion-backend/app`,
+> `bastion-backend/tools`, `bastion-backend/tests`, `ant-design-pro/src/pages/bastion`,
+> `ant-design-pro/src/components/Bastion`, `ant-design-pro/src/services/bastion`, plus the shell files we
+> adapted: `src/app.tsx`, `src/app.test.tsx`). The leftover upstream `ant-design-pro` template pages and
+> locale bundles are untouched.
+
 ## Features
 
 - **Identity and access audit** — users, roles, hosts, host accounts and grants are all stored per row: who may reach which machine, with which account, and whether they can open a web terminal or only review recordings afterwards.

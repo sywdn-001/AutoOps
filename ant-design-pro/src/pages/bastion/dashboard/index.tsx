@@ -1,3 +1,11 @@
+/**
+ * 概览首页（登录后的落地页）。
+ *
+ * 数据全部来自堡垒机自己的接口：`dashboardApi.overview()`（资产/授权/会话/审计计数）、
+ * `dashboardApi.mine()`（我这边的待办与我的会话）、有权限时再拉 `sessionApi.online()`
+ * 看当前在线会话；计数卡与进度条按 `useAccess()` 的权限裁剪，无权时降级成空态，
+ * 卡片上的按钮直接 `history.push` 跳到对应页面（`/terminal`、`/audit/commands`、`/audit/sessions` …）。
+ */
 import {
   ApartmentOutlined,
   AuditOutlined,
@@ -32,7 +40,11 @@ import {
   SessionSourceTag,
   TimeCell,
 } from '@/components/Bastion';
-import { formatDateTime, humanAuditMessage, truncate } from '@/services/bastion/constants';
+import {
+  formatDateTime,
+  humanAuditMessage,
+  truncate,
+} from '@/services/bastion/constants';
 import { dashboardApi, sessionApi } from '@/services/bastion/endpoints';
 import type {
   CommandItem,
@@ -484,7 +496,9 @@ const Dashboard: React.FC = () => {
                       <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           {truncate(
-                            humanAuditMessage(item.message) || item.targetName || '-',
+                            humanAuditMessage(item.message) ||
+                              item.targetName ||
+                              '-',
                             60,
                           )}
                         </Text>
