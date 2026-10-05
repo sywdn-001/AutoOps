@@ -40,23 +40,53 @@
 
 ## Screenshots
 
-| Dashboard | Web terminal (one host, several protocol entries) |
-| --- | --- |
-| ![Dashboard](../screenshots/dashboard.png) | ![Web terminal](../screenshots/multiproto-launcher.png) |
+> Nothing here is mocked up: `bastion-backend/tools/ui_shots.py` drives a real Chrome (over CDP), signs in to the local service, actually connects to the demo target and to `win-75`, and shoots each page. Re-run `python -u tools/ui_shots.py` after a change to refresh every image. Click an image for the full-size file.
 
-| Host list | Windows Remote Desktop (WebRDP) |
-| --- | --- |
-| ![Host list](../screenshots/multiproto-hosts-list.png) | ![WebRDP](../screenshots/web-rdp-win75.png) |
-
-| SFTP file manager | AI operations assistant |
-| --- | --- |
-| ![File manager](../screenshots/file-manager.png) | ![AI assistant](../screenshots/ai-chat.png) |
-
-| SSH gateway menu | Tamper-evident audit (hash chain) |
-| --- | --- |
-| ![SSH gateway](../screenshots/ssh-gateway-menu.png) | ![Audit chain](../screenshots/audit-chain-detail.png) |
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <a href="../screenshots/dashboard.png"><img src="../screenshots/dashboard.png" width="100%" alt="Dashboard" /></a>
+      <br /><sub><b>Dashboard</b> — assets, live sessions, risk and recent audit at a glance</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="../screenshots/multiproto-launcher.png"><img src="../screenshots/multiproto-launcher.png" width="100%" alt="Web terminal launcher" /></a>
+      <br /><sub><b>Web terminal launcher</b> — one row per host, one button per permitted protocol</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="../screenshots/multiproto-hosts-list.png"><img src="../screenshots/multiproto-hosts-list.png" width="100%" alt="Host list" /></a>
+      <br /><sub><b>Host list</b> — one machine with several protocol endpoints; same-address records merge in one click</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="../screenshots/web-rdp-win75.png"><img src="../screenshots/web-rdp-win75.png" width="100%" alt="Windows Remote Desktop" /></a>
+      <br /><sub><b>Windows Remote Desktop</b> — a real WebRDP session to <code>win-75</code>, recording in progress</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="../screenshots/file-manager.png"><img src="../screenshots/file-manager.png" width="100%" alt="SFTP file manager" /></a>
+      <br /><sub><b>SFTP file manager</b> — browse, upload, download, chmod; same grants and policies as the terminal</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="../screenshots/ai-console.png"><img src="../screenshots/ai-console.png" width="100%" alt="AI operations assistant" /></a>
+      <br /><sub><b>AI operations assistant</b> — plain-language requests, with an admin confirmation for sensitive tools</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="../screenshots/ssh-gateway-menu.png"><img src="../screenshots/ssh-gateway-menu.png" width="100%" alt="SSH gateway menu" /></a>
+      <br /><sub><b>SSH gateway menu</b> — after <code>ssh -p 2222</code>, only the hosts you may reach</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="../screenshots/audit-chain-detail.png"><img src="../screenshots/audit-chain-detail.png" width="100%" alt="Tamper-evident audit" /></a>
+      <br /><sub><b>Tamper-evident audit</b> — a hash chain over command logs; editing one entry shows up immediately</sub>
+    </td>
+  </tr>
+</table>
 
 > All 40+ real-machine screenshots live in [`docs/screenshots/`](../screenshots/); each one maps to an entry under “Verification” below.
+
 
 ## Quick Start
 
@@ -258,7 +288,7 @@ AutoOps/
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # additive-only schema alignment at startup
 │   ├── tests/                  # 705 test cases across 33 files
-│   ├── tools/                  # demo target, three E2E suites, audit-chain verifier
+│   ├── tools/                  # demo target, three E2E suites, audit-chain verifier, screenshot generator
 │   └── instance/               # runtime data (SQLite, keys, recordings) — gitignored
 ├── ant-design-pro/             # Frontend: Ant Design Pro 6 + Umi Max 4, all business pages rewritten
 │   └── src/pages/bastion/      # Bastion pages (assets, terminals, files, RDP, audit…)

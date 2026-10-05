@@ -36,23 +36,53 @@
 
 ## 界面截图
 
-| 概览 | 网页终端（一台主机多个协议入口） |
-| --- | --- |
-| ![概览](docs/screenshots/dashboard.png) | ![网页终端](docs/screenshots/multiproto-launcher.png) |
+> 下面的图不是画出来的：`bastion-backend/tools/ui_shots.py` 驱动真实 Chrome（CDP）登录本机服务，真的连上演示目标机与 `win-75`，再逐页截图；改完代码重跑一次 `python -u tools/ui_shots.py` 就能刷新全部配图。点图可看原图。
 
-| 主机列表 | Windows 远程桌面（WebRDP） |
-| --- | --- |
-| ![主机列表](docs/screenshots/multiproto-hosts-list.png) | ![WebRDP](docs/screenshots/web-rdp-win75.png) |
-
-| SFTP 文件管理器 | AI 运维助手 |
-| --- | --- |
-| ![文件管理器](docs/screenshots/file-manager.png) | ![AI 运维助手](docs/screenshots/ai-chat.png) |
-
-| SSH 网关菜单 | 防篡改审计（哈希链） |
-| --- | --- |
-| ![SSH 网关](docs/screenshots/ssh-gateway-menu.png) | ![审计链](docs/screenshots/audit-chain-detail.png) |
+<table align="center">
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/dashboard.png"><img src="docs/screenshots/dashboard.png" width="100%" alt="概览大盘" /></a>
+      <br /><sub><b>概览大盘</b> — 资产、在线会话、风险与最近审计一屏总览</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/multiproto-launcher.png"><img src="docs/screenshots/multiproto-launcher.png" width="100%" alt="网页终端入口" /></a>
+      <br /><sub><b>网页终端入口</b> — 一台主机一行，按权限给出口协议按钮</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/multiproto-hosts-list.png"><img src="docs/screenshots/multiproto-hosts-list.png" width="100%" alt="主机列表" /></a>
+      <br /><sub><b>主机列表</b> — 一台机器多个协议端点；同地址的两条记录可一键合并</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/web-rdp-win75.png"><img src="docs/screenshots/web-rdp-win75.png" width="100%" alt="Windows 远程桌面" /></a>
+      <br /><sub><b>Windows 远程桌面</b> — 浏览器里真连 <code>win-75</code>，右上角正在录制</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/file-manager.png"><img src="docs/screenshots/file-manager.png" width="100%" alt="SFTP 文件管理器" /></a>
+      <br /><sub><b>SFTP 文件管理器</b> — 浏览 / 上传 / 下载 / 改权限，授权与策略和终端同一条链路</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/ai-console.png"><img src="docs/screenshots/ai-console.png" width="100%" alt="AI 运维助手" /></a>
+      <br /><sub><b>AI 运维助手</b> — 自然语言下指令，敏感操作要管理员当场确认</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/ssh-gateway-menu.png"><img src="docs/screenshots/ssh-gateway-menu.png" width="100%" alt="SSH 网关菜单" /></a>
+      <br /><sub><b>SSH 网关菜单</b> — <code>ssh -p 2222</code> 登录后只列有权限的主机</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/audit-chain-detail.png"><img src="docs/screenshots/audit-chain-detail.png" width="100%" alt="防篡改审计" /></a>
+      <br /><sub><b>防篡改审计</b> — 命令日志哈希链，改一条就能查出来</sub>
+    </td>
+  </tr>
+</table>
 
 > 40+ 张实测截图都在 [`docs/screenshots/`](docs/screenshots/)，下面「验证记录」里的每条实测都对应其中一张。
+
 
 ## 快速开始
 
@@ -256,7 +286,7 @@ AutoOps/
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # 启动时「只加不减」地补齐表结构
 │   ├── tests/                  # 705 个用例 / 33 个文件
-│   ├── tools/                  # 演示目标机、三套联调脚本、审计链校验
+│   ├── tools/                  # 演示目标机、三套联调脚本、审计链校验、README 配图生成器
 │   └── instance/               # 运行时数据（SQLite、密钥、录像）——已在 .gitignore
 ├── ant-design-pro/             # 前端：Ant Design Pro 6 + Umi Max 4，业务页全部重写
 │   └── src/pages/bastion/      # 堡垒机业务页（资产、终端、文件、远程桌面、审计…）
