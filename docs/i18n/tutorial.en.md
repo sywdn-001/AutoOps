@@ -5,6 +5,13 @@
 > roles → grant access → use the web terminal / file manager / remote desktop → audit afterwards**.
 > 中文版：[图文教程](../%E5%9B%BE%E6%96%87%E6%95%99%E7%A8%8B.md)
 
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if any step of this illustrated tutorial (18 steps, one real
+> screenshot each) reads awkwardly or a picture is not clear enough, please bear with me.
+>
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份教程的英文版里要是有哪一步讲得绕、或者哪张图配得不够清楚，请大家多多谅解，也欢迎直接指正。
+
 > **Where the pictures come from**: every screenshot below was taken by
 > `bastion-backend/tools/tutorial_shots.py`, which drives a **real Chrome** (CDP) session: it logs
 > into the local service, really connects to the demo Linux target `e2e-demo-01` and the Windows host
