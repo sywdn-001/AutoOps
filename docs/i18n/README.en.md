@@ -15,15 +15,18 @@
   <a href="../../README.md">中文</a> · <b>English</b>
 </p>
 
-> **About this project**: this repository is **AI-assisted** (a human sets the requirements, reviews and
-> accepts the result; AI writes the code, runs the gates and gathers real-machine evidence), so every
+> **About this project**: this repository is built **by a human and an AI working together** — the human
+> sets the requirements, makes the trade-offs and accepts the result, while the code is written, gated
+> and verified on real machines by both. You will find hand-written implementations next to
+> AI-assisted ones, refactors and debugging. So that either of us can pick up a file quickly, every
 > source file starts with an **AI-generated file summary** describing what the file is responsible for,
 > which modules it talks to, and which traps it already knows about — you can understand any file before
-> deciding to change it. Coverage is 100% for the code we wrote (`bastion-backend/app`,
-> `bastion-backend/tools`, `bastion-backend/tests`, `ant-design-pro/src/pages/bastion`,
-> `ant-design-pro/src/components/Bastion`, `ant-design-pro/src/services/bastion`, plus the shell files we
-> adapted: `src/app.tsx`, `src/app.test.tsx`). The leftover upstream `ant-design-pro` template pages and
-> locale bundles are untouched.
+> deciding to change it. Coverage is a measured 100% across the 147 files we build together
+> (`bastion-backend/app`, `bastion-backend/tools`, `bastion-backend/tests`,
+> `ant-design-pro/src/pages/bastion`, `ant-design-pro/src/components/Bastion`,
+> `ant-design-pro/src/services/bastion`, plus the shell files adapted here: `src/app.tsx`,
+> `src/app.test.tsx`). The leftover upstream `ant-design-pro` template pages and locale bundles are
+> untouched.
 
 ## Features
 

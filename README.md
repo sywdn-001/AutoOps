@@ -15,13 +15,14 @@
   <b>中文</b> · <a href="docs/i18n/README.en.md">English</a>
 </p>
 
-> **关于本项目**：本仓库由 **AI 辅助开发**（人提需求、把关与验收，AI 写代码、跑门禁、做真机取证），
-> 因此每个源文件的开头都有一段 **AI 生成的文件简介**，说明这个文件负责什么、与哪些模块交互、
-> 有哪些容易踩的坑 —— 打开任何一个文件都能先看懂它，再决定要不要改。
-> 自研代码（`bastion-backend/app`、`bastion-backend/tools`、`bastion-backend/tests`、
+> **关于本项目**：本仓库由**人机协作开发** —— 需求、取舍与验收由人把关，代码由人和 AI **一起写**，
+> 一起跑门禁、一起做真机取证；仓库里既有手写的实现，也有 AI 参与的实现、重构与排障。
+> 为了让人和 AI 都能快速接手，每个源文件的开头都有一段 **AI 生成的文件简介**，说明这个文件负责什么、
+> 与哪些模块交互、有哪些容易踩的坑 —— 打开任何一个文件都能先看懂它，再决定要不要改。
+> 覆盖范围（`bastion-backend/app`、`bastion-backend/tools`、`bastion-backend/tests`、
 > `ant-design-pro/src/pages/bastion`、`ant-design-pro/src/components/Bastion`、
 > `ant-design-pro/src/services/bastion`，以及被本项目改造过的 `src/app.tsx`、`src/app.test.tsx`）
-> 已 100% 覆盖；`ant-design-pro` 上游模板残留页与语言包保持原样，未作改动。
+> 实测 147 个文件 100% 覆盖；`ant-design-pro` 上游模板残留页与语言包保持原样，未作改动。
 
 ## 功能特性
 
