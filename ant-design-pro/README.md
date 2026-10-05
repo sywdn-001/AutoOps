@@ -14,6 +14,14 @@ WebRDP 远程桌面与录像、SFTP 文件管理器、审计中心（会话 / �
 > 本目录保留模板的 `LICENSE`（MIT），模板自带的说明文档、CI、mock、Cloudflare
 > Worker、husky/lint-staged 钩子等与本项目无关的文件已删除，详见文末「相对模板的改动」。
 
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份前端说明（怎么装、怎么跑、怎么打包、怎么和后端联调）里要是有写得不够好的地方，
+> 请大家多多谅解，也欢迎直接指正。
+>
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if anything in this frontend README (install, run, build, and how
+> it talks to the backend) reads awkwardly, please bear with me (and tell me if you can).
+
 ## 环境要求
 
 | 项目 | 版本 | 说明 |

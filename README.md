@@ -15,6 +15,13 @@
   <b>中文</b> · <a href="docs/i18n/README.en.md">English</a>
 </p>
 
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份项目说明里要是有写得不够好的地方，请大家多多谅解，也欢迎直接指正。
+>
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if anything in this project README reads awkwardly, please bear
+> with me (and tell me if you can).
+
 > **关于本项目**：本仓库由**人机协作开发** —— 需求、取舍与验收由人把关，代码由人和 AI **一起写**，
 > 一起跑门禁、一起做真机取证；仓库里既有手写的实现，也有 AI 参与的实现、重构与排障。
 > 为了让人和 AI 都能快速接手，每个源文件的开头都有一段 **AI 生成的文件简介**，说明这个文件负责什么、

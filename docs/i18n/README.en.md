@@ -15,6 +15,13 @@
   <a href="../../README.md">中文</a> · <b>English</b>
 </p>
 
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if anything in this project README reads awkwardly, please bear
+> with me (and tell me if you can).
+>
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份项目说明的英文版里要是有写得不够好的地方，请大家多多谅解，也欢迎直接指正。
+
 > **About this project**: this repository is built **by a human and an AI working together** — the human
 > sets the requirements, makes the trade-offs and accepts the result, while the code is written, gated
 > and verified on real machines by both. You will find hand-written implementations next to

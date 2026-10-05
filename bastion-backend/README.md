@@ -4,6 +4,14 @@
 
 > 目标平台 Linux；开发环境 Windows 亦可直接运行（SSH 相关能力基于 paramiko 纯协议实现，不依赖系统 ssh 命令）。
 
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份后端说明（Flask 接口、SSH 网关、网页终端、策略引擎与审计）里要是有写得不够好的地方，
+> 请大家多多谅解，也欢迎直接指正。
+>
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if anything in this backend README (Flask API, SSH gateway, web
+> terminal, policy engine, auditing) reads awkwardly, please bear with me (and tell me if you can).
+
 ---
 
 ## 一、技术栈与依赖

@@ -4,6 +4,14 @@
 
 > This page was split out of the matching chapters of the root [README](../../README.md); its content matches the implementation. All screenshots live in `docs/screenshots/`.
 
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — if any part of this user manual reads awkwardly, please bear
+> with me (and tell me if you can).
+>
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 这份使用手册的英文版里要是有哪一段读着别扭、或者和实际界面不一致的地方，请大家多多谅解，
+> 也欢迎直接指正。
+
 ---
 
 # II·V. The admission exception for the "super administrator"
