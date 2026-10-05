@@ -43,8 +43,6 @@
 
 ## 界面截图
 
-> 下面的图不是画出来的：`bastion-backend/tools/ui_shots.py` 驱动真实 Chrome（CDP）登录本机服务，真的连上演示目标机与 `win-75`，再逐页截图；改完代码重跑一次 `python -u tools/ui_shots.py` 就能刷新全部配图。点图可看原图。
-
 <table align="center">
   <tr>
     <td align="center" width="50%">
@@ -357,8 +355,7 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 ## 文档
 
 **从零上手看这篇**：[图文教程](docs/图文教程.md) —— 从起服务到纳管机器、授权、开终端、
-看审计，每一步都配一张真实操作截图（配图由 `bastion-backend/tools/tutorial_shots.py`
-驱动真实 Chrome 逐步生成，改完代码重跑即可刷新）。
+看审计，每一步都配一张操作截图。
 
 | 文档 | English | 内容 |
 | --- | --- | --- |
@@ -376,7 +373,8 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 1. Fork 后从 `main` 切分支，提交信息用 `feat(scope): 说明` / `fix(scope): 说明`。
 2. 提交前跑一遍：`cd bastion-backend && python -m pytest -q`；改前端再跑 `npx biome check && npx tsc --noEmit && npm run build`。
 3. 新增行为请同时补测试或联调脚本断言，PR 说明里附上实际输出（本仓库不接受「应该没问题」这类结论）。
-4. 安全相关问题请走私下渠道，不要直接开公开 issue。
+4. 发现问题、想提建议或提问，先看 [提交 Issue 指南](docs/提交Issue指南.md)（三个 issue 模板、环境与复现步骤该写什么都在里面）。
+5. 安全相关问题请走私下渠道，不要直接开公开 issue。
 
 ## 许可证
 

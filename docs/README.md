@@ -27,6 +27,7 @@
 | [需求对照.md](需求对照.md) | — | 四条原始需求 + 扩展需求，逐条对应到实现位置与验证证据 |
 | [验证记录.md](验证记录.md) | — | 门禁与真机联调的实测流水：每条判据、命令、实际输出与截图取证 |
 | [i18n/README.en.md](i18n/README.en.md) | — | 仓库英文介绍（英文 README，与根 README 对等） |
+| [提交Issue指南.md](提交Issue指南.md) | [issue-guide.en.md](i18n/issue-guide.en.md) | 怎么提一个能被修掉的 issue：三个模板怎么选、环境与复现步骤怎么写、会被追问什么、安全漏洞走哪里 |
 
 > 只想跑起来：根 [README](../README.md) 的「快速开始」三条命令即可；想边看边做：
 > 从 [图文教程](图文教程.md) 开始；想知道「为什么这么设计」：[需求对照](需求对照.md) +
@@ -42,24 +43,9 @@
 | `screenshots/tutorial/` | `图文教程.md` / `tutorial.en.md` 的 18 步配图（`01-login.png` … `18-ai-console.png`） |
 | `i18n/` | 英文文档：`README.en.md`（仓库介绍）、`manual.en.md`（使用手册）、`tutorial.en.md`（图文教程） |
 
-### 截图和横幅是怎么来的 / How the images are produced
-
-截图不是画出来的，是脚本驱动**真实 Chrome**（CDP 协议）登录本机服务、真的连上演示目标机
-（`e2e-demo-01`）与 Windows 主机（`win-75`）之后逐步拍下来的；改完代码重跑一次即可刷新，
-文档里不会留下过期的界面：
-
-```bash
-cd bastion-backend
-python -u tools/tutorial_shots.py --admin-password '<管理员口令>'   # 教程 18 步配图
-python -u tools/ui_shots.py       --admin-password '<管理员口令>'   # README / 验证记录用图
-```
-
-两个脚本都有失败保护：先写 `.<名字>.new`，就绪判据满足才覆盖同名旧图；没就绪就保留旧图并在
-结尾列出来。它们只负责出图，不参与判据（门禁见根 README 的「验证记录」）。
-
 ---
 
 ## 反馈 / Feedback
 
 文档里如果出现与实现不一致的描述，**以代码与实测记录为准**，并欢迎开 issue 指出
-（根 README 的「贡献指南」里有提交与门禁要求）。
+（怎么提 issue 见 [提交 Issue 指南](提交Issue指南.md)，提交代码见根 README 的「贡献指南」）。

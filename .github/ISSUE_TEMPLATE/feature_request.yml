@@ -1,0 +1,75 @@
+name: 💡 功能建议 / Feature request
+description: 希望增加或改变某个能力？先把场景说清楚。/ Want a capability added or changed?
+title: "[模块] 一句话说清你想要什么 / [area] what you want"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        功能建议最有价值的部分是**场景**：你现在怎么做、卡在哪、希望变成什么样。
+        只写「加个 XX 功能」通常会被追问半天，不如一次写好。
+        写法参考 **[提交 Issue 指南](https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md)**。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 针对哪一块 / Area
+      options:
+        - 身份与权限（用户、角色、访问授权）
+        - 资产管理（主机、协议端点、账号、分组、合并）
+        - 策略（命令策略 / 文件策略）
+        - 网页终端 / 文件管理器 / 远程桌面
+        - SSH 网关
+        - 审计与取证（含哈希链、录像）
+        - AI 运维助手
+        - 部署、配置与运维
+        - 文档
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 你的场景 / The use case
+      description: 你是谁、在管多少台机器、这件事多久发生一次
+      placeholder: 我在学校机房管 30 台 Linux + 5 台 Windows，每周要临时开一次权限给社团同学…
+    validations:
+      required: true
+
+  - type: textarea
+    id: pain
+    attributes:
+      label: 现在有多麻烦 / What is painful today
+      description: 你现在的替代做法（贴脚本、手工改库、干脆不做…）以及它的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的用法 / The shape you want
+      description: 越具体越好：界面上应该长什么样、命令行怎么敲、接口怎么调
+      value: |
+        例如：在「访问授权」页加一个「有效期」字段，到期自动失效；
+        或者：`bastion-cli grant --user alice --host web-01 --until 2026-11-01`
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案 / Alternatives you considered（可选）
+      placeholder: 方案 A 会带来什么副作用、为什么你更倾向现在这个提法
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: 你愿意自己实现吗 / Would you implement it?
+      options:
+        - label: 我愿意提 PR（可以先在 issue 里对一下方案再动手）/ I can open a PR
+          required: false
+        - label: 我只能提需求，主要靠维护者实现 / I can only describe the need
+          required: false
