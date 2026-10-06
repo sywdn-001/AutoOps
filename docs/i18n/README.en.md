@@ -377,7 +377,8 @@ The complete index of every document is [docs/README.md](../README.md).
 1. Fork, then branch off `main`; use `feat(scope): summary` / `fix(scope): summary` commit messages.
 2. Before pushing: `cd bastion-backend && python -m pytest -q`; for frontend changes also run `npx biome check && npx tsc --noEmit && npm run build`.
 3. New behaviour needs tests or E2E assertions, and the PR description must quote real output — “should be fine” is not accepted in this repository.
-4. Report security issues privately rather than in a public issue.
+4. Found a bug, have an idea or a question? Read the [issue guide](issue-guide.en.md) first (Chinese: [提交Issue指南.md](../提交Issue指南.md)) — the repository ships matching issue templates.
+5. Report security issues privately rather than in a public issue — supported versions, scope, timelines and safe harbor are in [SECURITY.md](../../SECURITY.md).
 
 ## License
 
