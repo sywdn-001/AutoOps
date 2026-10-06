@@ -126,7 +126,8 @@ Also state the managed host, e.g. `Ubuntu 22.04 / ssh:22` or
 - **Security vulnerabilities** (privilege escalation, leaked keys, command injection, audit
   bypass…): please use "Report a vulnerability" in the repository's **Security** panel (if you
   cannot see that entry, message the maintainer privately). **Do not post details or exploit steps
-  in a public issue.**
+  in a public issue.** Supported versions, scope, timelines and safe harbor live in the same
+  [SECURITY.md](../../SECURITY.md).
 - **Something you can already fix yourself**: a PR is more welcome — just mention "fixes #NN" in it.
 - **A report with no reproduction information**: it will be asked for more detail, and closed if
   none is available. That is not a lack of welcome, it is simply not actionable.

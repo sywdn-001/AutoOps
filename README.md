@@ -374,7 +374,7 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 2. 提交前跑一遍：`cd bastion-backend && python -m pytest -q`；改前端再跑 `npx biome check && npx tsc --noEmit && npm run build`。
 3. 新增行为请同时补测试或联调脚本断言，PR 说明里附上实际输出（本仓库不接受「应该没问题」这类结论）。
 4. 发现问题、想提建议或提问，先看 [提交 Issue 指南](docs/提交Issue指南.md)（三个 issue 模板、环境与复现步骤该写什么都在里面）。
-5. 安全相关问题请走私下渠道，不要直接开公开 issue。
+5. 安全相关问题请走私下渠道，不要直接开公开 issue —— 支持版本、范围、处理时限与安全港见 [SECURITY.md](SECURITY.md)。
 
 ## 许可证
 
