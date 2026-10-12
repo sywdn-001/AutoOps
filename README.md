@@ -226,6 +226,18 @@ server {
 
 SSH 网关不是 HTTP，用户直接 `ssh -p 2222 <账号>@<服务器IP>`；想走标准 22 端口，就用防火墙/端口转发把 22 转给 2222。
 
+**⑧ Windows 免安装包**（目标机不想装 Python / Node 时）
+
+推一个 `v*` tag，GitHub Actions 会自动发 Release：Windows(Server) **x64 / x32** 各一份 onedir 免安装包（PyInstaller 打包、前端 `dist/` 已内置、双击 `start-autoops.bat` 即用），并附上华为云镜像的 Python 3.15.0 x64/x32 安装包、阿里云镜像的 Node v26.11.1 x64 msi 与 `SHA256SUMS.txt`；Release 说明中英双语（`.github/workflows/release.yml`）。
+
+想在本机打一份：**先建一个干净的 venv**，不要在本机全局 Python 里打 —— PyInstaller 会给「当前环境里能导入的每个包」找 hook，全局环境能慢到十几分钟：
+
+```powershell
+pwsh -File bastion-backend/packaging/build-local.ps1 -SkipFrontend -SmokeTest
+```
+
+产物在 `bastion-backend/build/dist/AutoOps-Bastion/`；`-Zip` 顺手压成与 CI 同名的 zip，`-SmokeTest` 用 5080 端口 + 不开网关起一次服务打 `/api/health`（不碰你正在跑的 5000/2222）。
+
 ---
 
 ## 使用示例

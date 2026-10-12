@@ -11,6 +11,9 @@ venv/
 bastion-backend/instance/
 bastion-backend/.env
 
+# ── 打包产物（本地跑 `python -m PyInstaller packaging/autoops.spec` 会生成）──
+bastion-backend/build/
+
 # ── 第三方参考资料：各自是独立 git 仓库，不要嵌进本仓库 ──
 .references/
 
@@ -28,3 +31,6 @@ img/
 htmlcov/
 .DS_Store
 Thumbs.db
+
+# 首页横幅图：暂时不在 README 里用，用 `python -m tools.make_banner` 可随时重新生成
+docs/images/
