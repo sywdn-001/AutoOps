@@ -364,6 +364,7 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
+| **[Wiki 使用手册](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | 按主题拆开的 15 篇：安装部署、快速上手、资产与账号、身份与授权、策略、网页终端与文件、远程桌面与录像、SSH 网关、审计中心、AI 助手、系统设置、安全维护、升级备份、FAQ、故障排查 |
 
 全部文档的索引见 [docs/README.md](docs/README.md)；仓库英文介绍见
 [docs/i18n/README.en.md](docs/i18n/README.en.md)。
