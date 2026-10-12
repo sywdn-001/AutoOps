@@ -359,8 +359,7 @@ audit pipeline and security notes in [docs/审计与安全.md](../审计与安�
 
 **Start with the illustrated tutorial**: [tutorial.en.md](tutorial.en.md) — bring the service up,
 onboard a host, grant access, open the web terminal, read the audit trail; all 18 steps carry a real
-screenshot (produced by `bastion-backend/tools/tutorial_shots.py`, which drives a real Chrome — re-run
-it after changing the code to refresh them).
+screenshot.
 
 | Document | Chinese | What it covers |
 | --- | --- | --- |
@@ -369,6 +368,7 @@ it after changing the code to refresh them).
 | — | [审计与安全](../%E5%AE%A1%E8%AE%A1%E4%B8%8E%E5%AE%89%E5%85%A8.md) | Audit pipeline, hash chain, credential and key handling |
 | — | [需求对照](../%E9%9C%80%E6%B1%82%E5%AF%B9%E7%85%A7.md) | Requirements mapped to implementation and evidence |
 | — | [验证记录](../%E9%AA%8C%E8%AF%81%E8%AE%B0%E5%BD%95.md) | Gate and real-machine verification log, with screenshots |
+| **[Wiki manual](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | The same material split into 15 topic pages: install, quick start, assets, grants, policies, terminal and files, remote desktop, gateway, audit, AI assistant, settings, security, upgrade, FAQ, troubleshooting |
 
 The complete index of every document is [docs/README.md](../README.md).
 
