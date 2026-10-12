@@ -232,6 +232,18 @@ server {
 
 The SSH gateway is not HTTP: users connect with `ssh -p 2222 <account>@<server-ip>`. To use the standard port 22, forward it to 2222 with your firewall.
 
+**⑧ Windows portable packages** (for targets that should not install Python or Node)
+
+Push a `v*` tag and GitHub Actions publishes the release for you: one PyInstaller **onedir** portable package per architecture — Windows(Server) **x64 / x32**, with the frontend `dist/` already bundled and a double-clickable `start-autoops.bat` — plus the Python 3.15.0 installers (x64/x32) from the Huawei Cloud mirror, the Node v26.11.1 x64 MSI from the Aliyun mirror, and `SHA256SUMS.txt`. The release notes are bilingual; see `.github/workflows/release.yml`.
+
+To build one locally, **create a clean venv first** — do not build from your machine's global Python: PyInstaller looks for a hook for every importable package, which can turn into ten-plus minutes there:
+
+```powershell
+pwsh -File bastion-backend/packaging/build-local.ps1 -SkipFrontend -SmokeTest
+```
+
+The result lands in `bastion-backend/build/dist/AutoOps-Bastion/`. `-Zip` also produces a zip named like the CI artifacts, and `-SmokeTest` starts the bundle once on port 5080 with the gateway disabled and calls `/api/health` (your running 5000/2222 services are untouched).
+
 ## Usage
 
 **1) Open an audited terminal in the browser** — *Web terminal* → pick a host and account → *Connect*; every command and its output lands in the audit trail.

@@ -4,6 +4,15 @@
 # ② 格式化/lint 门禁（biome）会因为「换行符与格式化结果不一致」整片报错。
 * text=auto eol=lf
 
+# Windows 批处理必须是 CRLF：cmd.exe 解析只有 LF 的 .bat 时，label / goto / 多行括号
+# 都可能出错（发布包里双击启动的脚本就在这条路径上）。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# PowerShell 脚本（本地打包用）同理按 CRLF 检出：PowerShell 两种都认，
+# 但这份是 Windows 专用工具，CRLF 在记事本 / 老编辑器里更保险。
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+
 # 二进制文件不做任何转换
 *.png binary
 *.jpg binary

@@ -1,0 +1,258 @@
+# 文件简介（AI 生成）：GitHub Actions 发布工作流。打 v* 标签（或手动触发）后：
+#   ① 用 Node 构建前端、用 PyInstaller 把后端打成 onedir 目录包，分成
+#      Windows(Server) x64 / x32 两个压缩包；
+#   ② 从华为云 Python 镜像抓 Python 3.15.0 的 x64 / x32 安装包、从阿里云 Node 镜像抓
+#      Node v26.11.1 x64 安装包，一起挂到 Release；
+#   ③ 用 .github/scripts/make_release_notes.py 合成中英双语的 Release 说明并附 SHA256。
+# 打包配置在 bastion-backend/packaging/（spec + 启动脚本 + 首读说明）。
+
+name: Release
+
+# 打 v* 标签自动发版；也可以在 Actions 页面手动跑，手动跑时填 tag。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '版本号（如 v1.0.0）；留空则用当天日期 vYYYY.MM.DD'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  # 打这个包用的 Python / Node：跟仓库开发口径一致（Python 3.13、Node 22），
+  # 附件里另发 Python 3.15.0 与 Node v26.11.1 的官方安装包，供离线装机用。
+  BUILD_PYTHON: '3.13'
+  BUILD_NODE: '22'
+  PROJECT_NAME: AutoOps-Bastion
+  PYTHON_VERSION_FOR_MIRROR: '3.15.0'
+  PYTHON_MIRROR: 'https://mirrors.huaweicloud.com/python'
+  NODE_VERSION_FOR_MIRROR: '26.11.1'
+  NODE_MIRROR: 'https://mirrors.aliyun.com/nodejs-release'
+
+jobs:
+  # ---------------------------------------------------------------- ① 打包两个架构
+  package:
+    name: 打包 ${{ matrix.label }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            python-arch: x64
+            label: windows-server-x64
+            machine: Windows / Windows Server（64 位）
+          - arch: x86
+            python-arch: x86
+            label: windows-server-x32
+            machine: Windows / Windows Server（32 位）
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 解析版本号
+        shell: bash
+        run: |
+          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
+          if [ -z "$TAG" ]; then TAG="v$(date +%Y.%m.%d)"; fi
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "版本号：$TAG"
+
+      - name: 装 Node（构建前端）
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.BUILD_NODE }}
+          cache: npm
+          cache-dependency-path: ant-design-pro/package-lock.json
+
+      - name: 构建前端产物 dist/
+        working-directory: ant-design-pro
+        run: |
+          npm ci
+          npm run build
+
+      - name: 装 Python ${{ env.BUILD_PYTHON }}（${{ matrix.python-arch }}）
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.BUILD_PYTHON }}
+          architecture: ${{ matrix.python-arch }}
+
+      - name: 装后端依赖与 PyInstaller
+        working-directory: bastion-backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install "pyinstaller>=6.6"
+
+      - name: 打印实际位数（确认真的是 32/64 位）
+        run: |
+          python -c "import platform,struct;print('python',platform.python_version(),platform.machine(),struct.calcsize('P')*8,'bit')"
+
+      - name: PyInstaller 打成 onedir 目录包
+        working-directory: bastion-backend
+        run: |
+          python -m PyInstaller packaging/autoops.spec --noconfirm --clean `
+            --distpath build/dist --workpath build/work
+
+      - name: 组装发布目录（前端 + 启动脚本 + 说明）
+        shell: pwsh
+        env:
+          MACHINE_LABEL: ${{ matrix.machine }}
+          ARCH_LABEL: ${{ matrix.arch }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root  = "bastion-backend/build/dist/$env:PROJECT_NAME"
+          if (-not (Test-Path $root)) { throw "PyInstaller 产物不存在：$root" }
+
+          New-Item -ItemType Directory -Force -Path "$root/frontend" | Out-Null
+          Copy-Item -Recurse -Force "ant-design-pro/dist/*" "$root/frontend/"
+          Copy-Item -Force "bastion-backend/packaging/windows/start-autoops.bat" "$root/"
+          # 说明文件重新写一遍并带 UTF-8 BOM：老版本记事本没有 BOM 会把中文当 ANSI 显示成乱码
+          $first = Get-Content -Raw -Encoding utf8 "bastion-backend/packaging/windows/README-FIRST.txt"
+          [System.IO.File]::WriteAllText("$root/README-FIRST.txt", $first, [System.Text.UTF8Encoding]::new($true))
+          Copy-Item -Force "LICENSE" "$root/LICENSE"
+          Copy-Item -Force "README.md" "$root/README.md"
+          New-Item -ItemType Directory -Force -Path "$root/instance" | Out-Null
+
+          $commit = (git rev-parse --short HEAD)
+          $pyver  = (python -c "import platform;print(platform.python_version())")
+          $pybits = (python -c "import struct;print(struct.calcsize('P')*8)")
+          $info = @"
+          项目 / Project   : AutoOps 堡垒机 (AutoOps Bastion)
+          版本 / Version   : $env:RELEASE_TAG
+          系统 / OS        : $env:MACHINE_LABEL  ($env:ARCH_LABEL)
+          打包方式 / Build : PyInstaller onedir（前端 dist 已内置 / frontend dist bundled）
+          构建 Python      : $pyver ($pybits bit)
+          构建 Node        : $env:BUILD_NODE
+          代码版本 / Commit: $commit
+          构建时间 / Built : $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')) UTC
+          工作流 / Workflow: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          仓库 / Repo      : $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY
+          "@
+          Set-Content -Path "$root/BUILD-INFO.txt" -Value $info -Encoding utf8
+
+      - name: 打 zip（文件名带系统、架构、Python 与打包方式）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = "bastion-backend/build/dist/$env:PROJECT_NAME"
+          $zip = "$env:PROJECT_NAME-$env:RELEASE_TAG-${{ matrix.label }}-py${{ env.BUILD_PYTHON }}-onedir.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $src -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          "$hash  $zip" | Set-Content -Path "$zip.sha256" -Encoding ascii
+          "压缩包：$zip（$size MB）" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          "SHA256：$hash" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: 上传压缩包
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.label }}
+          path: |
+            *.zip
+            *.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------- ② 抓运行时安装包
+  installers:
+    name: 收集运行时安装包（Python / Node）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 Python（x64 / x32）与 Node（x64）安装包
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          # 华为云镜像：不带后缀的是 32 位（win32），-amd64 是 64 位
+          curl -fL --retry 3 -o "assets/installer-python-${PYTHON_VERSION_FOR_MIRROR}-windows-x64-64bit.exe" \
+            "${PYTHON_MIRROR}/${PYTHON_VERSION_FOR_MIRROR}/python-${PYTHON_VERSION_FOR_MIRROR}-amd64.exe"
+          curl -fL --retry 3 -o "assets/installer-python-${PYTHON_VERSION_FOR_MIRROR}-windows-x32-32bit.exe" \
+            "${PYTHON_MIRROR}/${PYTHON_VERSION_FOR_MIRROR}/python-${PYTHON_VERSION_FOR_MIRROR}.exe"
+          # 阿里云 Node 镜像：官方只发布了 x64（没有 x32 的 msi）
+          curl -fL --retry 3 -o "assets/installer-nodejs-v${NODE_VERSION_FOR_MIRROR}-windows-x64-64bit.msi" \
+            "${NODE_MIRROR}/v${NODE_VERSION_FOR_MIRROR}/node-v${NODE_VERSION_FOR_MIRROR}-x64.msi"
+          ls -lh assets
+          cd assets && sha256sum * > ../SHA256SUMS-installers.txt && cat ../SHA256SUMS-installers.txt
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: |
+            assets/*
+            SHA256SUMS-installers.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------- ③ 发 Release
+  release:
+    name: 发布 Release
+    needs: [package, installers]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出代码（要仓库里的说明模板与脚本）
+        uses: actions/checkout@v4
+
+      - name: 解析版本号
+        shell: bash
+        run: |
+          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
+          if [ -z "$TAG" ]; then TAG="v$(date +%Y.%m.%d)"; fi
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "版本号：$TAG"
+
+      - name: 取回所有产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: 归拢附件并算总校验和
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' \) -exec cp {} release/ \;
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
+          cat SHA256SUMS.txt
+
+      - name: 生成中英双语 Release 说明
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 .github/scripts/make_release_notes.py \
+            --template .github/RELEASE_README.md \
+            --assets-dir release \
+            --out release-notes.md \
+            --version "$RELEASE_TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --workflow "$WORKFLOW_URL"
+          head -60 release-notes.md
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file release-notes.md
+            gh release upload "$RELEASE_TAG" release/* --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes-file release-notes.md \
+              --target "${{ github.sha }}" \
+              release/*
+          fi
+          gh release view "$RELEASE_TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
