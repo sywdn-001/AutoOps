@@ -314,12 +314,12 @@ def verify_sidebar(cli: Bastion, args, out_dir: Path) -> None:
     alive = check("MCP 探活成功", probe.get("ok") is True, brief(probe.get("error") or probe, 200))
     if not alive:
         print(
-            "  提示：探活失败最常见的原因是目标机上现在没人登录桌面 —— Windows-MCP 需要一个登录会话，"
-            "没人登录时开机自启脚本不会跑、挂在后台会话（会话 0）里的 MCP 也截不了图。"
-            "用 RDP 登录目标机之后再跑一次这条命令。",
+            "  提示：探活失败说明目标机上现在没有在跑的 MCP 进程（8000 端口没人听）。"
+            "开机自启脚本只在有人登录时触发；可以先把计划任务 AutoOps-ComputerUse-MCP 起回来，"
+            "或者用 RDP 登录目标机之后再跑一次这条命令。",
             flush=True,
         )
-        skip("工具清单 / 截图 / PowerShell 检查", "MCP 探活失败，目标机上大概没人登录桌面")
+        skip("工具清单 / 截图 / PowerShell 检查", "MCP 探活失败，目标机上没有在跑的 MCP 进程")
         return
     server = probe.get("server") or {}
     check("探活报出工具数", int(probe.get("toolCount") or 0) > 0, f"toolCount={probe.get('toolCount')}")
@@ -371,6 +371,15 @@ def verify_sidebar(cli: Bastion, args, out_dir: Path) -> None:
     )) > 1024, f"{saved} 张")
     check("截图调用被标成只读观察", data.get("observeOnly") is True, f"observeOnly={data.get('observeOnly')}")
     print(f"[screenshot] 端到端 {time.time() - started:.1f}s")
+    if not images:
+        note = str(data.get("text") or "").lower()
+        if "screen grab failed" in note or "no display" in note:
+            print(
+                "  提示：MCP 进程活着（探活、工具清单、PowerShell 都正常），但它现在跑在**没有桌面的会话**里，"
+                "所以抓不到屏幕。用 RDP 登录目标机后，StartUp 里的自启脚本会把 MCP 接管到你的桌面会话"
+                "（同一端口，侧边栏地址不变），截图随即恢复。",
+                flush=True,
+            )
 
     if args.no_powershell:
         return

@@ -367,9 +367,11 @@ python tools/computeruse_check.py --host 5         # 9 项：ComputerUse 部署�
 cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 ```
 
-> ComputerUse 的侧边栏接口只有在目标机**有人登录桌面**时才连得上：Windows-MCP 的截图与界面
-> 自动化绑定登录会话，没人登录时开机自启脚本不会运行，探活会如实报「连不上目标机的 MCP 服务」，
-> 脚本会把后面的工具清单/截图/PowerShell 检查标成 SKIP 并以非 0 退出（先用 RDP 登录目标机再接一次）。
+> ComputerUse 的侧边栏能不能用起来，取决于目标机上的 MCP 进程与那次登录会话：MCP 进程会随登录
+> 会话注销而消失（此时探活如实报「连不上目标机的 MCP 服务」，脚本把工具清单/截图/PowerShell 三项标成
+> SKIP 并以非 0 退出）；而进程活着但跑在**没有桌面的会话**里时，探活与 PowerShell 依然可用，只有截图与
+> 界面自动化会失败（如实报 `screen grab failed`）。要拿桌面画面就用 RDP 登录目标机 —— StartUp 里的自启
+> 脚本会把 MCP 接管到你的桌面会话，端口与侧边栏地址都不变。
 
 逐条的验证记录（每条实测的判据、命令、结果与截图）见 [docs/验证记录.md](docs/验证记录.md)，
 需求与扩展需求逐条对照见 [docs/需求对照.md](docs/需求对照.md)，使用流程见
