@@ -34,7 +34,19 @@ export interface AiCardSteps {
   title?: string;
   items?: { title: string; description?: string; status?: string }[];
 }
-export type AiCard = AiCardTable | AiCardKeyValue | AiCardAlert | AiCardSteps;
+/** 目标机截图：`images` 里是可直接塞进 `<img src>` 的 dataUrl */
+export interface AiCardImage {
+  type: 'image';
+  title?: string;
+  caption?: string;
+  images?: string[];
+}
+export type AiCard =
+  | AiCardTable
+  | AiCardKeyValue
+  | AiCardAlert
+  | AiCardSteps
+  | AiCardImage;
 
 export interface AiStatus {
   enabled: boolean;

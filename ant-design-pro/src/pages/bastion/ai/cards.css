@@ -24,3 +24,28 @@
   margin-bottom: 8px;
   font-weight: 600;
 }
+
+/* 目标机截图（`image` 卡片）：图自己带底色，别让平面底色透过透明 PNG */
+.bastion-ai-card-images {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bastion-ai-card-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border: 1px solid var(--ai-line, rgba(148, 163, 184, 0.3));
+  border-radius: 4px;
+  background: #000;
+  object-fit: contain;
+}
+
+.bastion-ai-card-caption {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.65;
+  white-space: pre-wrap;
+}

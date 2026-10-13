@@ -1,11 +1,12 @@
 /**
  * ComputerUse 侧边栏的单元测试。
  *
- * 只测**不依赖真实后端**的部分：就绪判定、收起状态持久化、工具/截图/探活结果解析、
+ * 只测**不依赖真实后端**的部分：就绪判定、收起状态持久化、工具/探活结果解析、
  * SSE 事件归类与气泡合并；再用 mock 把接口与 AI 服务层挡住，验证组件级的几条硬约束：
  * - 没就绪（ready !== true）整块不渲染；
  * - 就绪后默认折叠成窄条，点一下就展开并落盘；
- * - 「看一眼屏幕」把 Screenshot 的图片内联出来，失败给可读错误；
+ * - 「重启 MCP」真的打 /mcp/restart，成功写进探活行、失败也给可读文案；
+ * - 截图不再是单独的按钮，而是跟着工具调用以图片卡片回到对话里；
  * - 面板里的 AI 对话必须带上 hostId，并把思考过程 / 工具调用过程展示出来；
  * - 工具清单不再占版面（按用户要求删掉），欢迎态的示例问题点一下就发出去。
  */
@@ -46,9 +47,10 @@ import ComputerUsePanel, {
   asRecord,
   asText,
   buildProbeRequest,
-  buildScreenshotRequest,
+  buildRestartRequest,
   buildToolsRequest,
   type ComputerUseStatus,
+  type ComputerUseTurn,
   classifyChatEvent,
   describeApiError,
   describeToolMeta,
@@ -57,14 +59,12 @@ import ComputerUsePanel, {
   isToolReadOnly,
   PANEL_OPEN_KEY,
   parseProbeResult,
-  parseScreenshotImages,
-  parseScreenshotNote,
-  parseScreenshotResult,
   parseToolList,
   readPanelOpen,
   resolveHostLabel,
   resolveMcpEndpoint,
   resolveToolCount,
+  screenshotHint,
   truncateText,
   WELCOME_HINTS,
   writePanelOpen,
@@ -230,10 +230,10 @@ describe('工具只读 / 会改机器状态', () => {
 });
 
 describe('接口请求构造', () => {
-  it('看一眼屏幕用 Screenshot + 空参数', () => {
-    expect(buildScreenshotRequest(7)).toEqual({
-      url: '/api/computer-use/mcp/call',
-      body: { hostId: 7, tool: 'Screenshot', arguments: {} },
+  it('重启 MCP 用 /mcp/restart + hostId', () => {
+    expect(buildRestartRequest(7)).toEqual({
+      url: '/api/computer-use/mcp/restart',
+      body: { hostId: 7 },
     });
   });
 
@@ -243,51 +243,24 @@ describe('接口请求构造', () => {
   });
 });
 
-describe('Screenshot 结果解析', () => {
-  const envelope = {
-    success: true,
-    data: {
-      tool: 'Screenshot',
-      text: '当前桌面：记事本已打开',
-      images: [
-        { mime: 'image/png', dataUrl: 'data:image/png;base64,AAA' },
-        { mime: 'image/png', dataUrl: 'data:image/png;base64,BBB' },
-      ],
-    },
-  };
-
-  it('取出 dataUrl 列表与说明文字', () => {
-    expect(parseScreenshotImages(envelope)).toEqual([
-      'data:image/png;base64,AAA',
-      'data:image/png;base64,BBB',
-    ]);
-    expect(parseScreenshotNote(envelope)).toBe('当前桌面：记事本已打开');
+describe('截图失败提示', () => {
+  it('screen grab failed → 说清「没有已登录桌面」，并指向「重启 MCP」', () => {
+    const hint = screenshotHint(
+      'Error capturing screenshot: screen grab failed. Please try again.',
+    );
+    expect(hint).toContain('桌面会话');
+    expect(hint).toContain('重启 MCP');
   });
 
-  it('也吃得下没有再包一层 data 的返回', () => {
-    const flat = {
-      images: [{ dataUrl: 'data:image/png;base64,CCC' }],
-      text: 'ok',
-    };
-    expect(parseScreenshotImages(flat)).toEqual(['data:image/png;base64,CCC']);
-    expect(parseScreenshotNote(flat)).toBe('ok');
+  it('MCP 没在超时内回话（卡住）→ 也让用户去重启', () => {
+    const hint = screenshotHint('MCP 在 60 秒内没有返回结果：http://x/mcp');
+    expect(hint).toContain('重启 MCP');
   });
 
-  it('脏数据被丢掉，而不是渲染成破图', () => {
-    const dirty = {
-      data: { images: [{ dataUrl: '' }, { mime: 'image/png' }, null, 'x'] },
-    };
-    expect(parseScreenshotImages(dirty)).toEqual([]);
-  });
-
-  it('没有图片也没有说明 → 给可读错误', () => {
-    const parsed = parseScreenshotResult({ data: { images: [] } });
-    expect(parsed.error).toBeTruthy();
-    expect(parsed.images).toEqual([]);
-  });
-
-  it('有图时不算错误', () => {
-    expect(parseScreenshotResult(envelope).error).toBeUndefined();
+  it('正常结果与空文本都不给提示（不打扰）', () => {
+    expect(screenshotHint('当前桌面：记事本已打开')).toBeUndefined();
+    expect(screenshotHint(undefined)).toBeUndefined();
+    expect(screenshotHint('')).toBeUndefined();
   });
 });
 
@@ -359,11 +332,17 @@ describe('SSE 事件归类', () => {
     });
   });
 
-  it('content / reasoning 只认非空 delta', () => {
+  it('content / reasoning 要保住纯空白的 delta（markdown 列表就靠那个空格）', () => {
     expect(classifyChatEvent({ type: 'content', delta: '你好' })).toEqual({
       kind: 'content',
       delta: '你好',
     });
+    // 上游按 token 吐：`- ` 会分成 `-` 和 ` ` 两段，把纯空白的增量当空丢掉，
+    // 列表标记就退化成 `-文字`，整块塌成一个段落（真机就是这么坏的）。
+    expect(classifyChatEvent({ type: 'content', delta: ' ' }).delta).toBe(' ');
+    expect(classifyChatEvent({ type: 'reasoning', delta: '\n' }).delta).toBe(
+      '\n',
+    );
     expect(
       classifyChatEvent({ type: 'content', delta: '' }).delta,
     ).toBeUndefined();
@@ -442,6 +421,22 @@ describe('事件合并进气泡', () => {
     const reasoned = applyChatEvent(two, { kind: 'reasoning', delta: '嗯' });
     expect(reasoned.reasoning).toBe('嗯');
     expect(reasoned.content).toBe('你好');
+  });
+
+  it('按 token 逐段喂进来，拼出的 markdown 仍然是列表', () => {
+    let turn: ComputerUseTurn = base;
+    for (const delta of [
+      '-',
+      ' ',
+      '桌面截图',
+      '\n',
+      '-',
+      ' ',
+      'DisplayInventory',
+    ]) {
+      turn = applyChatEvent(turn, { kind: 'content', delta });
+    }
+    expect(turn.content).toBe('- 桌面截图\n- DisplayInventory');
   });
 
   it('tool_call 追加，tool_result 按 callId 回填', () => {
@@ -554,61 +549,100 @@ describe('组件行为（mock 后端）', () => {
     expect(localStorage.getItem(PANEL_OPEN_KEY)).toBe('0');
   });
 
-  it('「看一眼屏幕」把 Screenshot 的图片内联渲染出来', async () => {
+  it('「重启 MCP」打 /mcp/restart，成功把工具数写进探活行', async () => {
     localStorage.setItem(PANEL_OPEN_KEY, '1');
     requestMock.mockImplementation((url: string) => {
       if (url.includes('/status')) return ok(READY_STATUS);
       if (url.includes('/tools'))
         return ok({ data: { items: READY_STATUS.tools } });
-      if (url.includes('/mcp/call')) {
+      if (url.includes('/mcp/restart')) {
         return ok({
-          tool: 'Screenshot',
-          text: '当前桌面',
-          images: [{ mime: 'image/png', dataUrl: 'data:image/png;base64,AAA' }],
+          ok: true,
+          toolCount: 20,
+          probe: { ok: true, toolCount: 20 },
+          desktopActive: false,
         });
       }
       return ok({});
     });
     render(<ComputerUsePanel hostId={7} />);
 
-    fireEvent.click(await screen.findByLabelText('看一眼屏幕'));
+    fireEvent.click(await screen.findByLabelText('重启 MCP'));
 
-    const gallery = await screen.findByTestId('computeruse-shots');
-    const image = gallery.querySelector('img');
-    expect(image?.getAttribute('src')).toBe('data:image/png;base64,AAA');
-    expect(screen.getByText('当前桌面')).toBeTruthy();
+    expect(await screen.findByText(/MCP 已重启（20 个工具）/)).toBeTruthy();
     // 请求体必须是契约上的那一份
     const call = requestMock.mock.calls.find((args) =>
-      String(args[0]).includes('/mcp/call'),
+      String(args[0]).includes('/mcp/restart'),
     );
     expect(call).toBeTruthy();
     const [url, options] = call as [string, { data: unknown }];
-    expect(url).toBe('/api/computer-use/mcp/call');
-    expect(options.data).toEqual({
-      hostId: 7,
-      tool: 'Screenshot',
-      arguments: {},
-    });
+    expect(url).toBe('/api/computer-use/mcp/restart');
+    expect(options.data).toEqual({ hostId: 7 });
   });
 
-  it('截图失败时给出可读错误，而不是空画面', async () => {
+  it('重启失败也给可读文案（HTTP 200 里 ok=false 不许静默）', async () => {
     localStorage.setItem(PANEL_OPEN_KEY, '1');
     requestMock.mockImplementation((url: string) => {
       if (url.includes('/status')) return ok(READY_STATUS);
       if (url.includes('/tools')) return ok({ data: { items: [] } });
-      if (url.includes('/mcp/call')) {
-        return Promise.reject({
-          response: { data: { message: '目标机 MCP 未响应' } },
-        });
+      if (url.includes('/mcp/restart')) {
+        return ok({ ok: false, error: '连接目标机失败：拒绝连接' });
       }
       return ok({});
     });
     render(<ComputerUsePanel hostId={7} />);
 
-    fireEvent.click(await screen.findByLabelText('看一眼屏幕'));
+    fireEvent.click(await screen.findByLabelText('重启 MCP'));
 
-    expect(await screen.findByText('目标机 MCP 未响应')).toBeTruthy();
+    expect(await screen.findByText('连接目标机失败：拒绝连接')).toBeTruthy();
+  });
+
+  it('截图不再有单独按钮：工具调用带回的图片卡片直接渲染出来', async () => {
+    localStorage.setItem(PANEL_OPEN_KEY, '1');
+    requestMock.mockImplementation((url: string) => {
+      if (url.includes('/status')) return ok(READY_STATUS);
+      if (url.includes('/tools'))
+        return ok({ data: { items: READY_STATUS.tools } });
+      return ok({});
+    });
+    streamAiChatMock.mockImplementation(
+      (_payload: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'start', conversationId: 43 });
+        onEvent({
+          type: 'tool_call',
+          callId: 'call-shot',
+          name: 'Screenshot',
+          args: {},
+          description: '截屏',
+        });
+        onEvent({
+          type: 'tool_result',
+          callId: 'call-shot',
+          ok: true,
+          summary: '已取回当前屏幕',
+          card: {
+            type: 'image',
+            title: 'Screenshot 截图',
+            images: ['data:image/png;base64,AAA'],
+          },
+        });
+        onEvent({ type: 'message_end', status: 'done', elapsedMs: 800 });
+        return Promise.resolve();
+      },
+    );
+    render(<ComputerUsePanel hostId={7} />);
+
+    expect(await screen.findByTestId('computeruse-chat')).toBeTruthy();
+    expect(screen.queryByLabelText('看一眼屏幕')).toBeNull();
     expect(screen.queryByTestId('computeruse-shots')).toBeNull();
+
+    const box = screen.getByLabelText('ComputerUse AI 指令');
+    fireEvent.change(box, { target: { value: '截一张图给我看' } });
+    fireEvent.click(screen.getByLabelText('发送'));
+
+    const image = await screen.findByAltText('Screenshot 截图 1');
+    expect(image.getAttribute('src')).toBe('data:image/png;base64,AAA');
+    expect(screen.getByText('工具调用 1 次')).toBeTruthy();
   });
 
   it('工具清单不再占版面，但头部仍报出可用工具数', async () => {

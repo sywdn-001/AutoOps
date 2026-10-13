@@ -2,27 +2,31 @@
  * WebRDP 右侧的「ComputerUse AI 操作台」侧边栏。
  *
  * 目标机上部署了 Windows-MCP（streamable-http）之后，AI 才能通过它去操作那台机器的桌面：
- * 本面板负责展示部署状态、看一眼屏幕（Screenshot）、工具清单，以及与 AI 的流式对话
- * （工具调用与管理员确认弹窗，复用 `@/services/bastion/ai` 的同一套流与接口）。
+ * 本面板负责展示部署状态、重启目标机上的 MCP，以及与 AI 的流式对话（思考过程、工具调用、
+ * 管理员确认弹窗，复用 `@/services/bastion/ai` 的同一套流与接口）。
  *
- * 两个必须记住的前提：
+ * 三个必须记住的前提：
  * 1. **只有部署成功（`ready === true`）才渲染**：默认接口不可用时整块侧边栏不出现，
  *    绝不占着 RDP 画面又给一堆报错。
- * 2. **UI 自动化与截图是按登录会话隔离的**：开机自启的 MCP 跑在目标机的控制台会话，
+ * 2. **UI 自动化与截图是按登录会话隔离的**：开机自启的 MCP 跑在目标机的登录会话里，
  *    而当前 WebRDP 可能是另一个 RDP 会话 —— 操作员在自己的窗口里未必看得见 AI 的动作，
- *    所以截图必须内联渲染出来当证据。
+ *    所以截图会跟着工具调用一起、以图片卡片回到对话里（后端把 MCP 的图变成 `image` 卡片）。
+ * 3. **卡片与 Markdown 与「AI 运维」页共用同一份实现**：结构类名沿用 `bastion-ai-*`
+ *    （`ai.css` / `cards.tsx`），antd 部件统一走 `ConfigProvider` 的深色算法 ——
+ *    深色 RDP 主题下不能有黑字，也不能出现两套长得不一样的卡片。
  *
  * 本文件自包含：不引用 `src/pages/bastion/computer-use/**` 与
- * `src/services/bastion/computeruse.ts`，只依赖通用服务层（`ai.ts` / `client.ts`）。
+ * `src/services/bastion/computeruse.ts`，只依赖通用服务层（`ai.ts` / `client.ts`）
+ * 与 AI 页的卡片渲染（`../ai/cards`）。
  */
 import {
-  CameraOutlined,
   CloseOutlined,
   LeftOutlined,
   ReloadOutlined,
   RightOutlined,
   RobotOutlined,
   SendOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { XMarkdown } from '@ant-design/x-markdown';
 import { request } from '@umijs/max';
@@ -31,6 +35,7 @@ import {
   Alert,
   Button,
   Collapse,
+  ConfigProvider,
   Form,
   Input,
   Modal,
@@ -39,6 +44,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import type { CSSProperties, ReactNode } from 'react';
 import { Component, useCallback, useEffect, useRef, useState } from 'react';
@@ -47,6 +53,8 @@ import type { AiCard } from '@/services/bastion/ai';
 import { confirmAiOperation, streamAiChat } from '@/services/bastion/ai';
 import { unwrap } from '@/services/bastion/client';
 import type { ApiData } from '@/services/bastion/types';
+import { AiCards, AiCardView, AiCode } from '../ai/cards';
+import '../ai/ai.css';
 
 const { Text } = Typography;
 
@@ -56,12 +64,6 @@ const { Text } = Typography;
 
 /** 展开/收起状态在 localStorage 里的键名 */
 export const PANEL_OPEN_KEY = 'bastion_computeruse_panel_open';
-
-/** 截图小画册最多保留几张 */
-export const MAX_SCREENSHOTS = 3;
-
-/** Screenshot 请求的超时：目标机 MCP 挂住时不能让按钮一直转圈 */
-export const MCP_CALL_TIMEOUT_MS = 60000;
 
 /** 部署状态轮询间隔：窗口开着的时候正好把机器部署完，也要能自己亮起来 */
 const STATUS_POLL_MS = 30000;
@@ -113,15 +115,7 @@ export interface ComputerUseStatus {
   startupPath?: string;
 }
 
-/** 一次 Screenshot 的结果（内联渲染的证据） */
-export interface ScreenCapture {
-  key: string;
-  /** `data:image/png;base64,…`，直接塞进 `<img src>` */
-  images: string[];
-  /** `data.text`：这次看屏幕的说明文字 */
-  note?: string;
-}
-
+/** 一条工具调用的结果（含后端回传的图片卡片，截图就靠它回到对话里） */
 export interface ComputerUseToolCall {
   callId: string;
   name: string;
@@ -183,6 +177,17 @@ export interface ChatEvent {
 /** 把未知值收成非空字符串（SSE 事件里的字段都是 unknown） */
 export const asText = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value : undefined;
+
+/**
+ * 流式增量的专用取值：**不能**像 asText 那样「空白即空」。
+ *
+ * 上游是按 token 吐的，`- ` 会分成 `-` 和 ` ` 两段、`win-75 上` 也会在空格处断开。
+ * 只要把纯空白的增量当成空丢掉，markdown 的列表标记就退化成 `-文字`（列表塌成一整段），
+ * 中英文之间的空格也会凭空消失 —— 这正是「侧边栏里 Markdown 根本没被渲染」的真因。
+ * 主界面 AI 运维页的 asString 就是只判 `value` 不判 `value.trim()`，这里对齐它。
+ */
+export const asStreamDelta = (value: unknown): string | undefined =>
+  typeof value === 'string' && value ? value : undefined;
 
 /** 把未知值收成有限数字 */
 export const asNumber = (value: unknown): number | undefined =>
@@ -291,11 +296,27 @@ export const resolveHostLabel = (
   return address || `主机 #${hostId}`;
 };
 
-/** POST /api/computer-use/mcp/call（看一眼屏幕） */
-export const buildScreenshotRequest = (hostId: number) => ({
-  url: '/api/computer-use/mcp/call',
-  body: { hostId, tool: 'Screenshot', arguments: {} },
+/** POST /api/computer-use/mcp/restart（把目标机上的 MCP 重启掉：卡住/截图空白时的自救） */
+export const buildRestartRequest = (hostId: number) => ({
+  url: '/api/computer-use/mcp/restart',
+  body: { hostId },
 });
+
+/** 后端会把 MCP 的报错原样带回来：这里补一句「为什么没图、怎么救」 */
+export const screenshotHint = (text?: string): string | undefined => {
+  if (!text) return undefined;
+  const lower = text.toLowerCase();
+  if (
+    lower.includes('screen grab failed') ||
+    lower.includes('error capturing screenshot')
+  ) {
+    return '目标机当前没有已登录的桌面会话（MCP 跑在会话 0），抓不到桌面像素。在目标机上登录一次桌面，再点上面的「重启 MCP」把服务接管到你的桌面会话。';
+  }
+  if (lower.includes('没有返回结果') || lower.includes('卡住')) {
+    return '目标机上的 MCP 没在超时内回话（多半是取 UI 元素树把它卡住了）：点上面的「重启 MCP」就能恢复，之后的调用不会再带会卡死的参数。';
+  }
+  return undefined;
+};
 
 /** GET /api/computer-use/mcp/tools?live=1 */
 export const buildToolsRequest = (hostId: number) => ({
@@ -314,34 +335,6 @@ const unwrapData = (payload: unknown): Record<string, unknown> => {
   const outer = asRecord(payload);
   if (!outer) return {};
   return asRecord(outer.data) ?? outer;
-};
-
-/** 取接口里的 images 数组 → dataUrl 列表 */
-export const parseScreenshotImages = (payload: unknown): string[] => {
-  const data = unwrapData(payload);
-  const raw = data.images;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => asText(asRecord(item)?.dataUrl))
-    .filter((url): url is string => Boolean(url));
-};
-
-/** 取接口里的说明文字 */
-export const parseScreenshotNote = (payload: unknown): string | undefined => {
-  const data = unwrapData(payload);
-  return asText(data.text) ?? asText(data.summary);
-};
-
-/** 解析一次 Screenshot 的返回：没有图片也没有说明时，回一句可读的原因 */
-export const parseScreenshotResult = (
-  payload: unknown,
-): { images: string[]; note?: string; error?: string } => {
-  const images = parseScreenshotImages(payload);
-  const note = parseScreenshotNote(payload);
-  if (images.length === 0 && !note) {
-    return { images: [], error: describeApiError(payload, '没拿到截图') };
-  }
-  return { images, note };
 };
 
 /** 解析工具清单：`data.items` 优先，其次 `data.tools` */
@@ -406,7 +399,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
   const record = asRecord(event);
   if (!record) return { kind: 'unknown' };
   const type = asText(record.type) ?? '';
-  const delta = asText(record.delta);
+  const delta = asStreamDelta(record.delta);
   switch (type) {
     case 'start':
       return { kind: 'start', conversationId: asNumber(record.conversationId) };
@@ -573,6 +566,11 @@ const PANEL_CSS = `
   width: 400px;
   height: 100%;
   min-height: 0;
+  /* 「AI 运维」页那套平面配色的四个变量（ai.css 里定义在 .bastion-ai-page 上，这里要自己带上） */
+  --ai-line: rgba(148, 163, 184, 0.3);
+  --ai-fill: rgba(148, 163, 184, 0.14);
+  --ai-fill-strong: rgba(148, 163, 184, 0.22);
+  --ai-accent: #1677ff;
   background: #0f172a;
   border-left: 1px solid #1f2937;
   color: #cbd5e1;
@@ -617,7 +615,8 @@ const PANEL_CSS = `
   color: #e6edf3;
 }
 .bastion-cu-note {
-  color: #64748b;
+  /* 深色面板上的次要文字：slate-400，别用 slate-500（#64748b 在 #0f172a 上对比度只有 4.6:1，看着发灰） */
+  color: #94a3b8;
   line-height: 1.6;
 }
 .bastion-cu-welcome {
@@ -642,29 +641,14 @@ const PANEL_CSS = `
 .bastion-cu-hint {
   cursor: pointer;
 }
-.bastion-cu-collar .ant-collapse-header {
-  padding: 2px 0 !important;
-  color: #93c5fd !important;
-}
-.bastion-cu-collar .ant-collapse-content-box {
-  padding: 0 !important;
-}
-.bastion-cu-shots {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.bastion-cu-shot img {
-  display: block;
-  width: 100%;
-  border: 1px solid #1f2937;
-  border-radius: 4px;
-  background: #000;
-}
+/* 对话区：AI 轮次结构与「AI 运维」页共用同一套类名（样式来自 ../ai/ai.css） */
 .bastion-cu-chat {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+.bastion-cu-chat .bastion-ai-collar {
+  margin-bottom: 0;
 }
 .bastion-cu-msg-user {
   align-self: flex-end;
@@ -676,49 +660,11 @@ const PANEL_CSS = `
   white-space: pre-wrap;
   word-break: break-word;
 }
-.bastion-cu-msg-ai {
-  align-self: stretch;
-  word-break: break-word;
-}
-.bastion-cu-reasoning {
-  margin: 4px 0 0;
-  padding: 6px 8px;
-  max-height: 180px;
-  overflow: auto;
-  background: #020617;
-  border: 1px solid #1f2937;
-  border-radius: 4px;
-  color: #94a3b8;
-  font-size: 11px;
-  white-space: pre-wrap;
-}
-.bastion-cu-tool {
+/* 截图空白/服务卡住时给一句「为什么、怎么办」 */
+.bastion-cu-tip {
   margin-top: 6px;
-  padding: 6px 8px;
-  border: 1px solid #1f2937;
-  border-radius: 4px;
-  background: #0b1220;
-}
-.bastion-cu-tool-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.bastion-cu-tool-args {
-  margin-top: 4px;
-}
-.bastion-cu-tool-summary,
-.bastion-cu-tool-preview {
-  margin-top: 4px;
-  color: #94a3b8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.bastion-cu-msg-error {
-  margin-top: 6px;
-  color: #ffa39e;
-  white-space: pre-wrap;
+  color: #fbbf24;
+  line-height: 1.6;
 }
 .bastion-cu-input {
   flex: 0 0 auto;
@@ -743,37 +689,9 @@ const PANEL_CSS = `
   flex: 0 0 auto;
   padding: 6px 10px;
   border-top: 1px solid #1f2937;
-  color: #64748b;
+  /* 页脚保留（用户要求），但颜色提到 slate-400，深色底上看得清 */
+  color: #94a3b8;
   line-height: 1.6;
-}
-/* 深色面板里的 antd 部件：antd 默认按浅色主题渲染，深底上按钮会「看不见」——统一改浅 */
-.bastion-cu-panel .ant-btn-text,
-.bastion-cu-panel .ant-btn-text > .anticon,
-.bastion-cu-panel .ant-btn-default {
-  color: #cbd5e1 !important;
-}
-.bastion-cu-panel .ant-btn-text:hover {
-  color: #93c5fd !important;
-  background: rgba(59, 130, 246, 0.16) !important;
-}
-.bastion-cu-panel .ant-btn-primary:disabled {
-  background: #1e293b !important;
-  border-color: #334155 !important;
-  color: #94a3b8 !important;
-}
-.bastion-cu-strip .ant-btn-text,
-.bastion-cu-strip .ant-btn-text > .anticon {
-  color: #cbd5e1 !important;
-}
-.bastion-cu-collar .ant-collapse-header-text,
-.bastion-cu-collar .ant-collapse-expand-icon {
-  color: #93c5fd !important;
-}
-.bastion-cu-msg-ai code {
-  padding: 0 3px;
-  border-radius: 3px;
-  background: #020617;
-  color: #93c5fd;
 }
 `;
 
@@ -801,19 +719,18 @@ const MetaLine = ({
   </span>
 );
 
-/** 单条工具调用卡片（状态 + 参数 + 结果） */
+/** 单条工具调用（结构与「AI 运维」页的 renderToolCall 一致） */
 const ToolCallView = ({ call }: { call: ComputerUseToolCall }) => {
   const tag = COMPUTER_USE_STATUS[call.status] ?? {
     color: 'default',
     text: call.status,
   };
+  const hint = screenshotHint(call.summary) ?? screenshotHint(call.preview);
   return (
-    <div className="bastion-cu-tool">
-      <div className="bastion-cu-tool-head">
+    <div className="bastion-ai-tool">
+      <div className="bastion-ai-tool-head">
         <Tag color={tag.color}>{tag.text}</Tag>
-        <Text strong style={{ color: '#e6edf3' }}>
-          {call.name}
-        </Text>
+        <Text strong>{call.name}</Text>
         {call.durationMs ? (
           <Text type="secondary">{call.durationMs}ms</Text>
         ) : null}
@@ -822,23 +739,25 @@ const ToolCallView = ({ call }: { call: ComputerUseToolCall }) => {
         ) : null}
       </div>
       {call.description ? (
-        <div className="bastion-cu-note">{call.description}</div>
+        <div className="bastion-ai-tool-desc">{call.description}</div>
       ) : null}
       {call.args && Object.keys(call.args).length > 0 ? (
-        <div className="bastion-cu-tool-args">
+        <div className="bastion-ai-tool-args">
           <JsonCards value={call.args} compact />
         </div>
       ) : null}
       {call.summary ? (
-        <div className="bastion-cu-tool-summary">
+        <div className="bastion-ai-tool-summary">
           {truncateText(call.summary, 600)}
         </div>
       ) : null}
       {call.preview ? (
-        <div className="bastion-cu-tool-preview">
+        <div className="bastion-ai-tool-preview">
           <JsonCards value={call.preview} compact />
         </div>
       ) : null}
+      {call.card ? <AiCardView card={call.card} /> : null}
+      {hint ? <div className="bastion-cu-tip">{hint}</div> : null}
     </div>
   );
 };
@@ -864,9 +783,13 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
   const [probeText, setProbeText] = useState<string>();
   const [probeOk, setProbeOk] = useState<boolean>();
   const [refreshing, setRefreshing] = useState(false);
-  const [shooting, setShooting] = useState(false);
-  const [shots, setShots] = useState<ScreenCapture[]>([]);
-  const [shotError, setShotError] = useState<string>();
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string>();
+  // 「思考过程」/「工具调用 N 次」默认展开，但工具调用往往比思考过程晚一步出现，
+  // 而 Collapse 的 defaultActiveKey 只在挂载时读一次 —— 所以改成受控：只记住用户手动收起的键。
+  const [collapsedCollars, setCollapsedCollars] = useState<
+    Record<string, true>
+  >({});
   const [turns, setTurns] = useState<ComputerUseTurn[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -978,36 +901,38 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
     }
   }, [hostId, loadStatus, loadTools]);
 
-  /** 看一眼屏幕：把 Screenshot 的图片内联出来当证据 */
-  const takeScreenshot = useCallback(async () => {
-    setShooting(true);
-    setShotError(undefined);
-    const { url, body } = buildScreenshotRequest(hostId);
+  /** 重启目标机上的 MCP：卡住或截图空白时的自救，失败也只给可读文案 */
+  const restartMcp = useCallback(async () => {
+    setRestarting(true);
+    setRestartError(undefined);
+    const { url, body } = buildRestartRequest(hostId);
     try {
-      const payload = await request<unknown>(url, {
-        method: 'POST',
-        data: body,
-        timeout: MCP_CALL_TIMEOUT_MS,
-      });
-      const parsed = parseScreenshotResult(payload);
-      if (parsed.error) {
-        setShotError(parsed.error);
+      const data = await unwrap(
+        request<ApiData<Record<string, unknown>>>(url, {
+          method: 'POST',
+          data: body,
+          // 目标机上要「停掉旧进程 → 起新进程 → 等端口重新监听」，得留够时间
+          timeout: 180000,
+        }),
+      );
+      if (data?.ok === false) {
+        setRestartError(asText(data.error) ?? '目标机上的 MCP 没能重新起来');
         return;
       }
-      const capture: ScreenCapture = {
-        // 自增序号做 key：同一毫秒连拍两张也不会撞
-        key: nextToolCallId('shot'),
-        images: parsed.images,
-        note: parsed.note ?? '已取回当前屏幕',
-      };
-      // 只留最近 MAX_SCREENSHOTS 张，避免长会话把面板撑爆
-      setShots((prev) => [capture, ...prev].slice(0, MAX_SCREENSHOTS));
+      const probe = asRecord(data?.probe);
+      const count = asNumber(probe?.toolCount);
+      setProbeOk(true);
+      setProbeText(
+        count === undefined ? 'MCP 已重启' : `MCP 已重启（${count} 个工具）`,
+      );
+      await loadStatus();
+      await loadTools();
     } catch (error) {
-      setShotError(describeApiError(error, '截图失败'));
+      setRestartError(describeApiError(error, '重启 MCP 失败'));
     } finally {
-      setShooting(false);
+      setRestarting(false);
     }
-  }, [hostId]);
+  }, [hostId, loadStatus, loadTools]);
 
   /** 按归类结果把事件写进气泡 */
   const patchTurn = useCallback((key: string, event: ChatEvent) => {
@@ -1199,7 +1124,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
 
   if (!open) {
     return (
-      <>
+      <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
         <PanelStyles />
         <aside className="bastion-cu-strip" data-testid="computeruse-strip">
           <Tooltip title="展开 ComputerUse AI 操作台" placement="left">
@@ -1216,12 +1141,12 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
           </Tooltip>
           <span className="bastion-cu-strip-text">ComputerUse</span>
         </aside>
-      </>
+      </ConfigProvider>
     );
   }
 
   return (
-    <>
+    <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
       <PanelStyles />
       <aside
         className="bastion-cu-panel"
@@ -1234,7 +1159,17 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
             <span className="bastion-cu-title">ComputerUse AI 操作台</span>
           </Space>
           <Space size={4}>
-            <Tooltip title="探活并刷新工具清单">
+            <Tooltip title="重启目标机上的 MCP 服务（卡住或截图空白时点它）">
+              <Button
+                size="small"
+                type="text"
+                aria-label="重启 MCP"
+                icon={<SyncOutlined />}
+                loading={restarting}
+                onClick={() => void restartMcp()}
+              />
+            </Tooltip>
+            <Tooltip title="探活并刷新状态">
               <Button
                 size="small"
                 type="text"
@@ -1283,43 +1218,15 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         </div>
 
         <div className="bastion-cu-body">
-          <Space orientation="vertical" size={6} style={{ width: '100%' }}>
-            <Button
-              type="primary"
-              size="small"
-              icon={<CameraOutlined />}
-              aria-label="看一眼屏幕"
-              loading={shooting}
-              onClick={() => void takeScreenshot()}
-            >
-              看一眼屏幕
-            </Button>
-            {shotError ? (
-              <Alert type="error" showIcon message={shotError} />
-            ) : null}
-            {shots.length > 0 ? (
-              <div className="bastion-cu-shots" data-testid="computeruse-shots">
-                {shots.map((shot) => (
-                  <div className="bastion-cu-shot" key={shot.key}>
-                    {shot.note ? (
-                      <div className="bastion-cu-note">{shot.note}</div>
-                    ) : null}
-                    {shot.images.map((src, index) => {
-                      // 同一张图里多屏时按序号区分；列表顺序固定，用序号做 key 是安全的
-                      const imageKey = `${shot.key}:${index}`;
-                      return (
-                        <img
-                          key={imageKey}
-                          src={src}
-                          alt={`${hostLabel} 屏幕截图 ${index + 1}`}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </Space>
+          {restartError ? (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              message={restartError}
+              onClose={() => setRestartError(undefined)}
+            />
+          ) : null}
 
           <div className="bastion-cu-chat" data-testid="computeruse-chat">
             <div className="bastion-cu-section-title">AI 对话</div>
@@ -1350,66 +1257,104 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                   </div>
                 );
               }
-              // 思考过程与工具调用折叠成两块、默认展开 —— 与 AI 运维页同一套阅读顺序
+              // 思考过程与工具调用折叠成两块、默认展开 —— 与 AI 运维页同一套阅读顺序。
+              // 用受控 activeKey：新长出来的块（比如后到的「工具调用 N 次」）也要自动展开。
+              const pending = turn.toolCalls.filter(
+                (call) => call.status === 'pending',
+              ).length;
               const collarItems: CollapseProps['items'] = [];
               if (turn.reasoning) {
                 collarItems.push({
                   key: 'reasoning',
-                  label: '思考过程',
+                  label: (
+                    <span className="bastion-ai-collapse-label">思考过程</span>
+                  ),
                   children: (
-                    <pre className="bastion-cu-reasoning">{turn.reasoning}</pre>
+                    <pre className="bastion-ai-reasoning">{turn.reasoning}</pre>
                   ),
                 });
               }
               if (turn.toolCalls.length > 0) {
                 collarItems.push({
                   key: 'tools',
-                  label: `工具调用 ${turn.toolCalls.length} 次`,
+                  label: (
+                    <span className="bastion-ai-collapse-label">
+                      工具调用 {turn.toolCalls.length} 次
+                      {pending > 0 ? (
+                        <Tag color="warning">待确认 {pending}</Tag>
+                      ) : null}
+                    </span>
+                  ),
                   children: (
-                    <>
+                    <div className="bastion-ai-tools">
                       {turn.toolCalls.map((call) => (
                         <ToolCallView key={call.callId} call={call} />
                       ))}
-                    </>
+                    </div>
                   ),
                 });
               }
               return (
-                <div className="bastion-cu-msg-ai" key={turn.key}>
+                <div className="bastion-ai-turn" key={turn.key}>
                   {collarItems.length > 0 ? (
                     <Collapse
                       ghost
                       size="small"
-                      className="bastion-cu-collar"
+                      className="bastion-ai-collar"
                       items={collarItems}
-                      defaultActiveKey={collarItems.map((item) =>
-                        String(item?.key),
-                      )}
+                      activeKey={collarItems
+                        .map((item) => String(item?.key))
+                        .filter(
+                          (key) => !collapsedCollars[`${turn.key}:${key}`],
+                        )}
+                      onChange={(keys) => {
+                        const next = Array.isArray(keys) ? keys : [keys];
+                        setCollapsedCollars((prev) => {
+                          const map = { ...prev };
+                          for (const item of collarItems) {
+                            const key = `${turn.key}:${String(item?.key)}`;
+                            if (next.includes(String(item?.key))) {
+                              delete map[key];
+                            } else {
+                              map[key] = true;
+                            }
+                          }
+                          return map;
+                        });
+                      }}
                     />
                   ) : null}
                   {turn.content ? (
                     <XMarkdown
+                      className="bastion-ai-markdown"
                       content={turn.content}
+                      openLinksInNewTab
                       streaming={{ hasNextChunk: Boolean(turn.streaming) }}
+                      components={{ code: AiCode }}
                     />
                   ) : turn.streaming ? (
-                    <span>
+                    <span className="bastion-ai-thinking">
                       <Spin size="small" /> 正在思考…
                     </span>
                   ) : null}
                   {turn.cards.length > 0 ? (
-                    <JsonCards value={turn.cards} compact />
+                    <AiCards cards={turn.cards} />
                   ) : null}
                   {turn.elapsedMs ? (
-                    <div className="bastion-cu-note">
+                    <div className="bastion-ai-meta">
                       用时 {(turn.elapsedMs / 1000).toFixed(1)}s
                       {turn.status === 'max_rounds'
-                        ? '，已达单轮工具调用上限'
+                        ? ' · 已达单轮工具调用上限'
                         : ''}
                     </div>
                   ) : null}
                   {turn.error ? (
-                    <div className="bastion-cu-msg-error">{turn.error}</div>
+                    <Alert
+                      className="bastion-ai-error"
+                      type="error"
+                      showIcon
+                      message={turn.error}
+                    />
                   ) : null}
                 </div>
               );
@@ -1532,7 +1477,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
           </Space>
         </Modal>
       </aside>
-    </>
+    </ConfigProvider>
   );
 };
 

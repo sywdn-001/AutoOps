@@ -310,8 +310,8 @@ _TOOLS: list[Tool] = [
     T("list_computeruse_hosts", "查看哪些 Windows 主机可以部署 ComputerUse，以及每台的部署状态（是否就绪、MCP 地址、工具数量）", "GET", "/api/computer-use/hosts", category="ComputerUse", card="ComputerUse 主机"),
     T("get_computeruse_status", "查看某台主机的 ComputerUse 是否就绪：MCP 地址、已装 Python、Windows-MCP 版本、可用工具数量", "GET", "/api/computer-use/status", "hostId:int!:主机 ID", category="ComputerUse"),
     T("list_computeruse_tools", "列出目标机上 Windows-MCP 暴露给我的工具（点击/输入/截图/应用/文件/注册表…），含每个工具是否只读", "GET", "/api/computer-use/mcp/tools", "hostId:int!:主机 ID;live:str:true=现场读取一次", category="ComputerUse", card="ComputerUse 工具"),
-    T("observe_computer", "看一眼目标机的桌面（只读，不动鼠标键盘）：Screenshot 截图、Snapshot 取 UI 元素树、DisplayInventory 看显示器、ControlStatus 看有没有人正在操作、Wait/WaitFor 等待界面变化", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:只读工具名（Screenshot|Snapshot|DisplayInventory|ControlStatus|Wait|WaitFor）;arguments:dict:工具参数（如 region=[x1,y1,x2,y2]、use_dom=true）", permission=EXEC, category="ComputerUse", sensitive=False),
-    T("control_computer", "操作目标机的鼠标键盘与程序（会改变机器状态，需要管理员当场确认）：Click 点击、Type 输入、Scroll 滚动、Move 拖动、Shortcut 快捷键、App 启停应用、PowerShell 执行命令、FileSystem 读写文件、Clipboard 剪贴板、Process 进程、Registry 注册表、Scrape 抓网页", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:工具名;arguments:dict:工具参数（参数键直接平铺传入即可）;timeout:int:超时秒数", permission=EXEC, category="ComputerUse", sensitive=True),
+    T("observe_computer", "看一眼目标机的桌面（只读，不动鼠标键盘）：Screenshot 截图（会带图回来）、Snapshot 看界面元素与界面文字、DisplayInventory 看显示器、Wait 等一会儿、WaitFor 等某个文字或窗口出现。默认参数已经调成不会把目标机 MCP 卡住（Snapshot 默认不取 UI 元素树、默认带图）；如果图是空的，说明目标机上当前没有已登录的桌面会话", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:只读工具名（Screenshot|Snapshot|DisplayInventory|Wait|WaitFor）;arguments:dict:工具参数（如 display=[0]、duration=2、condition=text_exists 配 text=要等的字），留空就用默认参数", permission=EXEC, category="ComputerUse", sensitive=False),
+    T("control_computer", "操作目标机的鼠标键盘与程序（会改变机器状态，需要管理员当场确认）：Click 点击、Type 输入文字、Scroll 滚动、Move 移动鼠标、Shortcut 快捷键、App 启停应用、PowerShell 执行命令、FileSystem 读写文件、Clipboard 剪贴板、Process 进程、Registry 注册表、Scrape 抓网页、Notification 发通知、MultiSelect/MultiEdit 批量操作", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:工具名;arguments:dict:工具参数（参数键直接平铺传入即可）;timeout:int:超时秒数;allowUiTree:bool:true=允许 Snapshot 取 UI 元素树（有概率把目标机 MCP 卡死，非必要别开）", permission=EXEC, category="ComputerUse", sensitive=True),
 ]
 
 TOOLS: tuple[Tool, ...] = tuple(_TOOLS)
@@ -441,6 +441,56 @@ def _human_message(message: str, ok: bool, status: int | None = None) -> str:
     return f"服务端返回 HTTP {status}" if status else "调用未成功"
 
 
+MAX_TOOL_IMAGES = 2
+_IMAGE_PREFIX = "data:image/"
+
+
+def _collect_images(payload: Any) -> list[str]:
+    """挑出结果里能直接塞进 ``<img src>`` 的 dataUrl（目前只有 ComputerUse 截图）。"""
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("images")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str) and item.startswith(_IMAGE_PREFIX)]
+
+
+def _without_images(payload: Any) -> Any:
+    """去掉给模型看的文本里的 base64 图片。
+
+    base64 图喂给模型毫无意义（模型看不见像素，只会挤掉上下文），所以换成一句占位：
+    真正的图走卡片给用户看，模型只需要知道「有一张图已经给用户看了」。
+    """
+    if isinstance(payload, dict):
+        cleaned: dict[str, Any] = {}
+        for key, value in payload.items():
+            if key == "images" and isinstance(value, list):
+                cleaned[key] = [
+                    f"<图片 {index + 1}：已经作为图片卡片展示给用户>" for index, _ in enumerate(value)
+                ]
+            elif key == "raw" and value:
+                cleaned[key] = "<原始 MCP 响应已省略>"
+            else:
+                cleaned[key] = _without_images(value)
+        return cleaned
+    if isinstance(payload, list):
+        return [_without_images(item) for item in payload]
+    if isinstance(payload, str) and payload.startswith(_IMAGE_PREFIX):
+        return "<图片：已经作为图片卡片展示给用户>"
+    return payload
+
+
+def _image_caption(payload: Any, *, limit: int = 300) -> str:
+    """卡片的说明文字：就是 MCP 自己回的那段文本（光标位置、截图尺寸、桌面…）。"""
+    if not isinstance(payload, dict):
+        return ""
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def summarize(tool: Tool, result: dict, *, limit: int = 8000) -> tuple[str, str, dict | None]:
     """把工具结果压成 ``(一句话摘要, 给模型看的文本, 可选的卡片)``。"""
     data = result.get("data")
@@ -449,6 +499,17 @@ def summarize(tool: Tool, result: dict, *, limit: int = 8000) -> tuple[str, str,
         str(result.get("message") or ""), bool(result.get("ok")), result.get("status")
     )
     card = None
+
+    # 截图这类带图的结果：图做成卡片给用户看，模型侧只留文字说明
+    images = _collect_images(payload)
+    if images:
+        payload = _without_images(payload)
+        card = {
+            "type": "image",
+            "title": f"{tool.name} 截图",
+            "caption": _image_caption(payload),
+            "images": images[:MAX_TOOL_IMAGES],
+        }
 
     if isinstance(data, dict):
         total = data.get("total")
