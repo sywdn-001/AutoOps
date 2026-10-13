@@ -1,5 +1,6 @@
 # ── 依赖与构建产物（可再生成，不入库）──
 ant-design-pro/node_modules/
+/node_modules/
 ant-design-pro/dist/
 ant-design-pro/src/.umi/
 **/__pycache__/
