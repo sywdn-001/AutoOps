@@ -40,6 +40,7 @@
 - **Windows 远程桌面（WebRDP）** — 浏览器里开 RDP，含老系统（Server 2003 / XP）的强制 SSL 兜底；录像边录边传，窗口被强行关掉也不丢。
 - **SFTP 文件管理器** — 浏览、上传、下载、重命名、删除、改权限、打包下载，走和终端一样的授权与策略。
 - **AI 运维助手** — 自然语言下指令，按主机端点自动选通道（Linux 走 SSH、Windows 走 WinRM），敏感操作要管理员密码确认，工具调用全过程进审计。
+- **ComputerUse（让 AI 直接操作 Windows 主机）** — 系统设置里分步部署：列华为云镜像的 Python 安装包并先缓存到堡垒机 → 传包静默安装 → `pip install windows-mcp` → 写开机自启 VBS 并启动 MCP → 开 portproxy 与只放行堡垒机的防火墙 → 探活；**部署成功后**，Windows RDP 控制台右侧才会出现可收起的 ComputerUse 侧边栏，AI 经 MCP 看屏幕、点鼠标、跑 PowerShell，每一步都进审计。
 
 ## 界面截图
 
@@ -82,6 +83,12 @@
     <td align="center" width="50%">
       <a href="docs/screenshots/audit-chain-detail.png"><img src="docs/screenshots/audit-chain-detail.png" width="100%" alt="防篡改审计" /></a>
       <br /><sub><b>防篡改审计</b> — 命令日志哈希链，改一条就能查出来</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="100%" colspan="2">
+      <a href="docs/screenshots/computeruse-mcp-screenshot.png"><img src="docs/screenshots/computeruse-mcp-screenshot.png" width="72%" alt="ComputerUse 通过 MCP 看到的目标机桌面" /></a>
+      <br /><sub><b>ComputerUse</b> — AI 经 MCP 直接截到的 <code>win-75</code> 桌面（这一张就是它拿到的原图，1024×768）</sub>
     </td>
   </tr>
 </table>
@@ -302,7 +309,7 @@ AutoOps/
 │   │   ├── ai/                 # AI 运维助手（工具注册 + 模型客户端）
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # 启动时「只加不减」地补齐表结构
-│   ├── tests/                  # 705 个用例 / 33 个文件
+│   ├── tests/                  # 748 个用例 / 35 个文件
 │   ├── tools/                  # 演示目标机、三套联调脚本、审计链校验、README 配图生成器
 │   └── instance/               # 运行时数据（SQLite、密钥、录像）——已在 .gitignore
 ├── ant-design-pro/             # 前端：Ant Design Pro 6 + Umi Max 4，业务页全部重写
@@ -349,10 +356,10 @@ export BASTION_API=http://192.168.1.10:5000     # Linux / macOS
 
 ## 验证记录
 
-后端 705 个用例、前端 70 个单测，加上三套真机联调脚本：
+后端 748 个用例、前端 12 个文件 180 个单测，加上三套真机联调脚本：
 
 ```bash
-cd bastion-backend && python -m pytest -q          # 705 passed（33 个文件）
+cd bastion-backend && python -m pytest -q          # 748 passed（35 个文件）
 python tools/live_e2e_check.py                     # 97 项：HTTP + Socket.IO + SSH 网关 + SFTP + AI 端到端
 python tools/ui_check.py                           # 21 项：真实 Chrome 逐路由巡检后台
 python tools/console_check.py                      # 33 项：真实 Chrome 驱动网页终端与文件管理器

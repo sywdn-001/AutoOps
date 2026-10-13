@@ -145,6 +145,17 @@
   background: #3a2e14 !important;
 }
 
+/* 工具条下方的主体：左边桌面画布 + 右边可收起的 ComputerUse 侧边栏（窄条 44px / 展开 400px）。
+   必须在**行**方向排布，并且给舞台留 min-width:0，画布才能跟着面板收放重新缩放。 */
+.bastion-rdp-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* 桌面舞台：画布始终铺满它，尺寸由 JS 同步给被控主机（分辨率跟随窗口） */
 .bastion-rdp-stage {
   position: relative;

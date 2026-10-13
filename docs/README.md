@@ -23,6 +23,7 @@
 | --- | --- | --- |
 | [图文教程.md](图文教程.md) | [tutorial.en.md](i18n/tutorial.en.md) | **推荐第一份读的**：从起服务 → 纳管主机 → 建用户与角色 → 授权 → 网页终端 / 文件管理器 / WinRM / 远程桌面 → 查审计，18 个步骤每步配一张真实操作截图 |
 | [使用手册.md](使用手册.md) | [manual.en.md](i18n/manual.en.md) | 按页面/场景逐条说明：管理员怎么配、运维人员几种接入方式、审计员看什么、AI 助手两种入口 |
+| [使用手册.md · 一·八·补·二](使用手册.md#一八补二computeruse让-ai-直接操作一台-windows-主机) | [manual.en.md · I·VIII·supplement·II](i18n/manual.en.md#iviiisupplementiicomputeruse-letting-the-ai-operate-a-windows-host-directly) | **ComputerUse 专章**：这是什么、四个入口、准备条件（目标机 Windows + WinRM + Python 3.13+）、四步向导、七个阶段、侧边栏怎么用、安全与审计、常见问题与限制 |
 | [审计与安全.md](审计与安全.md) | — | 审计数据流、哈希链与验签、凭据与密钥的处理、威胁模型与「超级管理员准入例外」 |
 | [需求对照.md](需求对照.md) | — | 四条原始需求 + 扩展需求，逐条对应到实现位置与验证证据 |
 | [验证记录.md](验证记录.md) | — | 门禁与真机联调的实测流水：每条判据、命令、实际输出与截图取证 |

@@ -355,6 +355,18 @@ def create_app(config_object=None, *, create_tables: bool = True, seed: bool = T
 
         idle_sweeper.start(app)
 
+        # ComputerUse 向导第一步要列华为镜像上的 Python 安装包，而镜像站新连接首包实测
+        # 要 20~30 秒（复用连接只要 0.1 秒）。启动时先让一个后台线程把清单拉进内存缓存，
+        # 用户点开向导时就不用干等这一次慢连接。
+        import threading
+
+        from .computeruse import prewarm
+
+        if not app.config.get("TESTING"):  # 测试不打外网
+            threading.Thread(
+                target=prewarm, name="computeruse-prewarm", daemon=True
+            ).start()
+
     # WebRDP（Windows 远程桌面）隧道：RDCleanPath 用 WebSocket，但走的是「原始 WSGI 升级」
     # 而不是 Socket.IO。中间件必须包在 socketio.init_app 之后的最外层，才能在 engine.io
     # 之前按路径分流（见 app/rdp/proxy.py 与 engineio 的 _websocket_wsgi 的写法）。

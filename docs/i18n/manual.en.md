@@ -153,3 +153,129 @@ root@demo-linux-01:~# /ask-ai 这台机器磁盘满了吗
 - **Host form protocol merge**: the "protocol entry points" are merged into two items, **Linux / Unix（SSH 命令行）** and **Windows（命令行 + 远程桌面）**; after choosing Windows you tick the two channels "命令行（WinRM / PowerShell）" and "远程桌面（RDP）" (the same machine may open just one or both), and **only when the matching channel is ticked do** `RDP 安全层` / `WinRM 认证方式` and their respective port boxes appear — choosing SSH no longer makes anything about RDP pop up underneath.
 
 ---
+
+## I·VIII·supplement·II. ComputerUse: letting the AI operate a Windows host directly
+
+### What this is
+
+ComputerUse is the feature that **lets the AI operate a Windows host directly**: an open-source project, Windows-MCP (`https://github.com/CursorTouch/Windows-MCP`, PyPI package name `windows-mcp`, requiring Python 3.13+), runs on the target machine and serves MCP over the `streamable-http` transport; the bastion acts as the MCP client and calls its tools to operate that machine.
+
+- 20 tools: App, DisplayInventory, PowerShell, FileSystem, Snapshot, Screenshot, Click, Type, Scroll, Move, Shortcut, Wait, WaitFor, Scrape, MultiSelect, MultiEdit, Clipboard, Process, Notification, Registry.
+- How it differs from the "AI operations assistant": the AI operations assistant has **the bastion itself** look up assets, read logs and run commands; ComputerUse is the AI **reaching onto somebody else's desktop** — looking at the screen, clicking the mouse, typing on the keyboard, opening programs. So every step of it goes through the audit trail, and tools that change machine state additionally need your confirmation on the spot.
+
+### The four entry points
+
+| Entry point | Where | Notes |
+| --- | --- | --- |
+| Deployment wizard | **System settings → ComputerUse Deployment** (`/system/computer-use`) | A stepped wizard that installs Windows-MCP onto a managed Windows host |
+| Deployment history | The "view records" button on the same page | A drawer listing every deployment: host / status / stage / progress / Python / MCP address / deployed by / created at |
+| Console sidebar | On the right of the **WebRDP console** (`/rdp/console`) | A 44px vertical strip when collapsed, a 400px panel when expanded; it appears **only after a successful deployment** |
+| AI operations assistant | The ComputerUse tools are available in AI conversations too | `list_computeruse_hosts`, `get_computeruse_status`, `list_computeruse_tools`, `observe_computer` (read-only), `control_computer` (changes machine state; sensitive operations need confirmation) |
+
+The sidebar is not something you can open at will: the panel is rendered only when `GET /api/computer-use/status` returns `ready: true` (that is, a working MCP has really been probed out on that host); otherwise the whole block does not appear.
+
+### Prerequisites
+
+- **The target machine**: Windows, with **WinRM already enabled** (ComputerUse pushes every command over WinRM throughout, the same channel as "both Option A and Option B can reach Windows hosts (WinRM, a character session)").
+- **A usable asset account**: the account needs administrator rights — installing Python, writing to `C:\Program Files`, creating firewall rules and creating scheduled tasks all need it.
+- **The host must be onboarded in the bastion first**: add the host under "Asset management" and **configure its WinRM endpoint and authentication method**; ComputerUse's "choose the target host" picks from the **existing asset list**, so if you cannot find it there, go back and add the host first.
+- **Python 3.13+**: `windows-mcp` only supports Python 3.13 and above, and every candidate version in the wizard has been filtered on that. It does not matter if the target machine already has something like 3.9.9 installed — the newly installed 3.13 coexists with it and the two leave each other alone.
+- **The Python installer**: versions are listed from the Huawei Cloud mirror (`https://mirrors.huaweicloud.com/python/`), and the installer is **cached on the bastion first**, after which the target machine pulls it from a signed address (see step 1 below).
+- **Network**: the target machine must be able to reach the bastion (to download the installer) and reach PyPI or the pip index you specify; after deployment, **only the bastion** can reach the target machine's port 8000.
+
+### The four-step flow
+
+Open **System settings → ComputerUse Deployment** and you get a four-step wizard (the progress bar reads "choose a Python installer → choose the target host → run the deployment → done"). You can "start over" at any point, and the "view records" button at the top replays past deployments.
+
+**Step 1 · choose a Python installer and cache it on the bastion**
+
+- The list gives Windows AMD64 installers from `https://mirrors.huaweicloud.com/python/` by version; pick a version **≥ 3.13**.
+- Clicking cache drops the installer into the bastion's `bastion-backend/instance/computeruse/installers/` and writes a `.sha256` and a `.meta.json` alongside it. This step is **storing it on the bastion first** — the target machine then does not have to connect to the Huawei Cloud mirror itself.
+- The Huawei Cloud mirror takes **20–36 seconds** for the first packet of a **new connection** but only **0.1 seconds** when reusing the same keep-alive connection, so probing reuses one connection serially with a total budget of 25 seconds; over budget it hands over the partial results it has already probed and warms the rest in the background. The catalogue cache has two lifetimes: **1 hour when complete, 2 minutes when incomplete**.
+- An installer that has already been cached can be deleted (by concrete file name, without affecting anybody else).
+
+**Step 2 · choose the target host and asset account, and adjust the deployment options while you are there**
+
+- Pick a **Windows host with WinRM enabled** and its asset account from the managed hosts.
+- Deployment options (they have defaults; you normally do not need to touch them):
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| MCP port `mcpPort` | `8000` | The port MCP listens on on the target machine |
+| pip index `pipIndex` | `https://pypi.tuna.tsinghua.edu.cn/simple` | Which index to install `windows-mcp` from |
+| Access key `useAuthKey` | on | Adds a Bearer key in front of MCP |
+| Listen on every NIC `bindAll` | off | With it off, MCP listens only on `127.0.0.1` and is exposed through portproxy |
+
+- About the pip index: `pip install windows-mcp` takes about **5 seconds** from the Tsinghua mirror and **measured about 18 minutes going straight to pypi.org**, which is why the Tsinghua mirror is what the default is filled in with.
+
+**Step 3 · start the deployment and watch the stage progress and live logs**
+
+- After you click "start deployment", the page pushes the progress bar and the logs to you together (the logs go over SSE: `GET /api/computer-use/deployments/<id>/logs`, events scroll down one by one, no refresh needed).
+- **At most 2 deployments run at the same moment** (`MAX_CONCURRENT = 2`) — a WinRM connection plus pip is heavy on the target machine.
+- If you no longer want it halfway through, you can cancel (`POST /api/computer-use/deployments/<id>/cancel`) and the status is recorded as "cancelled".
+- The record is stored in the `computeruse_deployments` table: host, account, installer, Python path, MCP address/port/tool list, status, stage, progress, log tail, start and finish times, and so on. The access key is stored Fernet-encrypted in `mcp_auth_key_enc` and **never lands in plaintext**.
+
+**Step 4 · the success page**
+
+- When everything has finished you get the success page: the MCP address, the Python path, the tool list, and an "**open WebRDP console**" button (it jumps to `/rdp/console` carrying the `hostId`).
+- What that success page says is meant seriously: "the console only opens after a successful deployment" — the sidebar trusts a successfully probed deployment and nothing else.
+
+### The seven stages
+
+The seven stages on the progress bar are the seven things the backend really does (the front-end progress bar and the backend execution order read the same table):
+
+| Stage | Name | Anchor progress | What it does |
+| --- | --- | --- | --- |
+| `prepare` | 连接目标机 / 环境体检 (connect to the target machine / environment check-up) | 6 | Connects and examines the machine: OS, architecture, PowerShell, disk, any existing Python and MCP |
+| `upload` | 把 Python 安装包传到 `C:\Installer` (transfer the Python installer to `C:\Installer`) | 28 | The target machine pulls the installer from the bastion's signed address into `C:\Installer\`, then verifies the size and SHA256 |
+| `install` | 静默安装 Python（`/quiet InstallAllUsers=1 PrependPath=1`）(silent Python install) | 48 | Installs silently, then reads back the new Python's path and version |
+| `pip` | 安装 windows-mcp（pip）(install windows-mcp with pip) | 68 | Upgrades pip first, then `pip install windows-mcp`, then reads back the version and the `windows-mcp.exe` path |
+| `vbs` | 写开机自启 VBS 并立即启动 MCP (write the boot-autostart VBS and start MCP immediately) | 82 | Writes the boot-autostart script, whose command is `windows-mcp serve --transport streamable-http --host localhost --port 8000`, then starts it **immediately** and waits for it to really listen on `127.0.0.1:8000` |
+| `expose` | 开 portproxy + 防火墙（只放行堡垒机）(open portproxy + firewall, allowing only the bastion) | 92 | `netsh interface portproxy` maps the LAN address to loopback, and the firewall allows only that one bastion IP |
+| `verify` | 探活 MCP（`tools/list`）(probe MCP for liveness) | 100 | Probes it with an MCP client and writes the tool list back into the database |
+
+### How to use the sidebar
+
+After a successful deployment, jump from the success page into the WebRDP console (or open `/rdp/console` yourself) and a **44px** vertical strip appears on the right; clicking it opens a **400px** panel (the expanded/collapsed state is remembered in the browser, and survives a refresh).
+
+- **Take a look at the screen**: press "take a look at the screen" and the backend calls the `Screenshot` tool of `POST /api/computer-use/mcp/call` for you, and a PNG comes back inlined straight into the panel (at most 3 are kept). The panel asks for the status once every 30 seconds, and a single MCP call waits at most 60 seconds. On the real machine that press came back with a desktop image of **106,018 bytes at 1024×768** (backend pillow) in **790 ms** — see [computeruse-mcp-screenshot.png](../screenshots/computeruse-mcp-screenshot.png).
+- **Tool list**: lists the 20 tools that target machine reports, each with a marker —
+  - tools marked "**read-only**" (Screenshot, Snapshot, Wait and the like) **can be called by the AI directly**;
+  - tools marked "**changes machine state**" (clicking, typing, PowerShell, the registry, the filesystem …) **need an administrator to confirm on the spot when the AI calls them**.
+- **Write operations need confirmation**: hitting a tool that changes machine state pops up a confirmation box asking for the administrator account (the administrator logged in on this machine can leave it blank) and its password, with the two choices "refuse" / "confirm"; after confirming, the same conversation turn carries on.
+- **AI chat**: the lower half of the panel is the chat box, so you can watch the screen while telling it what to do; answers stream out, and every tool call leaves an expandable record card.
+- Please take the line at the foot of the panel seriously: "AI 操作的是目标机的控制台会话；与当前 RDP 会话可能是两个桌面，请以截图为准。" (the AI operates the target machine's console session, which may be a different desktop from your current RDP session — trust the screenshot).
+- The sidebar has an error boundary of its own: if it breaks, it swallows only the sidebar and never takes down the RDP session you are using.
+
+### Security and audit
+
+- **Listen on loopback only, then map it out**: MCP listens only on `127.0.0.1:8000` by default and `netsh interface portproxy` maps it to the LAN address; **the firewall allows only that one bastion IP**. If the bastion IP cannot be probed, it degrades to allowing only the local subnet and hangs a warning in the log (it does not do so silently).
+- **Optional access key**: adds a Bearer key in front of MCP, and the key is stored Fernet-encrypted in the database (`mcp_auth_key_enc`), never in plaintext.
+- **Signed temporary download address**: the target machine pulls the installer from a temporary address signed with **HMAC-SHA256 and valid for 2 hours** (`GET /api/computer-use/installers/<filename>?e=…&s=…`), valid only for **that one file name** — the target machine can download without a JWT, but a different file name will not download.
+- **Every step writes an audit record**: every stage, every probe and **every MCP tool call** lands in `audit_logs` (category `computeruse`: `deploy_start`, `deploy_stale`, `mcp_probe`, `mcp_call`, `cache_installer` and so on), and the audit chain is verifiable.
+- **Permissions**: the three permissions `computeruse:view`, `computeruse:deploy` and `computeruse:use` are ticked in the roles/permissions of system settings (every backend endpoint checks them).
+
+### Common questions and limits
+
+**"The deployment succeeded, but the screenshot is blank?" — session isolation, and this is the easiest one to trip over**
+
+Windows-MCP's screenshots and UI automation only recognise "**the login session it is running in itself**". When there is **no interactive logon** on the target machine, MCP runs in session 0: PowerShell, file and process tools all work, but **screenshots and UI automation are empty**. Once you log in over RDP from the "WebRDP console", the boot-autostart script uses the "port takeover script" to **seize MCP into your desktop session** (**the same port, so the sidebar does not need its address changed**), and from then on the screenshot is the desktop in front of you.
+
+**Is pip very slow?**
+
+`pip install windows-mcp` measured about **18 minutes** going straight to pypi.org; on the Tsinghua mirror it is about **5 seconds**. The wizard's default is the Tsinghua mirror — do not change it to a direct connection by mistake.
+
+**Other common traps**
+
+- No host to pick: first add that Windows host under asset management and **get its WinRM endpoint configured**.
+- The version list does not come up: a new connection to the Huawei Cloud mirror needs 20–36 seconds for its first packet, so give it a moment; over budget the list gives you a part of it first.
+- A deployment stuck in `running`: a backend restart or a thread exception leaves a zombie running record, which is automatically judged `failed` when a new deployment is created (audited as `deploy_stale`); just issue it again.
+
+**The limits known at this point (written honestly, not oversold)**
+
+- **No visual browser acceptance was done**: the panel rendering rests on the RDP sidebar's 47 front-end unit tests (the deployment wizard adds another 63; the whole front end is 12 files / 180 tests, all green), plus `tsc` / `biome` / `build` / `vitest` all green and the panel code being findable in the build output; but the canvas resize and the remote-resolution linkage when expanding/collapsing **were not verified** in a real RDP session.
+- **No full round of "boot autostart after a whole-machine reboot of the target" was done**: the VBS → CMD → takeover script chain was triggered on the real machine and passed (successfully killing old process 10796 and starting new process 3028), but the **target machine was never rebooted**.
+- The front end has **no** button-level gate for `computeruse:use` (every backend endpoint does check permissions).
+- `pip install windows-mcp` straight to PyPI is very slow (about 18 minutes), and the wizard's default is the Tsinghua mirror.
+
+---

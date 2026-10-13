@@ -306,6 +306,12 @@ _TOOLS: list[Tool] = [
     T("list_ai_conversations", "查看历史 AI 运维对话", "GET", "/api/ai/conversations", "keyword:str:标题关键字;mine:str:true=只看自己的;page:int;pageSize:int", category="AI", card="AI 对话"),
     T("get_ai_conversation", "读取某次 AI 对话的完整消息（我说了什么、AI 回了什么、调用了什么工具）", "GET", "/api/ai/conversations/{conversation_id}", "conversation_id:int!:对话 ID", category="AI"),
     T("list_ai_tool_calls", "查询 AI 工具调用审计（工具名、参数、结果、是否敏感、谁批准的）", "GET", "/api/ai/tool-calls", "keyword:str;toolName:str;status:str;username:str;page:int;pageSize:int", category="AI", card="AI 工具调用"),
+    # ---------------- ComputerUse（Windows-MCP：AI 直接操作 Windows 桌面） ----------------
+    T("list_computeruse_hosts", "查看哪些 Windows 主机可以部署 ComputerUse，以及每台的部署状态（是否就绪、MCP 地址、工具数量）", "GET", "/api/computer-use/hosts", category="ComputerUse", card="ComputerUse 主机"),
+    T("get_computeruse_status", "查看某台主机的 ComputerUse 是否就绪：MCP 地址、已装 Python、Windows-MCP 版本、可用工具数量", "GET", "/api/computer-use/status", "hostId:int!:主机 ID", category="ComputerUse"),
+    T("list_computeruse_tools", "列出目标机上 Windows-MCP 暴露给我的工具（点击/输入/截图/应用/文件/注册表…），含每个工具是否只读", "GET", "/api/computer-use/mcp/tools", "hostId:int!:主机 ID;live:str:true=现场读取一次", category="ComputerUse", card="ComputerUse 工具"),
+    T("observe_computer", "看一眼目标机的桌面（只读，不动鼠标键盘）：Screenshot 截图、Snapshot 取 UI 元素树、DisplayInventory 看显示器、ControlStatus 看有没有人正在操作、Wait/WaitFor 等待界面变化", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:只读工具名（Screenshot|Snapshot|DisplayInventory|ControlStatus|Wait|WaitFor）;arguments:dict:工具参数（如 region=[x1,y1,x2,y2]、use_dom=true）", permission=EXEC, category="ComputerUse", sensitive=False),
+    T("control_computer", "操作目标机的鼠标键盘与程序（会改变机器状态，需要管理员当场确认）：Click 点击、Type 输入、Scroll 滚动、Move 拖动、Shortcut 快捷键、App 启停应用、PowerShell 执行命令、FileSystem 读写文件、Clipboard 剪贴板、Process 进程、Registry 注册表、Scrape 抓网页", "POST", "/api/computer-use/mcp/call", "hostId:int!:主机 ID;tool:str!:工具名;arguments:dict:工具参数（参数键直接平铺传入即可）;timeout:int:超时秒数", permission=EXEC, category="ComputerUse", sensitive=True),
 ]
 
 TOOLS: tuple[Tool, ...] = tuple(_TOOLS)

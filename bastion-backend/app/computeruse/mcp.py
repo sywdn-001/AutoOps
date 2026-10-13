@@ -1,0 +1,340 @@
+"""Windows-MCP 的 streamable-http 客户端（只讲 JSON-RPC，不碰业务）。
+
+上游把 MCP 服务起在目标机上：``windows-mcp serve --transport streamable-http
+--host localhost --port 8000``，端点是 ``http://<目标机>:8000/mcp``。协议是
+JSON-RPC 2.0，握手顺序是：
+
+1. ``initialize``（带 ``protocolVersion`` / ``clientInfo``）→ 服务端回 ``Mcp-Session-Id``；
+2. ``notifications/initialized``（通知，没有 id，服务端通常回 202）；
+3. ``tools/list`` 拿到工具清单；``tools/call`` 执行某个工具。
+
+几个实测/文档里踩过的点：
+
+- 请求头必须同时接受 JSON 与 SSE：``Accept: application/json, text/event-stream``，
+  否则部分实现直接 406；
+- 开了 ``WINDOWS_MCP_STATELESS_HTTP=true`` 时服务端**不要求** ``Mcp-Session-Id``，
+  重连更省事（我们默认建议打开，但客户端两种情况都能跑）；
+- 回包可能是 ``text/event-stream``，一行一个 ``data: {...}``，要能挑出属于本次
+  请求 id 的那条（进度通知是别的 id，直接忽略）；
+- 工具结果在 ``result.content`` 里，元素有 ``type=text`` 与 ``type=image``（base64）。
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import time
+from typing import Any
+from urllib.parse import urlsplit
+
+import requests
+
+MCP_PROTOCOL_VERSION = "2025-06-18"
+MCP_CLIENT_NAME = "AutoOps-Bastion"
+MCP_CLIENT_VERSION = "1.0.0"
+
+#: 只读工具：看一眼就完事，不改变目标机状态，可以不要求管理员二次确认。
+OBSERVE_TOOLS = frozenset(
+    {
+        "Screenshot",
+        "Snapshot",
+        "DisplayInventory",
+        "ControlStatus",
+        "Wait",
+        "WaitFor",
+    }
+)
+
+#: 常见会改状态/碰数据的工具，用于给前端标红（真正的门禁在 permission + 二次确认上）。
+MUTATING_TOOLS = frozenset(
+    {
+        "Click",
+        "Type",
+        "Scroll",
+        "Move",
+        "Shortcut",
+        "App",
+        "PowerShell",
+        "FileSystem",
+        "Scrape",
+        "MultiSelect",
+        "MultiEdit",
+        "Clipboard",
+        "Process",
+        "Notification",
+        "Registry",
+    }
+)
+
+
+class McpError(RuntimeError):
+    """MCP 调用失败（连不上、鉴权失败、协议错误、工具报错），message 是可读中文。"""
+
+
+def normalize_url(url: str) -> str:
+    """把用户填的地址补成 ``http://host:port/mcp``。"""
+    base = (url or "").strip().rstrip("/")
+    if not base:
+        raise McpError("MCP 地址为空")
+    if not base.startswith(("http://", "https://")):
+        base = f"http://{base}"
+    if not base.endswith("/mcp"):
+        base = f"{base}/mcp"
+    return base
+
+
+def extract_text(result: dict | None) -> str:
+    """把 ``tools/call`` 的返回拼成人话文本（text 部分；image 见 ``extract_images``）。"""
+    if not result:
+        return ""
+    parts: list[str] = []
+    for item in result.get("content") or []:
+        if isinstance(item, dict) and item.get("type") == "text":
+            parts.append(str(item.get("text") or ""))
+        elif isinstance(item, dict) and item.get("type") == "resource":
+            resource = item.get("resource") or {}
+            parts.append(str(resource.get("text") or resource.get("uri") or ""))
+    if not parts and result.get("structuredContent"):
+        parts.append(json.dumps(result["structuredContent"], ensure_ascii=False))
+    return "\n".join(part for part in parts if part).strip()
+
+
+def extract_images(result: dict | None) -> list[tuple[str, bytes]]:
+    """取出返回里的图片（``type=image``），返回 ``[(mime, bytes)]``。"""
+    images: list[tuple[str, bytes]] = []
+    if not result:
+        return images
+    for item in result.get("content") or []:
+        if not isinstance(item, dict) or item.get("type") != "image":
+            continue
+        raw = item.get("data")
+        if not raw:
+            continue
+        try:
+            images.append((item.get("mimeType") or "image/png", base64.b64decode(raw)))
+        except (ValueError, TypeError):
+            continue
+    return images
+
+
+class McpClient:
+    """一个目标机的 MCP 连接（无状态，用完即弃；会话 id 自动带上）。"""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        auth_key: str = "",
+        timeout: float = 60.0,
+        client_name: str = MCP_CLIENT_NAME,
+    ) -> None:
+        self.url = normalize_url(url)
+        self.auth_key = (auth_key or "").strip()
+        self.timeout = float(timeout or 60.0)
+        self.client_name = client_name
+        self.session_id = ""
+        self._seq = 0
+        self._initialized = False
+
+    # ------------------------------------------------------------------ 底层
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "User-Agent": f"{MCP_CLIENT_NAME}/{MCP_CLIENT_VERSION}",
+        }
+        loopback = self._loopback_host()
+        if loopback:
+            headers["Host"] = loopback
+        if self.auth_key:
+            headers["Authorization"] = f"Bearer {self.auth_key}"
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        return headers
+
+    def _loopback_host(self) -> str:
+        """按「本机回环 + 目标端口」写 Host，绕开 MCP 的 DNS-rebinding 防护。
+
+        `mcp` 这个包默认打开 DNS-rebinding 防护，只认 Host 是
+        `127.0.0.1:*` / `localhost:*` / `[::1]:*` 的请求
+        （`mcp/server/lowlevel/server.py` 里那组 `allowed_hosts`），
+        否则回一个 「Invalid Host header」。
+
+        堡垒机是隔着局域网、经目标机上的 portproxy 访问 `http://<目标机IP>:<端口>/mcp`
+        的，Host 自然写成目标机 IP，于是被拒。而目标机的 portproxy 本来就把连接终结到
+        `127.0.0.1:<端口>`，所以这里如实声明回环 Host 是准确的，不是伪造：
+        真正的门禁是「只放行堡垒机 IP 的防火墙规则 + Bearer 访问密钥」。
+
+        目标是本地进程（`127.0.0.1`）时不用改，返回空串。
+        """
+        parsed = urlsplit(self.url)
+        host = (parsed.hostname or "").lower()
+        if host in {"127.0.0.1", "localhost", "::1", "[::1]"}:
+            return ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return f"127.0.0.1:{port}"
+
+    def _messages(self, resp: requests.Response) -> list[dict]:
+        """不管回 JSON 还是 SSE，都还原成一组 JSON-RPC 报文。"""
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        text = resp.text or ""
+        if "text/event-stream" in ctype:
+            messages: list[dict] = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    data = json.loads(payload)
+                except ValueError:
+                    continue
+                if isinstance(data, dict):
+                    messages.append(data)
+                elif isinstance(data, list):
+                    messages.extend(item for item in data if isinstance(item, dict))
+            return messages
+        if not text.strip():
+            return []
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise McpError(f"MCP 返回了无法解析的内容：{text[:200]}") from exc
+        return data if isinstance(data, list) else [data]
+
+    def _post(self, payload: dict, *, expect_reply: bool = True) -> list[dict]:
+        try:
+            resp = requests.post(
+                self.url,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=self._headers(),
+                timeout=(15.0, self.timeout),
+            )
+        except requests.Timeout as exc:
+            raise McpError(f"MCP 响应超时（{self.timeout:.0f} 秒）：{self.url}") from exc
+        except requests.RequestException as exc:
+            raise McpError(
+                f"连不上目标机的 MCP 服务（{self.url}）：{exc} —— 确认 MCP 进程在跑、"
+                "portproxy 与防火墙已放行、地址端口没写错"
+            ) from exc
+
+        session = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+        if session:
+            self.session_id = session
+
+        if resp.status_code in (401, 403):
+            raise McpError(
+                f"MCP 拒绝访问（HTTP {resp.status_code}）：这台机器的 MCP 开了访问密钥，"
+                "请确认部署时生成的密钥与当前一致"
+            )
+        if resp.status_code == 404:
+            raise McpError(f"MCP 端点不存在（HTTP 404）：{self.url}（注意要带 /mcp）")
+        if resp.status_code >= 400:
+            raise McpError(f"MCP 返回 HTTP {resp.status_code}：{(resp.text or '')[:200]}")
+        if not expect_reply:
+            return []
+        return self._messages(resp)
+
+    def _rpc(self, method: str, params: dict | None = None, *, notify: bool = False) -> dict:
+        self._seq += 1
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            payload["params"] = params
+        if not notify:
+            payload["id"] = self._seq
+        messages = self._post(payload, expect_reply=not notify)
+        if notify:
+            return {}
+        wanted = self._seq
+        for message in messages:
+            if message.get("id") not in (wanted, str(wanted)):
+                continue
+            if "error" in message:
+                error = message["error"] or {}
+                raise McpError(
+                    f"MCP 报错（{error.get('code', '?')}）：{error.get('message') or error}"
+                )
+            return message.get("result") or {}
+        # 有些实现只在 SSE 里回一条不带 id 的结果
+        for message in messages:
+            if "result" in message and "id" not in message:
+                return message["result"] or {}
+        raise McpError(f"MCP 没有返回本次请求的结果（method={method}）")
+
+    # ------------------------------------------------------------------ 公开接口
+    def initialize(self) -> dict:
+        result = self._rpc(
+            "initialize",
+            {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": self.client_name, "version": MCP_CLIENT_VERSION},
+            },
+        )
+        try:
+            self._rpc("notifications/initialized", {}, notify=True)
+        except McpError:
+            # 有些实现不接受这条通知，不影响后续 tools/list
+            pass
+        self._initialized = True
+        return result if isinstance(result, dict) else {}
+
+    def list_tools(self) -> list[dict]:
+        if not self._initialized:
+            self.initialize()
+        result = self._rpc("tools/list", {})
+        tools = (result or {}).get("tools") if isinstance(result, dict) else None
+        if tools is None and isinstance(result, list):
+            tools = result
+        return [tool for tool in (tools or []) if isinstance(tool, dict)]
+
+    def call_tool(
+        self, name: str, arguments: dict | None = None, *, timeout: float | None = None
+    ) -> dict:
+        if not self._initialized:
+            self.initialize()
+        if timeout:
+            self.timeout = float(timeout)
+        return self._rpc("tools/call", {"name": name, "arguments": arguments or {}})
+
+    def probe(self) -> dict:
+        """探活：握手 + 列工具，返回工具数量与耗时（失败返回 ok=False 与可读原因）。"""
+        started = time.time()
+        info: dict[str, Any] = {"endpoint": self.url, "authKey": bool(self.auth_key)}
+        try:
+            handshake = self.initialize()
+            tools = self.list_tools()
+        except McpError as exc:
+            return {
+                **info,
+                "ok": False,
+                "error": str(exc),
+                "latencyMs": int((time.time() - started) * 1000),
+                "toolCount": 0,
+                "tools": [],
+            }
+        server = (handshake or {}).get("serverInfo") or {}
+        return {
+            **info,
+            "ok": True,
+            "error": "",
+            "latencyMs": int((time.time() - started) * 1000),
+            "toolCount": len(tools),
+            "tools": [
+                {
+                    "name": tool.get("name", ""),
+                    "description": (tool.get("description") or "").strip(),
+                    "mutating": tool.get("name") in MUTATING_TOOLS,
+                    "observeOnly": tool.get("name") in OBSERVE_TOOLS,
+                }
+                for tool in tools
+            ],
+            "server": {
+                "name": server.get("name", ""),
+                "version": server.get("version", ""),
+                "protocolVersion": (handshake or {}).get("protocolVersion", ""),
+            },
+            "stateless": not bool(self.session_id),
+        }

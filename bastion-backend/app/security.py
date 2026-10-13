@@ -57,6 +57,10 @@ ALL_PERMISSIONS = [
     "ai:tool_write",
     "ai:tool_exec",
     "ai:manage",
+    # ComputerUse（把 Windows 主机变成 AI 能操作的节点：部署 + 用侧边栏驱动）
+    "computeruse:view",
+    "computeruse:deploy",
+    "computeruse:use",
 ]
 
 

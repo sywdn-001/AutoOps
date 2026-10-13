@@ -1460,3 +1460,114 @@ class RdpRecordingUpload(db.Model):
             "lastSeenAt": _iso(self.last_seen_at),
             "createdAt": _iso(self.created_at),
         }
+
+
+class ComputerUseDeployment(TimestampMixin, db.Model):
+    """一台 Windows 主机上的 ComputerUse（Windows-MCP）部署记录。
+
+    一次部署 = 一行；阶段推进时会不断更新这一行（``status`` / ``stage`` /
+    ``progress`` / ``log_tail``），前端靠 ``progress`` 画阶段式进度条、靠
+    SSE 拿完整日志（完整日志在内存里的 runner，不入库，避免把库撑大）。
+
+    ``mcp_auth_key_enc`` 存的是给目标机 MCP 用的 Bearer 密钥（Fernet 加密），
+    侧边栏调用 MCP 时后端解密后用；``mcp_tools`` 是探活时拿到的工具清单，
+    用于界面上展示「这台机器现在允许 AI 做哪些动作」。
+    """
+
+    __tablename__ = "computeruse_deployments"
+    __table_args__ = (
+        db.Index("ix_computeruse_host", "host_id"),
+        db.Index("ix_computeruse_status", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    host_id = db.Column(db.Integer, db.ForeignKey("hosts.id"), nullable=False)
+    host_name = db.Column(db.String(64), default="")
+    host_address = db.Column(db.String(128), default="")
+    account_id = db.Column(db.Integer, db.ForeignKey("host_accounts.id"))
+    account_username = db.Column(db.String(64), default="")
+
+    #: pending / running / success / failed / cancelled
+    status = db.Column(db.String(16), default="pending", nullable=False)
+    #: 当前阶段 key（见 app/computeruse/deploy.py 的 STAGES）
+    stage = db.Column(db.String(24), default="queued", nullable=False)
+    progress = db.Column(db.Integer, default=0, nullable=False)
+
+    #: 选择的 Python 安装包（版本 + 文件名 + 大小 + 缓存里的 SHA256）
+    python_version = db.Column(db.String(32), default="")
+    installer_name = db.Column(db.String(96), default="")
+    installer_size = db.Column(db.BigInteger, default=0)
+    installer_sha256 = db.Column(db.String(64), default="")
+    #: 目标机上实际装好的 Python
+    python_path = db.Column(db.String(256), default="")
+
+    #: 目标机上的 windows-mcp
+    mcp_version = db.Column(db.String(32), default="")
+    mcp_exe = db.Column(db.String(256), default="")
+    mcp_host = db.Column(db.String(128), default="")
+    mcp_port = db.Column(db.Integer, default=8000)
+    mcp_url = db.Column(db.String(256), default="")
+    mcp_tool_count = db.Column(db.Integer, default=0)
+    mcp_tools = db.Column(db.JSON)
+    mcp_auth_key_enc = db.Column(db.Text, default="")
+
+    #: 开机自启与端口映射
+    vbs_path = db.Column(db.String(256), default="")
+    startup_path = db.Column(db.String(256), default="")
+    portproxy = db.Column(db.Boolean, default=True, nullable=False)
+
+    #: 部署时的可选参数（pip 镜像、MCP 端口、是否监听所有网卡、是否开密钥…）
+    options = db.Column(db.JSON)
+    bastion_url = db.Column(db.String(256), default="")
+    deployed_by = db.Column(db.String(64), default="")
+    deployed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+
+    #: 最近 40 行日志摘要（完整日志在内存的 runner 里）与失败原因
+    log_tail = db.Column(db.Text, default="")
+    last_error = db.Column(db.Text, default="")
+
+    started_at = db.Column(db.DateTime)
+    finished_at = db.Column(db.DateTime)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "hostId": self.host_id,
+            "hostName": self.host_name,
+            "hostAddress": self.host_address,
+            "accountId": self.account_id,
+            "accountUsername": self.account_username,
+            "status": self.status,
+            "stage": self.stage,
+            "progress": self.progress or 0,
+            "pythonVersion": self.python_version,
+            "installerName": self.installer_name,
+            "installerSize": self.installer_size or 0,
+            "installerSha256": self.installer_sha256,
+            "pythonPath": self.python_path,
+            "mcpVersion": self.mcp_version,
+            "mcpExe": self.mcp_exe,
+            "mcpHost": self.mcp_host,
+            "mcpPort": self.mcp_port,
+            "mcpUrl": self.mcp_url,
+            "mcpToolCount": self.mcp_tool_count or 0,
+            "mcpTools": self.mcp_tools or [],
+            "hasAuthKey": bool(self.mcp_auth_key_enc),
+            "vbsPath": self.vbs_path,
+            "startupPath": self.startup_path,
+            "portproxy": bool(self.portproxy),
+            "options": self.options or {},
+            "bastionUrl": self.bastion_url,
+            "deployedBy": self.deployed_by,
+            "logTail": self.log_tail or "",
+            "error": self.last_error or "",
+            "startedAt": _iso(self.started_at),
+            "finishedAt": _iso(self.finished_at),
+            "createdAt": _iso(self.created_at),
+            "updatedAt": _iso(self.updated_at),
+        }
+
+    @property
+    def ready(self) -> bool:
+        """部署成功且 MCP 探活通过 —— 只有这种行才允许给 RDP 侧边栏用。"""
+        return self.status == "success" and bool(self.mcp_url)

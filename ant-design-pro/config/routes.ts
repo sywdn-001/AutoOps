@@ -218,6 +218,11 @@ export default [
         path: '/system/gateway',
         component: './bastion/gateway',
       },
+      {
+        name: 'ComputerUse 部署',
+        path: '/system/computer-use',
+        component: './bastion/computer-use',
+      },
     ],
   },
   {

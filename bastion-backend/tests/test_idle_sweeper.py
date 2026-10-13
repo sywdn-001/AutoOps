@@ -63,8 +63,16 @@ def test_sweeper_reads_the_configured_timeout(app):
         update_settings({"session_idle_timeout": "1800"})
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=True)
 def _clean_registry():
+    """会话注册表是**进程级**的，而本文件的断言是「正好只清掉 idle-1」。
+
+    别的用例（文件/网关那批）会注册真实会话且不做收尾；全量套件跑满几十分钟后它们都
+    变成「空闲」，于是这里的严格断言会被无关会话打破（历史上就是这样偶发失败的）。
+    所以用例前后都把注册表清空，让结论只取决于本文件自己注册的两条。
+    """
+    for entry in session_registry.list_all():
+        session_registry.unregister(entry["sid"])
     yield
     for entry in session_registry.list_all():
         session_registry.unregister(entry["sid"])

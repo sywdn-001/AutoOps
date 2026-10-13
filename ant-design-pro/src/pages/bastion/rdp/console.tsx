@@ -46,6 +46,8 @@ import { rdpApi } from '@/services/bastion/endpoints';
 import type { RdpSessionInfo } from '@/services/bastion/types';
 import { attachInput } from './input';
 import './rdp.css';
+// ComputerUse AI 侧边栏：只有目标机部署成功（ready === true）时它自己才会渲染出来
+import ComputerUsePanel, { ComputerUsePanelBoundary } from './computerUsePanel';
 import { ChunkQueue, newUploadId } from './recordingUpload';
 import {
   buildRdpWsUrl,
@@ -926,14 +928,23 @@ const RdpConsolePage = () => {
         />
       ) : null}
 
-      <div className="bastion-rdp-stage" ref={stageRef}>
-        {status === 'connecting' ? (
-          <div className="bastion-rdp-overlay">
-            <Spin />
-            <span>正在与 {info?.host.address || '目标机'} 协商 RDP 会话…</span>
-          </div>
-        ) : null}
-        <canvas ref={canvasRef} tabIndex={0} className="bastion-rdp-canvas" />
+      <div className="bastion-rdp-body">
+        <div className="bastion-rdp-stage" ref={stageRef}>
+          {status === 'connecting' ? (
+            <div className="bastion-rdp-overlay">
+              <Spin />
+              <span>
+                正在与 {info?.host.address || '目标机'} 协商 RDP 会话…
+              </span>
+            </div>
+          ) : null}
+          <canvas ref={canvasRef} tabIndex={0} className="bastion-rdp-canvas" />
+        </div>
+        {/* 右侧 ComputerUse AI 侧边栏：仅目标机部署成功时出现（由面板自己判定），
+            崩了也只吞掉它自己，画布照常可用 */}
+        <ComputerUsePanelBoundary>
+          <ComputerUsePanel hostId={query.hostId} />
+        </ComputerUsePanelBoundary>
       </div>
 
       <Modal

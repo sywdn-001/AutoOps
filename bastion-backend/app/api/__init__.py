@@ -14,6 +14,7 @@ def register_blueprints(app) -> None:
     from .ai import bp as ai_bp
     from .audits import bp as audits_bp
     from .auth import bp as auth_bp
+    from .computeruse import bp as computeruse_bp
     from .file_policies import bp as file_policies_bp
     from .file_policies import rule_bp as file_rules_bp
     from .files import bp as files_bp
@@ -45,5 +46,6 @@ def register_blueprints(app) -> None:
         audits_bp,
         settings_bp,
         ai_bp,
+        computeruse_bp,
     ):
         app.register_blueprint(blueprint)
