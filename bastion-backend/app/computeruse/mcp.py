@@ -23,11 +23,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import time
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_CLIENT_NAME = "AutoOps-Bastion"
@@ -384,6 +387,19 @@ class McpClient:
             tools = result
         return [tool for tool in (tools or []) if isinstance(tool, dict)]
 
+    # 观察类工具（截图 / 元素树 / 显示器清单 / 等待）都是幂等的读操作：目标机偶发把这次
+    # 请求掐断（真机上第一次让 Snapshot 取 UI 元素树最容易被掐）时可以安全重试一次。
+    # 会改机器状态的工具**绝不重试** —— 第一次可能已经执行了，重试就等于执行两次。
+    OBSERVE_RETRY = 1
+    OBSERVE_RETRY_PAUSE = 0.8
+    _RETRYABLE_HINTS = ("没有返回结果", "连接断了")
+
+    @classmethod
+    def _retryable(cls, exc: McpError) -> bool:
+        """这次失败值得重试吗（读超时 / 连接被目标机掐断），而不是鉴权、404 或参数错。"""
+        text = str(exc)
+        return any(hint in text for hint in cls._RETRYABLE_HINTS)
+
     def call_tool(
         self, name: str, arguments: dict | None = None, *, timeout: float | None = None
     ) -> dict:
@@ -391,7 +407,23 @@ class McpClient:
             self.initialize()
         if timeout:
             self.timeout = float(timeout)
-        return self._rpc("tools/call", {"name": name, "arguments": arguments or {}})
+        attempts = self.OBSERVE_RETRY if name in OBSERVE_TOOLS else 0
+        for attempt in range(attempts + 1):
+            try:
+                return self._rpc(
+                    "tools/call", {"name": name, "arguments": arguments or {}}
+                )
+            except McpError as exc:
+                if attempt >= attempts or not self._retryable(exc):
+                    raise
+                logger.warning(
+                    "MCP 工具 %s 这次被目标机掐断（%s），%.1fs 后重试一次",
+                    name,
+                    exc,
+                    self.OBSERVE_RETRY_PAUSE,
+                )
+                time.sleep(self.OBSERVE_RETRY_PAUSE)
+        raise McpError(f"调用 MCP 工具 {name} 失败")
 
     def probe(self) -> dict:
         """探活：握手 + 列工具，返回工具数量与耗时（失败返回 ok=False 与可读原因）。"""

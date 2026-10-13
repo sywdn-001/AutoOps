@@ -356,6 +356,18 @@ def verify_sidebar(cli: Bastion, args, out_dir: Path) -> None:
     )
     data = cli.data(shot)
     images = data.get("images") or []
+    check(
+        "截图接口不回 5xx（MCP 侧失败也必须是 200 + success=false）",
+        shot.status_code < 500,
+        f"HTTP {shot.status_code}",
+    )
+    if shot.content:
+        envelope = shot.json()
+    else:
+        envelope = {}
+    if envelope.get("success") is False or data.get("ok") is False:
+        print(f"  MCP 侧失败：{data.get('error') or envelope.get('message')}")
+        print(f"  处置建议：{data.get('hint') or '重启目标机上的 MCP 服务（侧边栏的「重启 MCP」）后重试'}")
     print(
         f"[screenshot] HTTP {shot.status_code} 图 {len(images)} 张 耗时 {data.get('durationMs')}ms "
         f"文本 {str(data.get('text'))[:160]!r}"
@@ -397,6 +409,7 @@ def verify_sidebar(cli: Bastion, args, out_dir: Path) -> None:
     )
     psdata = cli.data(ps)
     text = str(psdata.get("text") or "")
+    check("PowerShell 接口不回 5xx", ps.status_code < 500, f"HTTP {ps.status_code}")
     print(f"[powershell] HTTP {ps.status_code} mutating={psdata.get('mutating')} 文本 {text[:240]!r}")
     check("PowerShell 工具在目标机上跑出输出", bool(text.strip()), text[:160])
     check("PowerShell 被标成会改机器状态", psdata.get("mutating") is True, f"mutating={psdata.get('mutating')}")

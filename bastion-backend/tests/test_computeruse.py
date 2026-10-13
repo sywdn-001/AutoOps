@@ -715,6 +715,94 @@ def test_mcp_call_normalizes_snapshot_args_and_reports_notes(
     assert any("卡死" in note for note in resp.get_json()["data"]["notes"])
 
 
+def test_mcp_call_failure_is_a_readable_200_not_a_5xx(
+    app, client, admin_headers, windows_host, monkeypatch
+):
+    """MCP 卡住 / 被掐断时不能回 502，要 200 + success=false + 可读原因与重试提示。
+
+    回归背景：真机上让 Snapshot 取 UI 元素树会把目标机 MCP 卡一阵，用户看到的就是 HTTP 502。
+    """
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    class FakeClient:
+        def call_tool(self, name, arguments=None, timeout=None):
+            raise cu_mcp.McpError(
+                "MCP 在 60 秒内没有返回结果：http://192.168.0.75:8000/mcp —— "
+                "目标机的 MCP 服务可能已经卡住"
+            )
+
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row: FakeClient())
+    resp = client.post(
+        "/api/computer-use/mcp/call",
+        headers=admin_headers,
+        json={"hostId": host_id, "tool": "Snapshot", "allowUiTree": True},
+    )
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["success"] is False
+    assert body["code"] == "MCP_CALL_FAILED"
+    assert body["data"]["ok"] is False
+    assert body["data"]["retryable"] is True
+    assert "重启 MCP" in body["data"]["hint"]
+    assert "没有返回结果" in body["message"]
+    with app.app_context():
+        entry = (
+            AuditLog.query.filter_by(category="computeruse", action="mcp_call")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        assert entry is not None and entry.result == "failure"
+
+
+def test_observe_tools_retry_once_but_mutating_tools_never_do(monkeypatch):
+    """被目标机掐断时观察类工具自动重试一次；会改机器状态的工具绝不重试。
+
+    重试一个会改状态的调用等于执行两次（第一次可能已经生效），所以两条必须同时钉住。
+    """
+    mcp_client = cu_mcp.McpClient("http://127.0.0.1:8000/mcp")
+    mcp_client._initialized = True
+    monkeypatch.setattr(cu_mcp.McpClient, "OBSERVE_RETRY_PAUSE", 0)
+    seen: list[str] = []
+
+    def flaky(method, params=None, *, notify=False):
+        name = (params or {}).get("name") or method
+        seen.append(name)
+        if seen.count(name) == 1:
+            raise cu_mcp.McpError(
+                "读 MCP 响应时连接断了（http://127.0.0.1:8000/mcp）：ConnectionResetError(10054)"
+            )
+        return {"content": [{"type": "text", "text": "ok"}]}
+
+    monkeypatch.setattr(mcp_client, "_rpc", flaky)
+
+    assert mcp_client.call_tool("Screenshot")["content"][0]["text"] == "ok"
+    assert seen == ["Screenshot", "Screenshot"]
+
+    seen.clear()
+    with pytest.raises(cu_mcp.McpError):
+        mcp_client.call_tool("PowerShell", {"command": "whoami"})
+    assert seen == ["PowerShell"]
+
+
+def test_mcp_call_does_not_retry_auth_failures(monkeypatch):
+    """鉴权失败重试也还是失败，只会白等：这类错误必须原样抛出、只试一次。"""
+    mcp_client = cu_mcp.McpClient("http://127.0.0.1:8000/mcp")
+    mcp_client._initialized = True
+    monkeypatch.setattr(cu_mcp.McpClient, "OBSERVE_RETRY_PAUSE", 0)
+    seen: list[str] = []
+
+    def denied(method, params=None, *, notify=False):
+        seen.append((params or {}).get("name") or method)
+        raise cu_mcp.McpError("MCP 拒绝访问（HTTP 401）：这台机器的 MCP 开了访问密钥")
+
+    monkeypatch.setattr(mcp_client, "_rpc", denied)
+    with pytest.raises(cu_mcp.McpError):
+        mcp_client.call_tool("Snapshot")
+    assert seen == ["Snapshot"]
+
+
 def test_mcp_restart_endpoint_probes_after_restart(app, client, admin_headers, windows_host, monkeypatch):
     """重启 MCP 是自愈入口：走 WinRM（不经过已经卡死的 MCP），成功后再探一次活。"""
     host_id, account_id = windows_host

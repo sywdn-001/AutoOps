@@ -847,7 +847,23 @@ def mcp_call():
             actor_username=username,
             detail={"tool": tool_name, "arguments": _trim_args(arguments), "error": str(exc)},
         )
-        return api_error(f"调用 MCP 工具 {tool_name} 失败：{exc}", 502, code="MCP_CALL_FAILED")
+        # 目标机 MCP 侧的失败（卡住 / 被掐断 / 端点报错）**不是**堡垒机的网关故障：
+        # 按信封约定回 HTTP 200 + success=false + code，把可读原因与处置建议交给前端与 AI。
+        # 用户实测要求「ComputerUse 的截图与 UI 框架获取不要 502/500/503」——MCP 挂了的
+        # 表现必须是一句人话，而不是一个 5xx（观察类工具在客户端已自动重试过一次）。
+        return api_error(
+            f"调用 MCP 工具 {tool_name} 失败：{exc}",
+            200,
+            code="MCP_CALL_FAILED",
+            data={
+                "ok": False,
+                "tool": tool_name,
+                "arguments": _trim_args(arguments),
+                "error": str(exc),
+                "retryable": True,
+                "hint": "观察类工具已经自动重试过一次；仍然失败就点面板头部的「重启 MCP」，把目标机上的 MCP 服务重启后重试",
+            },
+        )
 
     duration_ms = int((time.time() - started) * 1000)
     images = [
