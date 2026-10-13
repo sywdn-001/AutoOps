@@ -119,24 +119,43 @@ def strip_cards(text: str) -> str:
 # --------------------------------------------------------------------------
 # 会话 / 消息
 # --------------------------------------------------------------------------
+def host_snapshot(host: object | None) -> tuple[int | None, str, str]:
+    """把「主机」统一成 (id, name, address)。
+
+    调用方既传过 ORM 的 `Host`（网页端带 hostId 提问、SSH 网关），也传过 dict
+    （从已有会话回读上下文），两种都得认——早期只按 dict 处理，带 hostId 的网页
+    提问会直接 500（`'Host' object has no attribute 'get'`）。
+    """
+    if host is None:
+        return None, "", ""
+    if isinstance(host, dict):
+        return host.get("id"), host.get("name") or "", host.get("address") or ""
+    return (
+        getattr(host, "id", None),
+        getattr(host, "name", "") or "",
+        getattr(host, "address", "") or "",
+    )
+
+
 def create_conversation(
     caller: Caller,
     *,
     title: str = "",
     source: str = "web",
     model: str = "",
-    host: dict | None = None,
+    host: object | None = None,
     sid: str = "",
 ) -> AiConversation:
+    host_id, host_name, host_address = host_snapshot(host)
     conversation = AiConversation(
         title=(title or "").strip()[:128] or "新的运维对话",
         user_id=caller.id,
         username=caller.username,
         source=source or caller.source,
         model=model,
-        host_id=(host or {}).get("id"),
-        host_name=(host or {}).get("name") or "",
-        host_address=(host or {}).get("address") or "",
+        host_id=host_id,
+        host_name=host_name,
+        host_address=host_address,
         sid=sid or "",
     )
     db.session.add(conversation)

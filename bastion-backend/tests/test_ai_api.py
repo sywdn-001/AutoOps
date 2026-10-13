@@ -226,6 +226,54 @@ def test_chat_rejects_empty_message(app, client, admin_headers):
     assert resp.status_code == 400
 
 
+def test_chat_accepts_host_context_from_rdp_console(
+    app, client, admin_headers, monkeypatch, make_host
+):
+    """RDP 侧边栏是带着 hostId 提问的，这条路以前必然 500。
+
+    接口层取到的是 ORM 的 ``Host``，而 ``create_conversation`` 早期只按 dict 读
+    （``(host or {}).get("id")``）——主界面从不传 hostId，所以一直没被发现，
+    真机上表现为「发消息没有任何反应」（前端那时还会把 500 信封当 SSE 流读掉）。
+    """
+    _enable_ai(app)
+    _patch_client(monkeypatch, [_simple_answer("这台是 Windows 机器。")])
+    host_id = make_host(
+        name="win-75", address="192.168.0.75", port=3389, protocol="rdp", os_type="windows"
+    )
+
+    events = _chat(
+        client,
+        admin_headers,
+        message="这台机器装的是什么版本的 Python？",
+        hostId=host_id,
+        source="rdp-console",
+    )
+    assert "message_end" in _types(events)
+
+    with app.app_context():
+        conversation = AiConversation.query.one()
+        assert conversation.host_id == host_id
+        assert conversation.host_name == "win-75"
+        assert conversation.host_address == "192.168.0.75"
+        assert conversation.source == "rdp-console"
+
+
+def test_host_snapshot_accepts_orm_dict_and_none(app, make_host):
+    """两种「主机上下文」都要认：网页/网关给 ORM 对象，回读已有会话时给 dict。"""
+    assert ai_service.host_snapshot(None) == (None, "", "")
+    assert ai_service.host_snapshot({"id": 7, "name": "web-01", "address": "10.0.0.7"}) == (
+        7,
+        "web-01",
+        "10.0.0.7",
+    )
+    assert ai_service.host_snapshot({"id": 8}) == (8, "", "")
+
+    host_id = make_host(name="win-75", address="192.168.0.75")
+    with app.app_context():
+        host = db.session.get(Host, host_id)
+        assert ai_service.host_snapshot(host) == (host_id, "win-75", "192.168.0.75")
+
+
 def test_unknown_tool_call_is_reported_to_the_model_and_audited(app, client, admin_headers, monkeypatch):
     _enable_ai(app)
     _patch_client(monkeypatch, [_text_tool_call("no_such_tool", {}), _simple_answer("好的")])

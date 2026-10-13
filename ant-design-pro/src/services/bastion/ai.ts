@@ -196,6 +196,30 @@ export interface AiChatPayload {
 }
 
 /**
+ * 读出不成功响应里的中文原因（后端统一信封 `{success,message,data}`）。
+ *
+ * 这一步不能省：`/api/ai/chat` 出错时返回的是 JSON，不是流；如果把不成功的响应
+ * 当流去读，里面一个 `data:` 行都没有，调用方只会看到「流结束了但什么都没发生」。
+ */
+async function describeHttpError(response: Response): Promise<string> {
+  let detail = '';
+  try {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const body = JSON.parse(raw) as { message?: string };
+        detail = String(body?.message || '').trim();
+      } catch {
+        detail = raw.trim().slice(0, 200);
+      }
+    }
+  } catch {
+    // 读不出响应体就只报状态码
+  }
+  return detail ? `对话失败：HTTP ${response.status}：${detail}` : `对话失败：HTTP ${response.status}`;
+}
+
+/**
  * 发起一次流式对话。返回一个可取消的 Promise；每个 SSE 事件都会回调 onEvent。
  *
  * 注意：不能用 umi request（它会等整个响应体），必须用 fetch 读 ReadableStream，
@@ -217,8 +241,8 @@ export async function streamAiChat(
     signal,
   });
 
-  if (!response.ok && !response.body) {
-    throw new Error(`对话失败：HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(await describeHttpError(response));
   }
   if (!response.body) {
     throw new Error('当前浏览器不支持流式响应');
