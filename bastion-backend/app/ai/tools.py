@@ -445,6 +445,31 @@ MAX_TOOL_IMAGES = 2
 _IMAGE_PREFIX = "data:image/"
 
 
+def _image_data_url(item: Any) -> str:
+    """把「可能是图」的一项收成能直接塞进 ``<img src>`` 的 dataUrl（不是图就回空串）。
+
+    ComputerUse 这条链上有两种形状，都要吃 —— 只认裸字符串会把真机上的图整批丢掉：
+    * 后端归一后的形状（`app/api/computeruse.py`）：``{"mime": "image/png", "dataUrl": "data:image/png;base64,…"}``；
+    * MCP 原始内容块：``{"type": "image", "mimeType": "image/png", "data": "<base64>"}``。
+    """
+    if isinstance(item, str):
+        return item if item.startswith(_IMAGE_PREFIX) else ""
+    if not isinstance(item, dict):
+        return ""
+    data_url = item.get("dataUrl") or item.get("data_url")
+    if isinstance(data_url, str) and data_url.startswith(_IMAGE_PREFIX):
+        return data_url
+    raw = item.get("data") or item.get("base64")
+    if isinstance(raw, str) and raw:
+        if raw.startswith(_IMAGE_PREFIX):
+            return raw
+        mime = str(
+            item.get("mime") or item.get("mimeType") or item.get("mime_type") or "image/png"
+        )
+        return f"data:{mime};base64,{raw}"
+    return ""
+
+
 def _collect_images(payload: Any) -> list[str]:
     """挑出结果里能直接塞进 ``<img src>`` 的 dataUrl（目前只有 ComputerUse 截图）。"""
     if not isinstance(payload, dict):
@@ -452,7 +477,7 @@ def _collect_images(payload: Any) -> list[str]:
     raw = payload.get("images")
     if not isinstance(raw, list):
         return []
-    return [item for item in raw if isinstance(item, str) and item.startswith(_IMAGE_PREFIX)]
+    return [url for url in (_image_data_url(item) for item in raw) if url]
 
 
 def _without_images(payload: Any) -> Any:

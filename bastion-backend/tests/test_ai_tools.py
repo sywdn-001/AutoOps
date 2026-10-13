@@ -211,6 +211,54 @@ def test_summarize_turns_mcp_images_into_a_card_and_keeps_base64_away_from_the_m
     assert "<原始 MCP 响应已省略>" in text
 
 
+def test_summarize_accepts_the_normalized_computeruse_image_shape():
+    """真机形状回归：ComputerUse 归一后的图是 ``{"mime", "dataUrl"}``，不是裸字符串。
+
+    2026-10-14 真机复验发现：`observe_computer` 明明回了 PNG（`Screenshot Size: (1280,720)`），
+    面板里却没有图片卡片 —— `_collect_images()` 只认裸字符串，把这种字典整批过滤掉了。
+    """
+    tool = registry.TOOL_INDEX["observe_computer"]
+    data_url = "data:image/png;base64," + "C" * 64
+    summary, text, card = registry.summarize(
+        tool,
+        {
+            "ok": True,
+            "status": 200,
+            "message": "ok",
+            "data": {
+                "data": {
+                    "text": "Screenshot Size: (1280,720)\nScreenshot Backend: pillow",
+                    "images": [{"mime": "image/png", "dataUrl": data_url}],
+                }
+            },
+        },
+    )
+    assert summary
+    assert card is not None and card["type"] == "image"
+    assert card["images"] == [data_url]
+    assert "1280,720" in card["caption"]
+    assert "C" * 20 not in text
+    assert "已经作为图片卡片展示给用户" in text
+
+
+def test_image_data_url_normalizes_both_shapes():
+    """裸字符串、归一后的 `dataUrl`、MCP 原始内容块，三种都要收成 dataUrl。"""
+    assert registry._image_data_url("data:image/jpeg;base64,AA") == "data:image/jpeg;base64,AA"
+    assert (
+        registry._image_data_url({"mime": "image/png", "dataUrl": "data:image/png;base64,BB"})
+        == "data:image/png;base64,BB"
+    )
+    assert (
+        registry._image_data_url(
+            {"type": "image", "mimeType": "image/png", "data": "aGVsbG8="}
+        )
+        == "data:image/png;base64,aGVsbG8="
+    )
+    assert registry._image_data_url("https://example.com/a.png") == ""
+    assert registry._image_data_url({"note": "不是图"}) == ""
+    assert registry._image_data_url(123) == ""
+
+
 def test_summarize_caps_how_many_images_reach_the_card():
     tool = registry.TOOL_INDEX["observe_computer"]
     images = [f"data:image/png;base64,{index}" for index in range(5)]
