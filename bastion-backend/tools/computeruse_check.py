@@ -89,10 +89,16 @@ def brief(body: object, limit: int = 400) -> str:
 class Bastion:
     """最小 API 客户端：登录一次，之后都带 Bearer。"""
 
-    def __init__(self, base: str, user: str, password: str) -> None:
+    def __init__(self, base: str, user: str, password: str, token: str = "") -> None:
         self.base = base.rstrip("/")
         self.session = requests.Session()
-        self._login(user, password)
+        if token:
+            # 管理员口令被改过、又不想在命令行里写口令时，直接用一个现成的 JWT
+            # （与 live_e2e_check.py / ui_check.py 的 --token 同名同义）。
+            self.session.headers["Authorization"] = f"Bearer {token}"
+            self.user = user
+        else:
+            self._login(user, password)
 
     def _login(self, user: str, password: str) -> None:
         resp = self.session.post(
@@ -407,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default=BASE, help=f"后端地址（默认 {BASE}，可用 CU_BASE 覆盖）")
     parser.add_argument("--admin-user", default=ADMIN_USER, help="管理员账号（默认 admin）")
     parser.add_argument("--admin-password", default=ADMIN_PW, help="管理员口令（默认取 BASTION_ADMIN_PASSWORD）")
+    parser.add_argument("--token", default="", help="直接给一个现成的 JWT（管理员口令被改过时用这个，省得写口令；与 live_e2e_check.py / ui_check.py 同名参数）")
     parser.add_argument("--host", type=int, default=0, help="目标主机 id（在 /hosts 里找）")
     parser.add_argument("--account", type=int, default=0, help="目标机上的账号 id（--deploy 必填）")
     parser.add_argument("--deploy", action="store_true", help="真的跑一遍七阶段部署（会装东西、改防火墙）")
@@ -427,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir)
 
     try:
-        cli = Bastion(args.base, args.admin_user, args.admin_password)
+        cli = Bastion(args.base, args.admin_user, args.admin_password, args.token)
     except Exception as exc:  # noqa: BLE001
         check("登录堡垒机", False, f"{type(exc).__name__}: {exc}")
         print("\n" + summarize(), flush=True)
