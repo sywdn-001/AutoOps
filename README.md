@@ -91,6 +91,16 @@
       <br /><sub><b>ComputerUse</b> — AI 经 MCP 直接截到的 <code>win-75</code> 桌面（这一张就是它拿到的原图，1024×768）</sub>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/computeruse-panel-welcome.png"><img src="docs/screenshots/computeruse-panel-welcome.png" alt="ComputerUse 侧边栏（空态）" /></a>
+      <br /><sub><b>侧边栏（空态）</b> — 部署成功后 RDP 控制台右侧才出现的 AI 操作台：头部报可用工具数与「重启 MCP」，4 条示例点一下就发</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/computeruse-panel.png"><img src="docs/screenshots/computeruse-panel.png" alt="ComputerUse 侧边栏（对话中）" /></a>
+      <br /><sub><b>侧边栏（对话中）</b> — 思维链、每轮工具调用与 Markdown（列表 / 表格）都在对话里流式渲染，样式与「AI 运维助手」共用</sub>
+    </td>
+  </tr>
 </table>
 
 > 40+ 张实测截图都在 [`docs/screenshots/`](docs/screenshots/)，下面「验证记录」里的每条实测都对应其中一张。
