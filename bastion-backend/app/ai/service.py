@@ -216,15 +216,6 @@ def add_message(
     return message
 
 
-def _tool_call_ids(tool_calls: list | None) -> list[str]:
-    """取出 assistant 消息里上游给的 tool_call id（没有 id 的跳过）。"""
-    ids: list[str] = []
-    for call in tool_calls or []:
-        if isinstance(call, dict) and str(call.get("id") or ""):
-            ids.append(str(call["id"]))
-    return ids
-
-
 def _tool_call_name(call: dict) -> str:
     function = (call or {}).get("function") or {}
     if isinstance(function, dict):
@@ -292,15 +283,16 @@ def build_messages(
         }
     ]
     history = conversation.messages[-limit:] if limit else list(conversation.messages)
-    declared: set[str] = set()
+    # tool 响应在库里可能落在很后面：管理员隔了一轮才点「拒绝执行」时，那条 tool 消息
+    # 就排在了别的问答之后（真机撞到过 —— 于是之后每次请求都被上游判成非法报文 400）。
+    # 上游要求 tool 响应**紧跟**声明它的那条 assistant，所以这里按 tool_call_id 建索引，
+    # 在 assistant 处就地补发；后面再遇到同一条 tool 消息就跳过。
+    tool_bodies: dict[str, str] = {}
     for message in history:
-        if message.role == "assistant" and message.tool_calls:
-            declared.update(_tool_call_ids(message.tool_calls))
-    answered = {
-        message.tool_call_id
-        for message in history
-        if message.role == "tool" and message.tool_call_id
-    }
+        if message.role == "tool" and message.tool_call_id:
+            body = message.content or ""
+            if body or message.tool_call_id not in tool_bodies:
+                tool_bodies[message.tool_call_id] = body
     for message in history:
         if message.role == "user":
             messages.append({"role": "user", "content": message.content or ""})
@@ -315,24 +307,19 @@ def build_messages(
             messages.append(entry)
             for call in calls:
                 call_id = str((call or {}).get("id") or "")
-                if call_id and call_id not in answered:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call_id,
-                            "content": _unanswered_tool_message(call),
-                        }
-                    )
+                if not call_id:
+                    continue
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": tool_bodies.get(call_id) or _unanswered_tool_message(call),
+                    }
+                )
         elif message.role == "tool":
-            if message.tool_call_id and message.tool_call_id not in declared:
-                continue  # 窗口切在中间的孤儿 tool 消息，发出去就是 400
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": message.tool_call_id or "",
-                    "content": message.content or "",
-                }
-            )
+            # 上面已经跟着它的 assistant 就地补发过了；孤儿（声明者被 limit 切掉）直接丢，
+            # 否则发出去就是 400。
+            continue
         elif message.role == "system":
             messages.append({"role": "system", "content": message.content or ""})
     return messages
@@ -702,7 +689,27 @@ def run_turn(
             else:
                 blocked.append(call)
         if blocked:
+            # 上一轮的敏感操作还没批，用户却又发了一条：不能只回一个 confirm_required
+            # （前端会渲染出一个空白气泡，看着像「AI 没反应」），先把话说明白再弹确认框。
+            note = (
+                f"上一轮还有 {len(blocked)} 个敏感操作在等管理员确认："
+                "先在弹出的确认框里点「确认执行」或「拒绝执行」，我再接着做。"
+            )
+            assistant = add_message(
+                conversation,
+                "assistant",
+                note,
+                status="awaiting_confirm",
+                finish_reason="awaiting_confirm",
+            )
+            yield {"type": "content", "delta": note}
             yield _confirm_event(blocked)
+            yield {
+                "type": "message_end",
+                "messageId": assistant.id,
+                "content": note,
+                "status": "awaiting_confirm",
+            }
             return
         messages = build_messages(conversation, caller, limit=limit, tool_count=len(available))
 

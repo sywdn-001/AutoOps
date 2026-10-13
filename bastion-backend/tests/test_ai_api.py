@@ -402,7 +402,147 @@ def test_sensitive_tool_waits_for_admin_password_then_executes(app, client, admi
         assert "ai_tool_reject" in actions
 
 
-def test_sensitive_confirmation_needs_a_real_admin(app, client, admin_headers, make_user, monkeypatch):
+def test_new_message_while_a_sensitive_call_is_pending_is_not_silent(
+    app, client, admin_headers, monkeypatch
+):
+    """挂起确认时又发一条：要给出可读说明。
+
+    回归背景：这里以前只回一个 ``confirm_required`` 就 return，前端拿到一个空白气泡 ——
+    用户看到的现象是「发了消息，AI 毫无反应」，而真机上确实撞到过（RDP 侧边栏实测）。
+    """
+    _enable_ai(app)
+    _patch_client(
+        monkeypatch,
+        [
+            _text_tool_call(
+                "create_host", {"name": "ai-pending", "address": "10.8.8.8"}
+            )
+        ],
+    )
+    events = _chat(client, admin_headers, message="加台机器 ai-pending 10.8.8.8")
+    assert "confirm_required" in _types(events)
+    with app.app_context():
+        conversation_id = AiConversation.query.one().id
+        assert AiToolCall.query.one().status == "pending"
+
+    # 用户没确认、也没点「继续」，而是又问了一句
+    fake = _patch_client(monkeypatch, [_simple_answer("这次不该轮到模型说话。")])
+    events = _chat(client, admin_headers, message="在吗？", conversationId=conversation_id)
+    kinds = _types(events)
+    assert "confirm_required" in kinds, "挂起中的敏感操作必须继续出现在流里"
+    text = "".join(
+        event.get("delta") or "" for event in events if event["type"] == "content"
+    )
+    assert "等管理员确认" in text, "要给一句人话，而不是空白气泡"
+    end = next(event for event in events if event["type"] == "message_end")
+    assert end["status"] == "awaiting_confirm"
+    assert fake.calls == [], "还没确认就不该再问模型"
+    with app.app_context():
+        notes = [row.content for row in AiMessage.query.filter_by(role="assistant").all()]
+        assert any("等管理员确认" in note for note in notes), "这句话也要落进对话记录"
+        assert AiToolCall.query.one().status == "pending"
+        assert Host.query.filter_by(name="ai-pending").first() is None
+
+
+def _protocol_violations(messages: list[dict]) -> list[str]:
+    """校验 OpenAI 兼容协议：assistant.tool_calls 后面必须紧跟同 id 的 tool 响应，且不能有孤儿。"""
+    problems: list[str] = []
+    pending: list[str] = []
+    for index, message in enumerate(messages):
+        role = message.get("role")
+        if role == "assistant":
+            if pending:
+                problems.append(f"{index}: 上一条 assistant 的 tool_calls 没配齐 {pending}")
+            pending = [
+                str((call or {}).get("id") or "")
+                for call in (message.get("tool_calls") or [])
+            ]
+        elif role == "tool":
+            call_id = message.get("tool_call_id")
+            if call_id not in pending:
+                problems.append(f"{index}: 孤儿 tool 消息 {call_id}")
+            else:
+                pending.remove(call_id)
+        elif pending:
+            problems.append(f"{index}: {role} 打断了没配齐的 tool_calls {pending}")
+            pending = []
+    if pending:
+        problems.append(f"末尾 tool_calls 没配齐 {pending}")
+    return problems
+
+
+def test_build_messages_keeps_tool_responses_right_after_their_assistant(app):
+    """管理员隔了一轮才拒绝时，那条 tool 消息在库里排在后面，还原成报文要挪回原位。
+
+    回归背景：真机上「拒绝 → 再说话」之后，DeepSeek 每次都回 HTTP 400（历史上
+    assistant.tool_calls 悬空），整个对话报废 —— 只补「缺失」的 tool 响应不够，
+    还得把「迟到」的那条挪到声明它的 assistant 后面。
+    """
+    _enable_ai(app)
+    with app.app_context():
+        admin = User.query.filter_by(username="admin").first()
+        conversation = AiConversation(
+            user_id=admin.id, username=admin.username, source="test", title="迟到 tool"
+        )
+        db.session.add(conversation)
+        db.session.commit()
+
+        ai_service.add_message(conversation, "user", "先看一眼桌面")
+        ai_service.add_message(
+            conversation,
+            "assistant",
+            "我调两个工具。",
+            tool_calls=[
+                {
+                    "id": "call_a",
+                    "type": "function",
+                    "function": {"name": "observe_computer", "arguments": "{}"},
+                },
+                {
+                    "id": "call_b",
+                    "type": "function",
+                    "function": {"name": "run_command", "arguments": "{}"},
+                },
+            ],
+            status="awaiting_confirm",
+        )
+        ai_service.add_message(conversation, "tool", "截图失败", tool_call_id="call_a")
+        ai_service.add_message(conversation, "user", "不许跑命令")
+        ai_service.add_message(conversation, "assistant", "上一轮还有 1 个敏感操作在等确认。")
+        ai_service.add_message(
+            conversation,
+            "tool",
+            "[工具 run_command] 未执行：管理员拒绝了该操作。",
+            tool_call_id="call_b",
+            status="rejected",
+        )
+        ai_service.add_message(conversation, "user", "那我换个说法")
+
+        caller = Caller(
+            id=admin.id,
+            username=admin.username,
+            display_name="管理员",
+            role_code="admin",
+            is_admin=True,
+        )
+        messages = ai_service.build_messages(conversation, caller, limit=40, tool_count=5)
+
+        assert _protocol_violations(messages) == []
+        assistant_index = next(
+            index for index, row in enumerate(messages) if row.get("tool_calls")
+        )
+        assert messages[assistant_index + 1]["tool_call_id"] == "call_a"
+        assert messages[assistant_index + 2]["tool_call_id"] == "call_b"
+        assert (
+            messages[assistant_index + 2]["content"]
+            == "[工具 run_command] 未执行：管理员拒绝了该操作。"
+        )
+        assert messages[-1]["content"] == "那我换个说法"
+
+
+def test_sensitive_confirmation_needs_a_real_admin(
+    app, client, admin_headers, make_user, monkeypatch
+):
     _enable_ai(app)
     make_user("ops-user", role_code="ops", password="Ops12345")
     with app.app_context():
