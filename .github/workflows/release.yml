@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '版本号（如 v1.0.0）；留空则用当天日期 vYYYY.MM.DD'
+        description: '版本号，必须是 vX.Y.Z（例如 v1.0.0）'
         required: false
-        default: ''
+        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -59,7 +59,16 @@ jobs:
         shell: bash
         run: |
           TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          if [ -z "$TAG" ]; then TAG="v$(date +%Y.%m.%d)"; fi
+          if [ -z "$TAG" ]; then
+            echo "::error::手动触发时必须填版本号（形如 v1.0.0）"
+            exit 1
+          fi
+          # 版本号一律 vX.Y.Z（可带 -rc1 / .1 这类后缀）：标签名就是 Release 名，
+          # 也是 zip 文件名的一部分，格式不统一以后很难对应「哪个包是哪个版本」。
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::版本号必须是 vX.Y.Z 形式（例如 v1.0.0），当前是「$TAG」"
+            exit 1
+          fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
           echo "版本号：$TAG"
 
@@ -71,6 +80,7 @@ jobs:
           cache-dependency-path: ant-design-pro/package-lock.json
 
       - name: 构建前端产物 dist/
+        shell: pwsh
         working-directory: ant-design-pro
         run: |
           npm ci
@@ -83,6 +93,7 @@ jobs:
           architecture: ${{ matrix.python-arch }}
 
       - name: 装后端依赖与 PyInstaller
+        shell: pwsh
         working-directory: bastion-backend
         run: |
           python -m pip install --upgrade pip
@@ -90,10 +101,12 @@ jobs:
           python -m pip install "pyinstaller>=6.6"
 
       - name: 打印实际位数（确认真的是 32/64 位）
+        shell: pwsh
         run: |
           python -c "import platform,struct;print('python',platform.python_version(),platform.machine(),struct.calcsize('P')*8,'bit')"
 
       - name: PyInstaller 打成 onedir 目录包
+        shell: pwsh
         working-directory: bastion-backend
         run: |
           python -m PyInstaller packaging/autoops.spec --noconfirm --clean `
@@ -204,7 +217,16 @@ jobs:
         shell: bash
         run: |
           TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          if [ -z "$TAG" ]; then TAG="v$(date +%Y.%m.%d)"; fi
+          if [ -z "$TAG" ]; then
+            echo "::error::手动触发时必须填版本号（形如 v1.0.0）"
+            exit 1
+          fi
+          # 版本号一律 vX.Y.Z（可带 -rc1 / .1 这类后缀）：标签名就是 Release 名，
+          # 也是 zip 文件名的一部分，格式不统一以后很难对应「哪个包是哪个版本」。
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::版本号必须是 vX.Y.Z 形式（例如 v1.0.0），当前是「$TAG」"
+            exit 1
+          fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
           echo "版本号：$TAG"
 
@@ -225,6 +247,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: 生成中英双语 Release 说明
+        shell: bash
         env:
           RELEASE_COMMIT: ${{ github.sha }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
