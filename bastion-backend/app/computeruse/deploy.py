@@ -143,6 +143,188 @@ def mcp_listen_wait_script(port: int, old_pid: str = "") -> str:
 
 
 # --------------------------------------------------------------------------- #
+# 重启目标机上的 MCP：卡死自愈（只走 WinRM + 计划任务，不经过已经不能用的 MCP）
+# --------------------------------------------------------------------------- #
+# 目标机上「有没有人在桌面登录」的判据。**不能拿 quser 的文案来匹配**：它随系统语言
+# 变化（win-75 上是中文/空输出，`-match 'No User exists'` 会误判成「有人登录」）。
+# explorer 跑在非 0 会话 = 有人登录了桌面；退一步看 Win32_ComputerSystem.UserName。
+INTERACTIVE_PROBE = (
+    "$active = $false;"
+    "try {"
+    " $sess = (Get-Process explorer -ErrorAction SilentlyContinue"
+    " | Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1).SessionId;"
+    " $consoleUser = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName;"
+    " $active = [bool]$sess -or -not [string]::IsNullOrEmpty($consoleUser)"
+    "} catch {};"
+)
+
+
+def mcp_restart_script(
+    port: int, *, vbs_local: str = VBS_LOCAL, task_name: str = TASK_MCP, user: str = ""
+) -> str:
+    """生成「杀掉卡住的 MCP 再重新起一个」的 PowerShell。
+
+    为什么需要它：真机上 ``Snapshot(use_ui_tree=True)`` 会把 windows-mcp 卡死
+    （UIA 取元素树死等），之后连 ``Screenshot`` 都不再返回 —— 只能杀掉那个 python
+    进程重新起。这时候 MCP 自己已经不能用了，所以只能走 WinRM，并且必须是
+    「交给计划任务跑」（WinRS 会在命令返回时杀掉整棵子进程树，长活进程活不下来）。
+    """
+    user_literal = f"'{user}'" if "\\" in user else f"($env:COMPUTERNAME + '\\{user}')"
+    return "\n".join(
+        [
+            "$ErrorActionPreference='Continue'",
+            INTERACTIVE_PROBE,
+            f"$c = Get-NetTCPConnection -LocalPort {port} -State Listen "
+            "-ErrorAction SilentlyContinue | Select-Object -First 1",
+            "$old = ''",
+            "if ($c) { $old = [string]$c.OwningProcess;",
+            "  Stop-Process -Id $old -Force -ErrorAction SilentlyContinue;",
+            "  Start-Sleep -Seconds 1 }",
+            '"KILLED=$old"',
+            # 跑我们这个 VBS 的 wscript 也一起收掉（它起的 python 可能已经不在端口上）
+            "Get-CimInstance Win32_Process -Filter \"Name='wscript.exe'\" "
+            "-ErrorAction SilentlyContinue "
+            "| Where-Object { $_.CommandLine -like '*AutoOps-ComputerUse*' } "
+            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+            "Start-Sleep -Seconds 1",
+            # 关键：每次重启都按当前有没有人登录桌面重定登录类型。只 Start-ScheduledTask
+            # 的话，部署时按 S4U 注册的任务会把新 MCP 起在会话 0 —— 截图只剩
+            # "screen grab failed"（真机实测）。有人登录时用 Interactive，进程才会落在
+            # 那个桌面会话里；没人登录时只能 S4U（截图本来就不可用，属于正常退化）。
+            "$logon = if ($active) { 'Interactive' } else { 'S4U' }",
+            "$action = New-ScheduledTaskAction -Execute 'wscript.exe' "
+            f"-Argument '\"{vbs_local}\"'",
+            "$principal = New-ScheduledTaskPrincipal -UserId "
+            f"{user_literal} -LogonType $logon -RunLevel Highest",
+            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action "
+            "-Principal $principal -Force | Out-Null",
+            f"Start-ScheduledTask -TaskName '{task_name}'",
+            '"START=task LOGON=$logon ACTIVE=$active"',
+        ]
+    )
+
+
+def restart_target_mcp(
+    app,
+    *,
+    host_id: int,
+    account_id: int | None = None,
+    port: int = DEFAULT_MCP_PORT,
+    timeout: int = 240,
+) -> dict:
+    """通过 WinRM 重启目标机上的 MCP，返回自愈结果（失败也返回 dict，不抛 5xx）。"""
+    started = time.monotonic()
+    result: dict[str, Any] = {
+        "hostId": int(host_id),
+        "hostName": "",
+        "port": int(port),
+        "killedPid": "",
+        "started": "",
+        "logon": "",
+        "desktopActive": False,
+        "listen": False,
+        "ownerPid": "",
+        "ok": False,
+        "error": "",
+        "output": "",
+    }
+
+    def finish() -> dict:
+        result["durationMs"] = int((time.monotonic() - started) * 1000)
+        result["ok"] = bool(result["listen"])
+        return result
+
+    with app.app_context():
+        host = db.session.get(Host, int(host_id))
+        if host is None:
+            result["error"] = "主机已不存在，请刷新页面后重试"
+            return finish()
+        account = db.session.get(HostAccount, account_id) if account_id else None
+        if account is None:
+            account = next(
+                (item for item in host.accounts if (item.auth_type or "password") == "password"),
+                None,
+            )
+        if account is None:
+            result["error"] = (
+                f"{host.name} 没有可用的口令账号：WinRM 不接受私钥登录，"
+                "请先加一个「用户名 + 口令」账号"
+            )
+            return finish()
+        endpoint = host.endpoint_for("winrm")
+        if endpoint is None:
+            result["error"] = f"{host.name} 没有 WinRM 端点，无法重启目标机上的 MCP"
+            return finish()
+        result["hostName"] = host.name
+        user = account.username or ""
+        if not user.strip():
+            result["error"] = f"{host.name} 的账号没有用户名，无法在目标机上重建 MCP 计划任务"
+            return finish()
+        target = winrm_client.build_target(
+            host,
+            account,
+            port=endpoint.port,
+            winrm_transport=endpoint.winrm_transport,
+            connect_timeout=15,
+            command_timeout=timeout,
+        )
+        try:
+            connection = winrm_client.connect(target)
+        except winrm_client.WinrmError as exc:
+            result["error"] = f"连接目标机失败：{exc}"
+            return finish()
+
+        try:
+            kill = winrm_client.run_script(
+                connection, PS_PREAMBLE + mcp_restart_script(port, user=user), timeout=120
+            )
+            output = kill.stdout or ""
+            result["output"] = output.strip()[-2000:]
+            if kill.timed_out:
+                result["error"] = "目标机没有在 120 秒内完成重启命令"
+            for line in output.splitlines():
+                line = line.strip()
+                if line.startswith("KILLED="):
+                    result["killedPid"] = line[len("KILLED=") :].strip()
+                elif line.startswith("START="):
+                    tail = line[len("START=") :].strip()
+                    result["started"] = tail.split()[0] if tail else ""
+                    for token in tail.split():
+                        if token.startswith("LOGON="):
+                            result["logon"] = token[len("LOGON=") :].strip()
+                        elif token.startswith("ACTIVE="):
+                            result["desktopActive"] = token[len("ACTIVE=") :].strip().lower() in {
+                                "true",
+                                "1",
+                            }
+            if not result["started"]:
+                result["error"] = result["error"] or "重启命令没有回显（MCP 没能重新拉起）"
+
+            wait = winrm_client.run_script(
+                connection,
+                PS_PREAMBLE + mcp_listen_wait_script(port, result["killedPid"]),
+                timeout=180,
+            )
+            text = wait.stdout or ""
+            result["listen"] = "LISTEN=True" in text
+            if "WHO=" in text:
+                result["ownerPid"] = text.split("WHO=", 1)[1].strip().split()[0]
+            if not result["listen"]:
+                result["error"] = (
+                    result["error"] or f"MCP 重启后没有在 {timeout} 秒内监听 {port} 端口"
+                )
+        except winrm_client.WinrmError as exc:
+            result["error"] = result["error"] or f"在目标机上执行命令失败：{exc}"
+        finally:
+            try:
+                winrm_client.close(connection)
+            except Exception:  # noqa: BLE001 - 关连接失败不影响这次自愈的结论
+                pass
+
+    return finish()
+
+
+# --------------------------------------------------------------------------- #
 # 下载安装包的签名地址（目标机没有 JWT）
 # --------------------------------------------------------------------------- #
 def _sign_download(filename: str, expires: str, secret: str) -> str:
@@ -528,22 +710,21 @@ class DeploymentRunner:
         want = "Interactive" if interactive else "S4U"
         script = (
             "$ErrorActionPreference='Continue';"
-            "$active = $false;"
-            "try { $active = -not ((quser 2>&1 | Out-String) -match 'No User exists') } catch {};"
-            f"Unregister-ScheduledTask -TaskName '{task_name}' -Confirm:$false "
-            "-ErrorAction SilentlyContinue | Out-Null;"
-            f"$action = New-ScheduledTaskAction -Execute '{program}' -Argument '{arguments}';"
+            + INTERACTIVE_PROBE
+            + f"Unregister-ScheduledTask -TaskName '{task_name}' -Confirm:$false"
+            + " -ErrorAction SilentlyContinue | Out-Null;"
+            + f"$action = New-ScheduledTaskAction -Execute '{program}' -Argument '{arguments}';"
             # 没人在桌面登录时 Interactive 任务会被挂住不跑 —— 自动退回 S4U（会话 0）
-            f"$logon = if ($active) {{ '{want}' }} else {{ 'S4U' }};"
-            f"$principal = New-ScheduledTaskPrincipal -UserId {user_ps} "
-            "-LogonType $logon -RunLevel Highest;"
-            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action "
-            "-Principal $principal -Force | Out-Null;"
-            f"Start-ScheduledTask -TaskName '{task_name}';"
-            "Start-Sleep -Seconds 3;"
-            f"$t = Get-ScheduledTask -TaskName '{task_name}';"
-            f"$i = Get-ScheduledTaskInfo -TaskName '{task_name}';"
-            '"TASK=$($t.State) LOGON=$logon ACTIVE=$active RESULT=$($i.LastTaskResult)"'
+            + f"$logon = if ($active) {{ '{want}' }} else {{ 'S4U' }};"
+            + f"$principal = New-ScheduledTaskPrincipal -UserId {user_ps}"
+            + " -LogonType $logon -RunLevel Highest;"
+            + f"Register-ScheduledTask -TaskName '{task_name}' -Action $action"
+            + " -Principal $principal -Force | Out-Null;"
+            + f"Start-ScheduledTask -TaskName '{task_name}';"
+            + "Start-Sleep -Seconds 3;"
+            + f"$t = Get-ScheduledTask -TaskName '{task_name}';"
+            + f"$i = Get-ScheduledTaskInfo -TaskName '{task_name}';"
+            + '"TASK=$($t.State) LOGON=$logon ACTIVE=$active RESULT=$($i.LastTaskResult)"'
         )
         code, out, _ = self._ps(script, timeout=180, stage=stage, label=label)
         summary = ""

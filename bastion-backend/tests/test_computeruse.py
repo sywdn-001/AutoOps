@@ -223,14 +223,26 @@ def test_signed_download_roundtrip_and_tamper():
 # 3. MCP 客户端
 # --------------------------------------------------------------------------- #
 class FakeResponse:
+    """够用的假响应：只实现 McpClient 真正用到的那几样（status/headers/text/iter_content/close）。"""
+
     def __init__(self, payload, *, status_code=200, content_type="application/json", headers=None):
         self.status_code = status_code
         self.headers = {"Content-Type": content_type, **(headers or {})}
         self._payload = payload
         self.text = payload if isinstance(payload, str) else json.dumps(payload)
+        self.closed = False
 
     def json(self):
         return self._payload
+
+    def iter_content(self, chunk_size=None):
+        # 客户端是流式增量读的（见 McpClient._read_messages），所以这里也按 chunk 给
+        body = self.text.encode("utf-8")
+        if body:
+            yield body[:chunk_size] if chunk_size else body
+
+    def close(self):
+        self.closed = True
 
 
 def _jsonrpc(result, *, msg_id):
@@ -264,7 +276,7 @@ def test_mcp_client_keeps_default_host_for_local_endpoint():
 def test_mcp_client_json_handshake_and_call(monkeypatch):
     calls: list[dict] = []
 
-    def fake_post(url, data=None, headers=None, timeout=None):
+    def fake_post(url, data=None, headers=None, timeout=None, stream=None):
         payload = json.loads(data.decode("utf-8"))
         calls.append({"url": url, "payload": payload, "headers": headers})
         method = payload["method"]
@@ -322,7 +334,7 @@ def test_mcp_client_json_handshake_and_call(monkeypatch):
 
 
 def test_mcp_client_parses_sse(monkeypatch):
-    def fake_post(url, data=None, headers=None, timeout=None):
+    def fake_post(url, data=None, headers=None, timeout=None, stream=None):
         payload = json.loads(data.decode("utf-8"))
         if payload["method"] == "notifications/initialized":
             return FakeResponse("", status_code=202)
@@ -344,7 +356,7 @@ def test_mcp_client_parses_sse(monkeypatch):
 
 
 def test_mcp_client_error_messages(monkeypatch):
-    def unauthorized(url, data=None, headers=None, timeout=None):
+    def unauthorized(url, data=None, headers=None, timeout=None, stream=None):
         return FakeResponse({"detail": "unauthorized"}, status_code=401)
 
     monkeypatch.setattr(cu_mcp.requests, "post", unauthorized)
@@ -353,7 +365,7 @@ def test_mcp_client_error_messages(monkeypatch):
         client.initialize()
     assert "访问密钥" in str(excinfo.value)
 
-    def not_found(url, data=None, headers=None, timeout=None):
+    def not_found(url, data=None, headers=None, timeout=None, stream=None):
         return FakeResponse("nope", status_code=404)
 
     monkeypatch.setattr(cu_mcp.requests, "post", not_found)
@@ -361,7 +373,7 @@ def test_mcp_client_error_messages(monkeypatch):
         cu_mcp.McpClient("http://h:8000/mcp").initialize()
     assert "404" in str(excinfo2.value)
 
-    def boom(url, data=None, headers=None, timeout=None):
+    def boom(url, data=None, headers=None, timeout=None, stream=None):
         raise cu_mcp.requests.ConnectionError("connection refused")
 
     monkeypatch.setattr(cu_mcp.requests, "post", boom)
@@ -371,7 +383,7 @@ def test_mcp_client_error_messages(monkeypatch):
 
 
 def test_mcp_probe_reports_tools(monkeypatch):
-    def fake_post(url, data=None, headers=None, timeout=None):
+    def fake_post(url, data=None, headers=None, timeout=None, stream=None):
         payload = json.loads(data.decode("utf-8"))
         if payload["method"] == "initialize":
             return FakeResponse(_jsonrpc({"serverInfo": {"name": "windows-mcp"}}, msg_id=payload["id"]))
@@ -390,6 +402,86 @@ def test_mcp_probe_reports_tools(monkeypatch):
     assert probe["tools"][0]["name"] == "PowerShell"
     assert probe["tools"][0]["mutating"] is True
     assert probe["tools"][0]["observeOnly"] is False
+
+
+def test_mcp_client_gives_up_at_deadline_instead_of_hanging(monkeypatch):
+    """目标机 SSE 一直发心跳时，per-read 超时永远不触发 —— 必须有 wall-clock 截止。
+
+    真机上 ``Snapshot(use_ui_tree=True)`` 卡死时后端就这么一直挂着（实测 90 秒以上），
+    前端只看到转圈，最后变成 5xx。修好之后这里必须在 timeout 附近抛可读错误，
+    而不是等到底层 socket 超时（那可能是几分钟甚至永远）。
+    """
+    import time as _time
+
+    class StuckResponse:
+        status_code = 200
+        headers = {"Content-Type": "text/event-stream"}
+
+        def iter_content(self, chunk_size=None):
+            while True:
+                yield b'data: {"jsonrpc":"2.0","method":"notifications/progress","params":{}}\n\n'
+                _time.sleep(0.02)
+
+        def close(self):
+            pass
+
+    def fake_post(url, data=None, headers=None, timeout=None, stream=None):
+        return StuckResponse()
+
+    monkeypatch.setattr(cu_mcp.requests, "post", fake_post)
+    client = cu_mcp.McpClient("http://h:8000/mcp", timeout=1.0)
+    started = _time.monotonic()
+    with pytest.raises(cu_mcp.McpError) as excinfo:
+        client.initialize()
+    assert _time.monotonic() - started < 5
+    assert "没有返回结果" in str(excinfo.value)
+    # 错误文案要直接告诉运维「可以重启目标机的 MCP」
+    assert "重启" in str(excinfo.value)
+
+
+def test_mcp_restart_script_kills_listener_and_starts_task():
+    script = cu_deploy.mcp_restart_script(8000, user="Administrator")
+    assert "Get-NetTCPConnection -LocalPort 8000" in script
+    assert "Stop-Process -Id $old -Force" in script
+    assert '"KILLED=$old"' in script
+    # 跑我们 VBS 的 wscript 也要收掉（它起的 python 可能已经不在端口上）
+    assert "AutoOps-ComputerUse*" in script
+    assert "Start-ScheduledTask -TaskName 'AutoOps-ComputerUse-MCP'" in script
+    # 计划任务被清掉时要能现场重建，登录类型按当前有没有交互会话决定
+    assert "Register-ScheduledTask -TaskName 'AutoOps-ComputerUse-MCP'" in script
+    assert "'Interactive'" in script and "'S4U'" in script
+    assert "$env:COMPUTERNAME + '\\Administrator'" in script
+
+    domain = cu_deploy.mcp_restart_script(8001, vbs_local=r"C:\Installer\x.vbs", user=r"WIN-75\admin")
+    assert "'WIN-75\\admin'" in domain
+    assert r"C:\Installer\x.vbs" in domain
+    assert "-LocalPort 8001" in domain
+
+
+def test_normalize_observe_args_keeps_mcp_alive():
+    """Snapshot 默认只截图：真机上取 UI 元素树会把整台机器的 MCP 卡死。"""
+    from app.api import computeruse as cu_api
+
+    args, notes = cu_api._normalize_observe_args("Snapshot", {"use_ui_tree": True})
+    assert args == {"use_ui_tree": False, "use_vision": True}
+    assert any("卡死" in note for note in notes)
+
+    # 调用方明确要元素树时才放行（并如实提示风险）
+    args, notes = cu_api._normalize_observe_args("Snapshot", {"use_ui_tree": True}, allow_ui_tree=True)
+    assert args["use_ui_tree"] is True
+    assert any("可能把 MCP 卡住" in note for note in notes)
+
+    # use_dom 依赖元素树，没开元素树就该丢掉
+    args, notes = cu_api._normalize_observe_args("Snapshot", {"use_dom": True})
+    assert "use_dom" not in args
+    assert args["use_vision"] is True
+
+    # 真机的 Wait 参数叫 duration（模型爱写 seconds）
+    assert cu_api._normalize_observe_args("Wait", {"seconds": 3})[0] == {"duration": 3}
+
+    # 其它工具不动参数
+    assert cu_api._normalize_observe_args("Screenshot", {}) == ({}, [])
+    assert cu_api._normalize_observe_args("Click", {"x": 1, "y": 2}) == ({"x": 1, "y": 2}, [])
 
 
 # --------------------------------------------------------------------------- #
@@ -595,6 +687,116 @@ def test_mcp_call_flat_arguments_shape(app, client, admin_headers, windows_host,
     )
     assert resp.status_code == 200, resp.get_json()
     assert seen["arguments"] == {"x": 10, "y": 20, "loc": [10, 20]}
+
+
+def test_mcp_call_normalizes_snapshot_args_and_reports_notes(
+    app, client, admin_headers, windows_host, monkeypatch
+):
+    """AI 想看「屏幕」时会给 Snapshot 带 use_ui_tree —— 后端必须把它按回只截图。"""
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    seen: dict = {}
+
+    class FakeClient:
+        def call_tool(self, name, arguments=None, timeout=None):
+            seen["arguments"] = arguments
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row: FakeClient())
+    resp = client.post(
+        "/api/computer-use/mcp/call",
+        headers=admin_headers,
+        json={"hostId": host_id, "tool": "Snapshot", "arguments": {"use_ui_tree": True}},
+    )
+    assert resp.status_code == 200, resp.get_json()
+    assert seen["arguments"] == {"use_ui_tree": False, "use_vision": True}
+    assert any("卡死" in note for note in resp.get_json()["data"]["notes"])
+
+
+def test_mcp_restart_endpoint_probes_after_restart(app, client, admin_headers, windows_host, monkeypatch):
+    """重启 MCP 是自愈入口：走 WinRM（不经过已经卡死的 MCP），成功后再探一次活。"""
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    calls: list[dict] = []
+
+    def fake_restart(app_obj, *, host_id, account_id=None, port=None, timeout=240):
+        calls.append({"hostId": host_id, "accountId": account_id, "port": port})
+        return {
+            "hostId": host_id,
+            "hostName": "win-75",
+            "port": port,
+            "killedPid": "4321",
+            "started": "task",
+            "listen": True,
+            "ownerPid": "8765",
+            "ok": True,
+            "error": "",
+            "output": "KILLED=4321",
+            "durationMs": 9000,
+        }
+
+    class FakeClient:
+        def probe(self):
+            return {
+                "ok": True,
+                "endpoint": "http://192.168.0.75:8000/mcp",
+                "toolCount": 2,
+                "tools": [{"name": "Screenshot", "mutating": False, "observeOnly": True}],
+            }
+
+    monkeypatch.setattr(cu_deploy, "restart_target_mcp", fake_restart)
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row, timeout=60.0: FakeClient())
+    resp = client.post("/api/computer-use/mcp/restart", headers=admin_headers, json={"hostId": host_id})
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    data = body["data"]
+    assert data["ok"] is True
+    assert data["killedPid"] == "4321"
+    assert data["probe"]["ok"] is True
+    assert data["probe"]["toolCount"] == 2
+    assert "2 个工具" in body["message"]
+    # 端口从部署记录里的 mcp_url 推出来
+    assert calls == [{"hostId": host_id, "accountId": account_id, "port": 8000}]
+    with app.app_context():
+        entry = (
+            AuditLog.query.filter_by(category="computeruse", action="mcp_restart")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        assert entry is not None and entry.result == "success"
+
+
+def test_mcp_restart_endpoint_never_returns_5xx(app, client, admin_headers, windows_host, monkeypatch):
+    """自愈失败也要是可读的 200：否则「修不好」又变成用户看到的 500。"""
+
+    def fake_restart(app_obj, *, host_id, account_id=None, port=None, timeout=240):
+        return {"hostId": host_id, "port": port, "ok": False, "error": "连接目标机失败：拒绝连接"}
+
+    monkeypatch.setattr(cu_deploy, "restart_target_mcp", fake_restart)
+    not_ready = client.post("/api/computer-use/mcp/restart", headers=admin_headers, json={"hostId": 9999})
+    assert not_ready.status_code == 400
+    assert not_ready.get_json()["code"] == "NOT_DEPLOYED"
+
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+    resp = client.post("/api/computer-use/mcp/restart", headers=admin_headers, json={"hostId": host_id})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["data"]["ok"] is False
+    assert "重启 MCP 失败" in body["message"]
+    assert "拒绝连接" in body["message"]
+    with app.app_context():
+        entry = (
+            AuditLog.query.filter_by(category="computeruse", action="mcp_restart")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        assert entry is not None and entry.result == "failure"
 
 
 def test_failed_probe_keeps_recorded_tools(app, client, admin_headers, windows_host, monkeypatch):

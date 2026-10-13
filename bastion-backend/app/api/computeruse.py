@@ -79,11 +79,11 @@ def _ready_row(host_id: int) -> ComputerUseDeployment | None:
     )
 
 
-def _client_for(row: ComputerUseDeployment) -> mcp_mod.McpClient:
+def _client_for(row: ComputerUseDeployment, *, timeout: float = 60.0) -> mcp_mod.McpClient:
     if not row.mcp_url:
         raise LookupError(f"{row.host_name} 还没有可用的 MCP 地址，请先完成部署")
     auth_key = decrypt(row.mcp_auth_key_enc) if row.mcp_auth_key_enc else ""
-    return mcp_mod.McpClient(row.mcp_url, auth_key=auth_key, timeout=60.0)
+    return mcp_mod.McpClient(row.mcp_url, auth_key=auth_key, timeout=timeout)
 
 
 def _host_or_404(host_id: int) -> Host:
@@ -688,6 +688,116 @@ def mcp_probe():
     return api_ok(probe)
 
 
+@bp.post("/mcp/restart")
+@permission_required("computeruse:use")
+def mcp_restart():
+    """重启目标机上的 MCP 服务（卡死自愈）。
+
+    真机实测：``Snapshot(use_ui_tree=True)`` 会让 windows-mcp 死等 UIA，之后**整台机器的
+    MCP 都不再回应**（连 ``Screenshot`` 都挂死），只能杀掉那个 python 进程重新起。
+    这条路由走 WinRM + 计划任务，**不经过 MCP 本身**（它已经不能用了），失败也回 200 +
+    可读原因，避免「修复失败」再给前端一个 5xx。
+    """
+    payload = _payload()
+    host_id = _resolve_host_id(payload)
+    if not host_id:
+        return api_error("缺少 hostId", 400, code="BAD_REQUEST")
+    row = _ready_row(host_id)
+    if row is None:
+        return api_error("这台主机还没有部署好 ComputerUse", 400, code="NOT_DEPLOYED")
+    port = (urlsplit(row.mcp_url).port if row.mcp_url else None) or deploy_mod.DEFAULT_MCP_PORT
+    actor = load_actor()
+    username = getattr(actor, "username", "") or ""
+    started = time.time()
+    result = deploy_mod.restart_target_mcp(
+        current_app._get_current_object(),
+        host_id=row.host_id,
+        account_id=row.account_id,
+        port=port,
+    )
+    probe: dict = {}
+    if result.get("ok"):
+        # 重启完立刻探一次活：这才能证明「MCP 真的又能用了」，而不是只是端口起来了
+        try:
+            probe = _client_for(row, timeout=20.0).probe()
+        except (mcp_mod.McpError, LookupError) as exc:
+            probe = {"ok": False, "error": str(exc)}
+        if probe.get("ok"):
+            row.mcp_tool_count = probe.get("toolCount") or 0
+            row.mcp_tools = probe.get("tools") or []
+            row.mcp_url = probe.get("endpoint") or row.mcp_url
+            db.session.commit()
+    result["probe"] = probe
+    log_event(
+        "computeruse",
+        "mcp_restart",
+        result="success" if result.get("ok") and probe.get("ok", True) else "failure",
+        message=(
+            f"{username} 重启 {row.host_name} 的 MCP 服务"
+            f"{'成功' if result.get('ok') else '失败'}"
+            + (f"：{result.get('error')}" if result.get("error") else "")
+        ),
+        target_type="host",
+        target_id=row.host_id,
+        target_name=row.host_name,
+        actor_username=username,
+        ip=get_client_ip(),
+        user_agent=get_user_agent(),
+        detail={
+            "port": port,
+            "killedPid": result.get("killedPid"),
+            "ownerPid": result.get("ownerPid"),
+            "listen": result.get("listen"),
+            "logon": result.get("logon"),
+            "desktopActive": result.get("desktopActive"),
+            "error": result.get("error"),
+            "probeOk": probe.get("ok"),
+            "toolCount": probe.get("toolCount"),
+            "durationMs": int((time.time() - started) * 1000),
+        },
+    )
+    if not result.get("ok"):
+        message = f"重启 MCP 失败：{result.get('error') or '原因未知'}"
+    elif probe.get("ok"):
+        message = f"已重启目标机上的 MCP（探活通过，{probe.get('toolCount')} 个工具）"
+    else:
+        message = "已重启目标机上的 MCP，但探活没通过"
+    if result.get("ok") and not result.get("desktopActive"):
+        # 会话 0 里没有桌面，截图必然是空的 —— 与其让用户猜，不如直接说清楚
+        message += "；目标机当前没人登录桌面，MCP 跑在会话 0，截图会是空的（在目标机上登录桌面后重启一次即可）"
+    return api_ok(result, message=message)
+
+
+def _normalize_observe_args(
+    tool_name: str, arguments: dict, *, allow_ui_tree: bool = False
+) -> tuple[dict, list[str]]:
+    """修正「看一眼」类工具的参数（真机踩过的坑，见 ``computeruse/mcp.py`` 顶部注释）。
+
+    * ``Snapshot(use_ui_tree=True)`` 会让 windows-mcp 死等 UIA，之后**整台机器的 MCP
+      都不再回应**（连 Screenshot 都挂死），只能重启 MCP 才恢复 —— 所以默认把元素树关掉，
+      只回截图；确实要看元素树得由调用方显式传 ``allowUiTree``。
+    * ``use_dom`` 依赖元素树；``use_vision`` 不显式打开时服务端不回图片。
+    * 真机的 ``Wait`` 参数是 ``duration``（秒），模型习惯写 ``seconds``。
+    """
+    fixed = dict(arguments or {})
+    notes: list[str] = []
+    if tool_name == "Snapshot":
+        if fixed.get("use_dom") and not fixed.get("use_ui_tree"):
+            fixed.pop("use_dom", None)
+            notes.append("use_dom 需要 use_ui_tree，已忽略")
+        if fixed.get("use_ui_tree"):
+            if allow_ui_tree:
+                notes.append("按调用方要求取 UI 元素树（真机上可能把 MCP 卡住）")
+            else:
+                fixed["use_ui_tree"] = False
+                notes.append("已关掉 use_ui_tree：真机上取 UI 元素树会把 MCP 卡死，改成只回截图")
+        fixed.setdefault("use_vision", True)
+    if tool_name == "Wait" and "duration" not in fixed and "seconds" in fixed:
+        fixed["duration"] = fixed.pop("seconds")
+        notes.append("seconds 已按真机参数名改成 duration")
+    return fixed, notes
+
+
 @bp.post("/mcp/call")
 @permission_required("computeruse:use")
 def mcp_call():
@@ -704,7 +814,7 @@ def mcp_call():
     if not isinstance(arguments, dict) or not arguments:
         # AI 工具把 dict 参数展开进请求体（见 ai/tools.py:build_request），
         # 所以这里同时接受「arguments 嵌套」与「参数平铺在顶层」两种形状。
-        reserved = {"hostId", "deploymentId", "tool", "timeout", "reason", "arguments"}
+        reserved = {"hostId", "deploymentId", "tool", "timeout", "reason", "arguments", "allowUiTree"}
         flat = {key: value for key, value in payload.items() if key not in reserved}
         if flat:
             arguments = flat
@@ -714,6 +824,9 @@ def mcp_call():
             arguments = {}
     if tool_name not in mcp_mod.OBSERVE_TOOLS and tool_name not in mcp_mod.MUTATING_TOOLS:
         return api_error(f"不认识的 MCP 工具：{tool_name}", 400, code="UNKNOWN_TOOL")
+    arguments, notes = _normalize_observe_args(
+        tool_name, arguments, allow_ui_tree=parse_bool(payload.get("allowUiTree"))
+    )
 
     actor = load_actor()
     username = getattr(actor, "username", "") or ""
@@ -764,6 +877,7 @@ def mcp_call():
             "chars": len(text),
             "durationMs": duration_ms,
             "mcpUrl": row.mcp_url,
+            "notes": notes,
         },
     )
     return api_ok(
@@ -774,6 +888,7 @@ def mcp_call():
             "text": text,
             "images": images,
             "durationMs": duration_ms,
+            "notes": notes,
             "raw": result,
         }
     )

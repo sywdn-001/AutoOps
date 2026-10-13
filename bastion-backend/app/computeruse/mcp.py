@@ -34,12 +34,13 @@ MCP_CLIENT_NAME = "AutoOps-Bastion"
 MCP_CLIENT_VERSION = "1.0.0"
 
 #: 只读工具：看一眼就完事，不改变目标机状态，可以不要求管理员二次确认。
+#: 名单按真机（windows-mcp，20 个工具）核对过：曾经写在这里的 ``ControlStatus``
+#: 在真机上并不存在，AI 照着调只会拿到 ``Unknown tool``。
 OBSERVE_TOOLS = frozenset(
     {
         "Screenshot",
         "Snapshot",
         "DisplayInventory",
-        "ControlStatus",
         "Wait",
         "WaitFor",
     }
@@ -174,28 +175,111 @@ class McpClient:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         return f"127.0.0.1:{port}"
 
-    def _messages(self, resp: requests.Response) -> list[dict]:
-        """不管回 JSON 还是 SSE，都还原成一组 JSON-RPC 报文。"""
+    def _timeout_message(self) -> str:
+        return (
+            f"MCP 在 {self.timeout:.0f} 秒内没有返回结果：{self.url} —— 目标机的 MCP 服务"
+            "可能已经卡住（真机上让 Snapshot 取 UI 元素树就会把它卡死），可以重启目标机上的"
+            "MCP 服务后重试"
+        )
+
+    @staticmethod
+    def _sse_message(line: bytes) -> dict | None:
+        """把 SSE 的一行 ``data: {...}`` 还原成一条 JSON-RPC 报文。"""
+        text = line.decode("utf-8", "replace").strip()
+        if not text.startswith("data:"):
+            return None
+        payload = text[5:].strip()
+        if not payload or payload == "[DONE]":
+            return None
+        try:
+            data = json.loads(payload)
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _is_reply(message: dict, wanted: Any) -> bool:
+        """这条报文是不是「本次请求的回复」（有些实现不给 id，只回 result）。"""
+        if "result" in message and "id" not in message:
+            return True
+        return "id" in message and message.get("id") in (wanted, str(wanted))
+
+    @staticmethod
+    def _is_read_timeout(exc: BaseException) -> bool:
+        """这个请求异常算不算「读超时」（而不是立刻就被拒/连不上）。"""
+        if isinstance(exc, requests.Timeout):
+            return True
+        text = f"{exc} {getattr(exc, '__cause__', '')}"
+        return "Read timed out" in text or "ReadTimeout" in text
+
+    @staticmethod
+    def _peek(resp: requests.Response, limit: int = 400) -> str:
+        """尽量读一点错误正文，读不到就算了（别为了报错再挂一次）。"""
+        try:
+            for chunk in resp.iter_content(chunk_size=limit):
+                return chunk.decode("utf-8", "replace")[:limit]
+        except (requests.RequestException, ValueError):
+            return ""
+        return ""
+
+    def _read_messages(self, resp: requests.Response, *, wanted: Any, deadline: float) -> list[dict]:
+        """增量读响应：拿到本次请求的回复就立刻收工，超过 deadline 就给可读错误。
+
+        为什么不能一次 ``resp.text`` 读完：目标机的 SSE 会一直保持连接（心跳 + 进度
+        通知），而 ``requests`` 的 per-read 超时会被这些心跳不断刷新，于是永远不触发。
+        真机上 ``Snapshot(use_ui_tree=True)`` 卡死时，后端就这么一直挂着（实测 90 秒
+        以上），前端只看到转圈，最后变成 5xx。
+        """
         ctype = (resp.headers.get("Content-Type") or "").lower()
-        text = resp.text or ""
-        if "text/event-stream" in ctype:
-            messages: list[dict] = []
-            for line in text.splitlines():
-                line = line.strip()
-                if not line.startswith("data:"):
-                    continue
-                payload = line[5:].strip()
-                if not payload or payload == "[DONE]":
-                    continue
+        sse = "text/event-stream" in ctype
+        raw = b""
+        messages: list[dict] = []
+        chunks = resp.iter_content(chunk_size=8192)
+        while True:
+            try:
+                chunk = next(chunks)
+            except StopIteration:
+                break
+            except requests.Timeout:
+                if time.monotonic() >= deadline:
+                    raise McpError(self._timeout_message()) from None
+                continue
+            except requests.RequestException as exc:
+                # 目标机 MCP 卡死时连接会「读到一半」被掐断；真机上 requests 把 urllib3 的
+                # ReadTimeoutError 包成 ConnectionError（实测就是 500 的来源之一），
+                # 这里统一翻成可读的 McpError（对外是 502 + 中文提示，不是 500）。
+                message = self._timeout_message() if self._is_read_timeout(exc) else (
+                    f"读 MCP 响应时连接断了（{self.url}）：{exc}"
+                )
+                raise McpError(message) from exc
+            if not chunk:
+                continue
+            raw += chunk
+            if sse:
+                while b"\n" in raw:
+                    line, _, raw = raw.partition(b"\n")
+                    message = self._sse_message(line)
+                    if message is None:
+                        continue
+                    messages.append(message)
+                    if self._is_reply(message, wanted):
+                        return messages
+            else:
                 try:
-                    data = json.loads(payload)
+                    data = json.loads(raw.decode("utf-8", "replace"))
                 except ValueError:
-                    continue
-                if isinstance(data, dict):
-                    messages.append(data)
-                elif isinstance(data, list):
-                    messages.extend(item for item in data if isinstance(item, dict))
+                    data = None
+                if data is not None:
+                    return data if isinstance(data, list) else [data]
+            if time.monotonic() >= deadline:
+                raise McpError(self._timeout_message())
+        if sse:
+            for line in raw.split(b"\n"):
+                message = self._sse_message(line)
+                if message is not None:
+                    messages.append(message)
             return messages
+        text = raw.decode("utf-8", "replace")
         if not text.strip():
             return []
         try:
@@ -205,37 +289,47 @@ class McpClient:
         return data if isinstance(data, list) else [data]
 
     def _post(self, payload: dict, *, expect_reply: bool = True) -> list[dict]:
+        wanted = payload.get("id")
+        deadline = time.monotonic() + max(self.timeout, 1.0)
+        read_timeout = min(3.0, max(self.timeout, 1.0))
         try:
             resp = requests.post(
                 self.url,
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers=self._headers(),
-                timeout=(15.0, self.timeout),
+                timeout=(15.0, read_timeout),
+                stream=True,
             )
         except requests.Timeout as exc:
-            raise McpError(f"MCP 响应超时（{self.timeout:.0f} 秒）：{self.url}") from exc
+            raise McpError(self._timeout_message()) from exc
         except requests.RequestException as exc:
             raise McpError(
                 f"连不上目标机的 MCP 服务（{self.url}）：{exc} —— 确认 MCP 进程在跑、"
                 "portproxy 与防火墙已放行、地址端口没写错"
             ) from exc
 
-        session = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-        if session:
-            self.session_id = session
+        try:
+            session = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+            if session:
+                self.session_id = session
 
-        if resp.status_code in (401, 403):
-            raise McpError(
-                f"MCP 拒绝访问（HTTP {resp.status_code}）：这台机器的 MCP 开了访问密钥，"
-                "请确认部署时生成的密钥与当前一致"
-            )
-        if resp.status_code == 404:
-            raise McpError(f"MCP 端点不存在（HTTP 404）：{self.url}（注意要带 /mcp）")
-        if resp.status_code >= 400:
-            raise McpError(f"MCP 返回 HTTP {resp.status_code}：{(resp.text or '')[:200]}")
-        if not expect_reply:
-            return []
-        return self._messages(resp)
+            if resp.status_code in (401, 403):
+                raise McpError(
+                    f"MCP 拒绝访问（HTTP {resp.status_code}）：这台机器的 MCP 开了访问密钥，"
+                    "请确认部署时生成的密钥与当前一致"
+                )
+            if resp.status_code == 404:
+                raise McpError(f"MCP 端点不存在（HTTP 404）：{self.url}（注意要带 /mcp）")
+            if resp.status_code >= 400:
+                raise McpError(f"MCP 返回 HTTP {resp.status_code}：{self._peek(resp)}")
+            if not expect_reply:
+                return []
+            return self._read_messages(resp, wanted=wanted, deadline=deadline)
+        finally:
+            try:
+                resp.close()
+            except Exception:  # noqa: BLE001 — 关连接失败不该盖住真正的错误
+                pass
 
     def _rpc(self, method: str, params: dict | None = None, *, notify: bool = False) -> dict:
         self._seq += 1
