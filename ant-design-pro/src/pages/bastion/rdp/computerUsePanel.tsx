@@ -22,12 +22,15 @@ import {
   ReloadOutlined,
   RightOutlined,
   RobotOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import { XMarkdown } from '@ant-design/x-markdown';
 import { request } from '@umijs/max';
+import type { CollapseProps } from 'antd';
 import {
   Alert,
   Button,
+  Collapse,
   Form,
   Input,
   Modal,
@@ -62,6 +65,14 @@ export const MCP_CALL_TIMEOUT_MS = 60000;
 
 /** 部署状态轮询间隔：窗口开着的时候正好把机器部署完，也要能自己亮起来 */
 const STATUS_POLL_MS = 30000;
+
+/** 欢迎态里的示例问题：点一下就发出去（与 AI 运维页同一套交互） */
+export const WELCOME_HINTS = [
+  '打开记事本，输入今天的巡检结论',
+  '把当前屏幕截一张给我看',
+  '这台机器装的是什么版本的 Python？',
+  '列一下正在运行的程序',
+];
 
 /** 工具调用状态 → 标签（与 AI 对话页保持同一套说法） */
 export const COMPUTER_USE_STATUS: Record<
@@ -609,10 +620,34 @@ const PANEL_CSS = `
   color: #64748b;
   line-height: 1.6;
 }
-.bastion-cu-tools {
+.bastion-cu-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+.bastion-cu-welcome-icon {
+  font-size: 20px;
+  color: #60a5fa;
+}
+.bastion-cu-welcome-title {
+  font-weight: 600;
+  color: #e6edf3;
+}
+.bastion-cu-welcome-hints {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+.bastion-cu-hint {
+  cursor: pointer;
+}
+.bastion-cu-collar .ant-collapse-header {
+  padding: 2px 0 !important;
+  color: #93c5fd !important;
+}
+.bastion-cu-collar .ant-collapse-content-box {
+  padding: 0 !important;
 }
 .bastion-cu-shots {
   display: flex;
@@ -690,8 +725,13 @@ const PANEL_CSS = `
   padding: 8px 10px;
   border-top: 1px solid #1f2937;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-end;
   gap: 6px;
+}
+.bastion-cu-input-box {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .bastion-cu-input .ant-input,
 .bastion-cu-input textarea {
@@ -705,6 +745,35 @@ const PANEL_CSS = `
   border-top: 1px solid #1f2937;
   color: #64748b;
   line-height: 1.6;
+}
+/* 深色面板里的 antd 部件：antd 默认按浅色主题渲染，深底上按钮会「看不见」——统一改浅 */
+.bastion-cu-panel .ant-btn-text,
+.bastion-cu-panel .ant-btn-text > .anticon,
+.bastion-cu-panel .ant-btn-default {
+  color: #cbd5e1 !important;
+}
+.bastion-cu-panel .ant-btn-text:hover {
+  color: #93c5fd !important;
+  background: rgba(59, 130, 246, 0.16) !important;
+}
+.bastion-cu-panel .ant-btn-primary:disabled {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+.bastion-cu-strip .ant-btn-text,
+.bastion-cu-strip .ant-btn-text > .anticon {
+  color: #cbd5e1 !important;
+}
+.bastion-cu-collar .ant-collapse-header-text,
+.bastion-cu-collar .ant-collapse-expand-icon {
+  color: #93c5fd !important;
+}
+.bastion-cu-msg-ai code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #020617;
+  color: #93c5fd;
 }
 `;
 
@@ -1010,38 +1079,46 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
     [applyEvent, hostId, patchTurn],
   );
 
+  /** 真正发一条消息：输入框回车、发送按钮、欢迎语里的示例问题都走这里 */
+  const send = useCallback(
+    (raw: string) => {
+      const value = raw.trim();
+      if (!value || streaming) return;
+      setInput('');
+      const userKey = nextToolCallId('user');
+      const assistantKey = nextToolCallId('assistant');
+      setTurns((prev) => [
+        ...prev,
+        {
+          key: userKey,
+          role: 'user',
+          content: value,
+          reasoning: '',
+          cards: [],
+          toolCalls: [],
+        },
+        {
+          key: assistantKey,
+          role: 'assistant',
+          content: '',
+          reasoning: '',
+          cards: [],
+          toolCalls: [],
+          streaming: true,
+        },
+      ]);
+      void runStream(assistantKey, {
+        message: value,
+        conversationId: conversationIdRef.current,
+      });
+    },
+    [runStream, streaming],
+  );
+
   /** 发送：回车发送、Shift+回车换行（在输入框上处理） */
   const handleSend = useCallback(() => {
-    const value = input.trim();
-    if (!value || streaming) return;
-    setInput('');
-    const userKey = nextToolCallId('user');
-    const assistantKey = nextToolCallId('assistant');
-    setTurns((prev) => [
-      ...prev,
-      {
-        key: userKey,
-        role: 'user',
-        content: value,
-        reasoning: '',
-        cards: [],
-        toolCalls: [],
-      },
-      {
-        key: assistantKey,
-        role: 'assistant',
-        content: '',
-        reasoning: '',
-        cards: [],
-        toolCalls: [],
-        streaming: true,
-      },
-    ]);
-    void runStream(assistantKey, {
-      message: value,
-      conversationId: conversationIdRef.current,
-    });
-  }, [input, runStream, streaming]);
+    send(input);
+  }, [input, send]);
 
   /** 管理员确认通过 → 续流执行挂起的写操作 */
   const submitConfirm = useCallback(async () => {
@@ -1206,7 +1283,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         </div>
 
         <div className="bastion-cu-body">
-          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={6} style={{ width: '100%' }}>
             <Button
               type="primary"
               size="small"
@@ -1217,9 +1294,6 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
             >
               看一眼屏幕
             </Button>
-            <div className="bastion-cu-note">
-              截图直接来自目标机 MCP，是操作是否生效的唯一凭据。
-            </div>
             {shotError ? (
               <Alert type="error" showIcon message={shotError} />
             ) : null}
@@ -1247,51 +1321,71 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
             ) : null}
           </Space>
 
-          <div>
-            <div className="bastion-cu-section-title">工具清单</div>
-            {tools.length > 0 ? (
-              <div className="bastion-cu-tools" data-testid="computeruse-tools">
-                {tools.map((tool) => {
-                  const meta = describeToolMeta(tool);
-                  return (
-                    <Tooltip
-                      key={tool.name}
-                      title={meta.description || '暂无说明'}
-                    >
-                      <Tag
-                        color={meta.color}
-                      >{`${meta.name} · ${meta.label}`}</Tag>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="bastion-cu-note">
-                还没有拿到工具清单，点右上角刷新试试。
-              </div>
-            )}
-            <div className="bastion-cu-note">
-              标「只读」的工具 AI 可以直接调用；标「会改机器状态」的工具由 AI
-              调用时需要管理员当场确认。
-            </div>
-          </div>
-
           <div className="bastion-cu-chat" data-testid="computeruse-chat">
             <div className="bastion-cu-section-title">AI 对话</div>
             {turns.length === 0 ? (
-              <div className="bastion-cu-note">
-                例如：「打开记事本，输入今天的巡检结论」「把当前屏幕截一张给我看」。
+              <div className="bastion-cu-welcome">
+                <RobotOutlined className="bastion-cu-welcome-icon" />
+                <div className="bastion-cu-welcome-title">
+                  告诉 AI 在这台机器上做什么，它来操作并给你截图
+                </div>
+                <div className="bastion-cu-welcome-hints">
+                  {WELCOME_HINTS.map((hint) => (
+                    <Tag
+                      key={hint}
+                      className="bastion-cu-hint"
+                      onClick={() => send(hint)}
+                    >
+                      {hint}
+                    </Tag>
+                  ))}
+                </div>
               </div>
             ) : null}
-            {turns.map((turn) =>
-              turn.role === 'user' ? (
-                <div className="bastion-cu-msg-user" key={turn.key}>
-                  {turn.content}
-                </div>
-              ) : (
-                <div className="bastion-cu-msg-ai" key={turn.key}>
-                  {turn.reasoning ? (
+            {turns.map((turn) => {
+              if (turn.role === 'user') {
+                return (
+                  <div className="bastion-cu-msg-user" key={turn.key}>
+                    {turn.content}
+                  </div>
+                );
+              }
+              // 思考过程与工具调用折叠成两块、默认展开 —— 与 AI 运维页同一套阅读顺序
+              const collarItems: CollapseProps['items'] = [];
+              if (turn.reasoning) {
+                collarItems.push({
+                  key: 'reasoning',
+                  label: '思考过程',
+                  children: (
                     <pre className="bastion-cu-reasoning">{turn.reasoning}</pre>
+                  ),
+                });
+              }
+              if (turn.toolCalls.length > 0) {
+                collarItems.push({
+                  key: 'tools',
+                  label: `工具调用 ${turn.toolCalls.length} 次`,
+                  children: (
+                    <>
+                      {turn.toolCalls.map((call) => (
+                        <ToolCallView key={call.callId} call={call} />
+                      ))}
+                    </>
+                  ),
+                });
+              }
+              return (
+                <div className="bastion-cu-msg-ai" key={turn.key}>
+                  {collarItems.length > 0 ? (
+                    <Collapse
+                      ghost
+                      size="small"
+                      className="bastion-cu-collar"
+                      items={collarItems}
+                      defaultActiveKey={collarItems.map((item) =>
+                        String(item?.key),
+                      )}
+                    />
                   ) : null}
                   {turn.content ? (
                     <XMarkdown
@@ -1303,55 +1397,67 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                       <Spin size="small" /> 正在思考…
                     </span>
                   ) : null}
-                  {turn.toolCalls.map((call) => (
-                    <ToolCallView key={call.callId} call={call} />
-                  ))}
+                  {turn.cards.length > 0 ? (
+                    <JsonCards value={turn.cards} compact />
+                  ) : null}
+                  {turn.elapsedMs ? (
+                    <div className="bastion-cu-note">
+                      用时 {(turn.elapsedMs / 1000).toFixed(1)}s
+                      {turn.status === 'max_rounds'
+                        ? '，已达单轮工具调用上限'
+                        : ''}
+                    </div>
+                  ) : null}
                   {turn.error ? (
                     <div className="bastion-cu-msg-error">{turn.error}</div>
                   ) : null}
                 </div>
-              ),
-            )}
+              );
+            })}
           </div>
         </div>
 
         <div className="bastion-cu-input">
+          <div className="bastion-cu-input-box">
+            <Input.TextArea
+              value={input}
+              autoSize={{ minRows: 1, maxRows: 4 }}
+              placeholder="告诉 AI 下一步做什么（回车发送，Shift+回车换行）"
+              aria-label="ComputerUse AI 指令"
+              onChange={(event) => setInput(event.target.value)}
+              onPressEnter={(event) => {
+                if (event.shiftKey) {
+                  return;
+                }
+                event.preventDefault();
+                handleSend();
+              }}
+            />
+          </div>
           {streaming ? (
             <Button
               size="small"
               icon={<CloseOutlined />}
+              aria-label="停止生成"
               onClick={() => {
                 streamRef.current?.abort();
                 setStreaming(false);
               }}
             >
-              停止生成
+              停止
             </Button>
-          ) : null}
-          <Input.TextArea
-            value={input}
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            placeholder="告诉 AI 下一步做什么（回车发送，Shift+回车换行）"
-            aria-label="ComputerUse AI 指令"
-            onChange={(event) => setInput(event.target.value)}
-            onPressEnter={(event) => {
-              if (event.shiftKey) {
-                return;
-              }
-              event.preventDefault();
-              handleSend();
-            }}
-          />
-          <Button
-            type="primary"
-            size="small"
-            block
-            aria-label="发送"
-            disabled={!input.trim() || streaming}
-            onClick={handleSend}
-          >
-            发送
-          </Button>
+          ) : (
+            <Button
+              type="primary"
+              size="small"
+              icon={<SendOutlined />}
+              aria-label="发送"
+              disabled={!input.trim()}
+              onClick={handleSend}
+            >
+              发送
+            </Button>
+          )}
         </div>
 
         <div className="bastion-cu-foot">

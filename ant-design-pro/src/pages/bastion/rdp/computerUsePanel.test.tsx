@@ -6,7 +6,8 @@
  * - 没就绪（ready !== true）整块不渲染；
  * - 就绪后默认折叠成窄条，点一下就展开并落盘；
  * - 「看一眼屏幕」把 Screenshot 的图片内联出来，失败给可读错误；
- * - 面板里的 AI 对话必须带上 hostId。
+ * - 面板里的 AI 对话必须带上 hostId，并把思考过程 / 工具调用过程展示出来；
+ * - 工具清单不再占版面（按用户要求删掉），欢迎态的示例问题点一下就发出去。
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -65,6 +66,7 @@ import ComputerUsePanel, {
   resolveMcpEndpoint,
   resolveToolCount,
   truncateText,
+  WELCOME_HINTS,
   writePanelOpen,
 } from './computerUsePanel';
 
@@ -609,7 +611,7 @@ describe('组件行为（mock 后端）', () => {
     expect(screen.queryByTestId('computeruse-shots')).toBeNull();
   });
 
-  it('工具清单标出只读与会改机器状态，并提示写操作要管理员确认', async () => {
+  it('工具清单不再占版面，但头部仍报出可用工具数', async () => {
     localStorage.setItem(PANEL_OPEN_KEY, '1');
     requestMock.mockImplementation((url: string) => {
       if (url.includes('/status')) return ok(READY_STATUS);
@@ -619,9 +621,79 @@ describe('组件行为（mock 后端）', () => {
     });
     render(<ComputerUsePanel hostId={7} />);
 
-    expect(await screen.findByText('Screenshot · 只读')).toBeTruthy();
-    expect(screen.getByText('Click · 会改机器状态')).toBeTruthy();
-    expect(screen.getByText(/需要管理员当场确认/)).toBeTruthy();
+    expect(await screen.findByTestId('computeruse-chat')).toBeTruthy();
+    expect(screen.queryByText('工具清单')).toBeNull();
+    expect(screen.queryByTestId('computeruse-tools')).toBeNull();
+    expect(screen.queryByText('Screenshot · 只读')).toBeNull();
+    expect(screen.getByText(/2 个/)).toBeTruthy();
+  });
+
+  it('欢迎态的示例问题点一下就发出去', async () => {
+    localStorage.setItem(PANEL_OPEN_KEY, '1');
+    requestMock.mockImplementation((url: string) =>
+      url.includes('/status')
+        ? ok(READY_STATUS)
+        : ok({ data: { items: READY_STATUS.tools } }),
+    );
+    render(<ComputerUsePanel hostId={7} />);
+
+    fireEvent.click(await screen.findByText(WELCOME_HINTS[0]));
+
+    await waitFor(() => expect(streamAiChatMock).toHaveBeenCalled());
+    const payload = streamAiChatMock.mock.calls[0][0] as {
+      hostId: number;
+      message: string;
+    };
+    expect(payload.hostId).toBe(7);
+    expect(payload.message).toBe(WELCOME_HINTS[0]);
+    await waitFor(() =>
+      expect(
+        screen.queryByText('告诉 AI 在这台机器上做什么，它来操作并给你截图'),
+      ).toBeNull(),
+    );
+  });
+
+  it('思考过程与工具调用过程都显示出来（对齐主界面 AI 运维）', async () => {
+    localStorage.setItem(PANEL_OPEN_KEY, '1');
+    requestMock.mockImplementation((url: string) =>
+      url.includes('/status')
+        ? ok(READY_STATUS)
+        : ok({ data: { items: READY_STATUS.tools } }),
+    );
+    streamAiChatMock.mockImplementation(
+      (_payload: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'start', conversationId: 42 });
+        onEvent({ type: 'reasoning', delta: '先看一眼桌面' });
+        onEvent({
+          type: 'tool_call',
+          callId: 'call-1',
+          name: 'Screenshot',
+          args: {},
+          description: '截屏',
+        });
+        onEvent({
+          type: 'tool_result',
+          callId: 'call-1',
+          ok: true,
+          summary: '已截到 1024x768',
+        });
+        onEvent({ type: 'content', delta: '桌面正常。' });
+        onEvent({ type: 'message_end', status: 'done', elapsedMs: 1200 });
+        return Promise.resolve();
+      },
+    );
+    render(<ComputerUsePanel hostId={7} />);
+
+    const box = await screen.findByLabelText('ComputerUse AI 指令');
+    fireEvent.change(box, { target: { value: '看一眼' } });
+    fireEvent.click(screen.getByLabelText('发送'));
+
+    expect(await screen.findByText('思考过程')).toBeTruthy();
+    expect(screen.getByText('先看一眼桌面')).toBeTruthy();
+    expect(screen.getByText('工具调用 1 次')).toBeTruthy();
+    expect(screen.getByText('已截到 1024x768')).toBeTruthy();
+    expect(screen.getByTestId('xmarkdown').textContent).toBe('桌面正常。');
+    expect(screen.getByText(/用时 1\.2s/)).toBeTruthy();
   });
 
   it('发送对话时带上当前 hostId（AI 才知道操作哪台机器）', async () => {
