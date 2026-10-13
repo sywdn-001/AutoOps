@@ -376,6 +376,8 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
+| [docs/提交PR指南.md](docs/提交PR指南.md) | [pr-guide.en.md](docs/i18n/pr-guide.en.md) | 提 PR 之前看这篇：分支与提交信息、门禁怎么跑、说明怎么写、自检清单 |
+| [docs/提交Issue指南.md](docs/提交Issue指南.md) | [issue-guide.en.md](docs/i18n/issue-guide.en.md) | 提 issue 之前看这篇：模板怎么填、环境与复现步骤写到什么程度 |
 | **[Wiki 使用手册](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | 按主题拆开的 15 篇：安装部署、快速上手、资产与账号、身份与授权、策略、网页终端与文件、远程桌面与录像、SSH 网关、审计中心、AI 助手、系统设置、安全维护、升级备份、FAQ、故障排查 |
 
 全部文档的索引见 [docs/README.md](docs/README.md)；仓库英文介绍见
@@ -386,8 +388,9 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 1. Fork 后从 `main` 切分支，提交信息用 `feat(scope): 说明` / `fix(scope): 说明`。
 2. 提交前跑一遍：`cd bastion-backend && python -m pytest -q`；改前端再跑 `npx biome check && npx tsc --noEmit && npm run build`。
 3. 新增行为请同时补测试或联调脚本断言，PR 说明里附上实际输出（本仓库不接受「应该没问题」这类结论）。
-4. 发现问题、想提建议或提问，先看 [提交 Issue 指南](docs/提交Issue指南.md)（三个 issue 模板、环境与复现步骤该写什么都在里面）。
-5. 安全相关问题请走私下渠道，不要直接开公开 issue —— 支持版本、范围、处理时限与安全港见 [SECURITY.md](SECURITY.md)。
+4. 准备提 PR 时先看 [提交 PR 指南](docs/提交PR指南.md)（中英双语：[PR guide](docs/i18n/pr-guide.en.md)）—— 分支与提交信息、门禁怎么跑、说明四段式、哪些改动要先开 issue 商量，都在里面。
+5. 发现问题、想提建议或提问，先看 [提交 Issue 指南](docs/提交Issue指南.md)（三个 issue 模板、环境与复现步骤该写什么都在里面）。
+6. 安全相关问题请走私下渠道，不要直接开公开 issue —— 支持版本、范围、处理时限与安全港见 [SECURITY.md](SECURITY.md)。
 
 ## 许可证
 

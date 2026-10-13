@@ -14,6 +14,13 @@ Wiki 手册「独立发布」的说明模板 —— 由 .github/workflows/wiki-r
 > **它和主程序的关系**：程序包走 `vX.Y.Z`，手册包走 `wiki-vX.Y.Z`，**两条线各自编号、互不覆盖** —— 找程序请到主 Release，找文档就是这里。
 > **在线看**：{{WIKI_URL}}
 
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 所以这套手册可能还有不周到的地方，请大家多多谅解，也欢迎直接指正。
+>
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — so this manual may still have rough edges,
+> please bear with me (and tell me if you can).
+
 ## 中文
 
 ### 包里的东西

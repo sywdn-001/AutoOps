@@ -107,8 +107,9 @@ Also state the managed host, e.g. `Ubuntu 22.04 / ssh:22` or
   **Issues are not deleted** — they become the context of that problem.
 - If you find the cause yourself, **comment on the issue**, even when the conclusion is "my mistake,
   not a bug" — that clarification is worth more than silently closing it.
-- Want to fix it yourself? See the "Contributing" section of the root [README](../../README.md)
-  (commit message format, the gates that must pass).
+- Want to fix it yourself? Start with the [pull request guide](pr-guide.en.md) (branching, commit
+  message format, the gates that must pass, how to write the description); the "Contributing" section
+  of the root [README](../../README.md) lists the same requirements.
 
 ## Questions you may have to answer later — get ahead of them
 
@@ -128,7 +129,8 @@ Also state the managed host, e.g. `Ubuntu 22.04 / ssh:22` or
   cannot see that entry, message the maintainer privately). **Do not post details or exploit steps
   in a public issue.** Supported versions, scope, timelines and safe harbor live in the same
   [SECURITY.md](../../SECURITY.md).
-- **Something you can already fix yourself**: a PR is more welcome — just mention "fixes #NN" in it.
+- **Something you can already fix yourself**: a PR is more welcome — just mention "fixes #NN" in it,
+  and read the [pull request guide](pr-guide.en.md) first.
 - **A report with no reproduction information**: it will be asked for more detail, and closed if
   none is available. That is not a lack of welcome, it is simply not actionable.
 

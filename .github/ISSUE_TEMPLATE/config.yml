@@ -6,6 +6,12 @@ contact_links:
   - name: 🧭 怎么提一个好 issue / How to file a good issue
     url: https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md
     about: 模板每个字段怎么填、什么算「能复现」、可能被追问什么，都写在这份指南里。
+  - name: 🔀 怎么提一个好 PR（中文）/ How to open a good PR
+    url: https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4PR%E6%8C%87%E5%8D%97.md
+    about: 分支与提交信息、提交前门禁跑哪些、PR 说明四段式与自检清单，都在《提交 PR 指南》里。
+  - name: 🔀 Pull request guide (English)
+    url: https://github.com/sywdn-001/AutoOps/blob/main/docs/i18n/pr-guide.en.md
+    about: Branching, commit messages, which gates to run, how to write the description, and the checklist.
   - name: 🔐 安全漏洞 / Security issue
     url: https://github.com/sywdn-001/AutoOps/blob/main/docs/%E6%8F%90%E4%BA%A4Issue%E6%8C%87%E5%8D%97.md
     about: 安全漏洞请不要公开开 issue —— 请用 Security 面板的「Report a vulnerability」或私信维护者。

@@ -12,6 +12,13 @@
 
 > 发布日期 / Released: {{BUILD_DATE}} ｜ 提交 / Commit: [`{{COMMIT_SHORT}}`]({{REPO_URL}}/commit/{{COMMIT}}) ｜ [构建日志 / Workflow run]({{WORKFLOW_URL}})
 
+> **很高兴认识你，陌生人！** 我是一名初二学生，在中国新疆读初中。英语和写的代码都还在慢慢练，
+> 所以这份发布说明可能还有不周到的地方，请大家多多谅解，也欢迎直接指正。
+>
+> **Nice to meet you, stranger!** I'm an eighth-grade student in Xinjiang, China. My English and my
+> code are still a work in progress — so these release notes may still have rough edges,
+> please bear with me (and tell me if you can).
+
 把「谁能连哪台机器、能用哪个账号、能敲什么命令」全管住的开源运维堡垒机：
 身份与权限审计、命令级策略管控、SSH 网关、网页终端（SSH / WinRM）、
 WebRDP 远程桌面与录像、SFTP 文件管理器、防篡改审计链、AI 运维助手。

@@ -28,6 +28,7 @@
 | [验证记录.md](验证记录.md) | — | 门禁与真机联调的实测流水：每条判据、命令、实际输出与截图取证 |
 | [i18n/README.en.md](i18n/README.en.md) | — | 仓库英文介绍（英文 README，与根 README 对等） |
 | [提交Issue指南.md](提交Issue指南.md) | [issue-guide.en.md](i18n/issue-guide.en.md) | 怎么提一个能被修掉的 issue：三个模板怎么选、环境与复现步骤怎么写、会被追问什么、安全漏洞走哪里 |
+| [提交PR指南.md](提交PR指南.md) | [pr-guide.en.md](i18n/pr-guide.en.md) | 怎么提一个能被合并的 PR：分支与提交信息、提交前门禁跑哪些、说明四段式、自检清单、哪些改动要先开 issue 商量 |
 | **[Wiki 使用手册](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | 同样内容按主题拆成 15 篇（安装部署 / 资产 / 权限 / 策略 / 终端与文件 / 远程桌面 / 网关 / 审计 / AI / 设置 / 安全维护 / 升级备份 / FAQ / 排障），适合查单个功能 |
 
 > 只想跑起来：根 [README](../README.md) 的「快速开始」三条命令即可；想边看边做：
@@ -42,11 +43,12 @@
 | --- | --- |
 | `screenshots/` | 60+ 张实测截图：`docs/验证记录.md` 的取证图 + 根 README 的界面图 + 教程配图 |
 | `screenshots/tutorial/` | `图文教程.md` / `tutorial.en.md` 的 18 步配图（`01-login.png` … `18-ai-console.png`） |
-| `i18n/` | 英文文档：`README.en.md`（仓库介绍）、`manual.en.md`（使用手册）、`tutorial.en.md`（图文教程） |
+| `i18n/` | 英文文档：`README.en.md`（仓库介绍）、`manual.en.md`（使用手册）、`tutorial.en.md`（图文教程）、`issue-guide.en.md`（issue 指南）、`pr-guide.en.md`（PR 指南） |
 
 ---
 
 ## 反馈 / Feedback
 
 文档里如果出现与实现不一致的描述，**以代码与实测记录为准**，并欢迎开 issue 指出
-（怎么提 issue 见 [提交 Issue 指南](提交Issue指南.md)，提交代码见根 README 的「贡献指南」）。
+（怎么提 issue 见 [提交 Issue 指南](提交Issue指南.md)，想直接改代码见 [提交 PR 指南](提交PR指南.md)；
+两份指南的英文版分别在 [issue-guide.en.md](i18n/issue-guide.en.md) 与 [pr-guide.en.md](i18n/pr-guide.en.md)）。
