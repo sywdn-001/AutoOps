@@ -173,6 +173,66 @@ def test_summarize_reports_failures_without_a_card():
     assert card is None
 
 
+def test_summarize_turns_mcp_images_into_a_card_and_keeps_base64_away_from_the_model():
+    """截图这类带图的结果：图进卡片给用户看，模型侧只留占位。
+
+    base64 截图有 8 万字符，直接喂给模型既看不见像素、又挤爆上下文 —— 真机上
+    `observe_computer` 返回的图就是走这条路变成对话里的图片卡片。
+    """
+    tool = registry.TOOL_INDEX["observe_computer"]
+    image = "data:image/png;base64," + "A" * 200
+    another = "data:image/png;base64," + "B" * 200
+    summary, text, card = registry.summarize(
+        tool,
+        {
+            "ok": True,
+            "status": 200,
+            "message": "ok",
+            "data": {
+                "success": True,
+                "data": {
+                    "text": "已截到 1024x768 的桌面（会话 1）",
+                    "images": [image, another],
+                    "raw": {"content": [{"type": "image", "data": "A" * 200}]},
+                },
+            },
+        },
+    )
+    assert summary
+    # 卡片：图原样给用户，标题写清是谁的截图，说明文字用 MCP 自己回的那段文本
+    assert card is not None and card["type"] == "image"
+    assert card["title"] == "observe_computer 截图"
+    assert card["images"] == [image, another]
+    assert "1024x768" in card["caption"]
+    # 模型侧：看不到 base64，只看得到占位
+    assert "base64" not in text
+    assert "AAAA" not in text
+    assert "已经作为图片卡片展示给用户" in text
+    assert "<原始 MCP 响应已省略>" in text
+
+
+def test_summarize_caps_how_many_images_reach_the_card():
+    tool = registry.TOOL_INDEX["observe_computer"]
+    images = [f"data:image/png;base64,{index}" for index in range(5)]
+    _summary, _text, card = registry.summarize(
+        tool,
+        {"ok": True, "status": 200, "message": "ok", "data": {"data": {"images": images}}},
+    )
+    assert card is not None
+    assert len(card["images"]) == registry.MAX_TOOL_IMAGES == 2
+
+
+def test_without_images_blanks_base64_anywhere_in_the_payload():
+    """占位必须覆盖嵌套结构：图也可能藏在 ``raw.content[*].data`` 或别的字符串字段里。"""
+    image = "data:image/png;base64,ZZZ"
+    cleaned = registry._without_images(
+        {"raw": {"content": [{"type": "image", "data": image}]}, "deep": [{"x": image}], "n": 1}
+    )
+    assert cleaned["raw"] == "<原始 MCP 响应已省略>"
+    assert cleaned["deep"][0]["x"] == "<图片：已经作为图片卡片展示给用户>"
+    assert cleaned["n"] == 1
+
+
 def test_summary_speaks_plain_chinese_to_humans():
     """人看的摘要必须是中文直白：审计事件里不该出现「AI 调用工具 X：ok / OK」。"""
     tool = registry.TOOL_INDEX["list_file_logs"]
