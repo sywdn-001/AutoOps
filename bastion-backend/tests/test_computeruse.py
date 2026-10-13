@@ -597,6 +597,50 @@ def test_mcp_call_flat_arguments_shape(app, client, admin_headers, windows_host,
     assert seen["arguments"] == {"x": 10, "y": 20, "loc": [10, 20]}
 
 
+def test_failed_probe_keeps_recorded_tools(app, client, admin_headers, windows_host, monkeypatch):
+    """探活失败不能把已记录的工具清单擦成 0：侧边栏拿这份清单渲染工具列表。"""
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    class DownClient:
+        def probe(self):
+            return {"ok": False, "toolCount": 0, "tools": [], "error": "连不上目标机的 MCP 服务"}
+
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row: DownClient())
+    resp = client.post("/api/computer-use/mcp/probe", headers=admin_headers, json={"hostId": host_id})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["data"]["ok"] is False
+    after = client.get(f"/api/computer-use/status?hostId={host_id}", headers=admin_headers).get_json()["data"]
+    assert after["toolCount"] == 2, after
+    assert len(after["tools"]) == 2, after
+    with app.app_context():
+        entry = (
+            AuditLog.query.filter_by(category="computeruse", action="mcp_probe")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        assert entry is not None and entry.result == "failure"
+
+    class UpClient:
+        def probe(self):
+            return {
+                "ok": True,
+                "toolCount": 1,
+                "tools": [{"name": "Screenshot", "description": "截图"}],
+                "endpoint": "http://192.168.0.75:8000/mcp",
+                "latencyMs": 12,
+            }
+
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row: UpClient())
+    again = client.post("/api/computer-use/mcp/probe", headers=admin_headers, json={"hostId": host_id})
+    assert again.status_code == 200, again.get_json()
+    assert again.get_json()["data"]["ok"] is True
+    fresh = client.get(f"/api/computer-use/status?hostId={host_id}", headers=admin_headers).get_json()["data"]
+    assert fresh["toolCount"] == 1, fresh
+    assert [tool["name"] for tool in fresh["tools"]] == ["Screenshot"], fresh
+
+
 def test_deployment_logs_replay_without_runner(app, client, admin_headers, windows_host):
     host_id, account_id = windows_host
     with app.app_context():

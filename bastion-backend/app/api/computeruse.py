@@ -668,10 +668,12 @@ def mcp_probe():
             target_name=row.host_name,
         )
         return api_error(f"MCP 探活失败：{exc}", 502, code="MCP_FAILED")
-    row.mcp_tool_count = probe.get("toolCount") or 0
-    row.mcp_tools = probe.get("tools") or []
-    row.mcp_url = probe.get("endpoint") or row.mcp_url
-    db.session.commit()
+    if probe.get("ok"):
+        # 只有探活成功才回写：失败时把已有记录擦成 0 个工具，侧边栏会以为这台机器没工具可调
+        row.mcp_tool_count = probe.get("toolCount") or 0
+        row.mcp_tools = probe.get("tools") or []
+        row.mcp_url = probe.get("endpoint") or row.mcp_url
+        db.session.commit()
     log_event(
         "computeruse",
         "mcp_probe",

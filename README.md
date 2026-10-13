@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/sywdn-001/AutoOps?color=blue" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-705%20passed-brightgreen" alt="Backend tests: 705 passed">
+  <img src="https://img.shields.io/badge/tests-749%20passed-brightgreen" alt="Backend tests: 749 passed">
   <img src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white" alt="Python 3.13">
   <img src="https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1">
   <img src="https://img.shields.io/badge/React%2019%20%2B%20Ant%20Design%206-61DAFB?logo=react&logoColor=white" alt="React 19 + Ant Design 6">
@@ -309,8 +309,8 @@ AutoOps/
 │   │   ├── ai/                 # AI 运维助手（工具注册 + 模型客户端）
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # 启动时「只加不减」地补齐表结构
-│   ├── tests/                  # 748 个用例 / 35 个文件
-│   ├── tools/                  # 演示目标机、三套联调脚本、审计链校验、README 配图生成器
+│   ├── tests/                  # 749 个用例 / 35 个文件
+│   ├── tools/                  # 演示目标机、四套联调脚本、审计链校验、README 配图生成器
 │   └── instance/               # 运行时数据（SQLite、密钥、录像）——已在 .gitignore
 ├── ant-design-pro/             # 前端：Ant Design Pro 6 + Umi Max 4，业务页全部重写
 │   └── src/pages/bastion/      # 堡垒机业务页（资产、终端、文件、远程桌面、审计…）
@@ -356,15 +356,20 @@ export BASTION_API=http://192.168.1.10:5000     # Linux / macOS
 
 ## 验证记录
 
-后端 748 个用例、前端 12 个文件 180 个单测，加上三套真机联调脚本：
+后端 749 个用例、前端 12 个文件 180 个单测，加上四套真机联调脚本：
 
 ```bash
-cd bastion-backend && python -m pytest -q          # 748 passed（35 个文件）
+cd bastion-backend && python -m pytest -q          # 749 passed（35 个文件）
 python tools/live_e2e_check.py                     # 97 项：HTTP + Socket.IO + SSH 网关 + SFTP + AI 端到端
 python tools/ui_check.py                           # 21 项：真实 Chrome 逐路由巡检后台
 python tools/console_check.py                      # 33 项：真实 Chrome 驱动网页终端与文件管理器
+python tools/computeruse_check.py --host 5         # 9 项：ComputerUse 部署记录 + 侧边栏四个接口（加 --host 5 --account 5 --deploy 走完整 7 阶段）
 cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 ```
+
+> ComputerUse 的侧边栏接口只有在目标机**有人登录桌面**时才连得上：Windows-MCP 的截图与界面
+> 自动化绑定登录会话，没人登录时开机自启脚本不会运行，探活会如实报「连不上目标机的 MCP 服务」，
+> 脚本会把后面的工具清单/截图/PowerShell 检查标成 SKIP 并以非 0 退出（先用 RDP 登录目标机再接一次）。
 
 逐条的验证记录（每条实测的判据、命令、结果与截图）见 [docs/验证记录.md](docs/验证记录.md)，
 需求与扩展需求逐条对照见 [docs/需求对照.md](docs/需求对照.md)，使用流程见
