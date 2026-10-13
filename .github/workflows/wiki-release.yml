@@ -1,0 +1,151 @@
+# 文件简介（AI 生成）：Wiki 手册的**独立发布**工作流。
+# GitHub Wiki 里的那套中英双语手册，单独打包成 <版本号>+<时间>+AutoOpsWiki.zip 发一条 Release。
+# 与主程序发布（.github/workflows/release.yml，标签 vX.Y.Z）**互不干扰**：
+#   · 本工作流用标签 wiki-vX.Y.Z，Release 标题带「使用手册」；
+#   · 压缩包内附带 MANIFEST.txt（每个文件的字节数与 SHA256）；
+#   · Release 说明来自 .github/WikiRELEASE.md，由 make_wiki_release_notes.py 渲染。
+
+name: Wiki Release
+
+# 打 wiki-v* 标签自动发版；也可以在 Actions 页面手动跑（必须填 vX.Y.Z）。
+on:
+  push:
+    tags:
+      - 'wiki-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Wiki 手册版本号，必须是 vX.Y.Z（例如 v1.0.0）'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+env:
+  # 压缩包命名：<版本号>+<时间>+AutoOpsWiki.zip（例：v1.0.0+20261005-1530+AutoOpsWiki.zip）
+  WIKI_ZIP_SUFFIX: AutoOpsWiki
+  WIKI_PAGES_DIR: out/wiki
+
+jobs:
+  wiki-release:
+    name: 打包 Wiki 手册并发 Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出代码（要说明模板与生成脚本）
+        uses: actions/checkout@v4
+
+      - name: 解析版本号与时间戳
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}'
+          # 标签是 wiki-v1.0.0，版本号本体是 v1.0.0
+          VERSION="${VERSION#wiki-}"
+          if [ -z "$VERSION" ]; then
+            echo "::error::必须给手册版本号（形如 v1.0.0）"
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::手册版本号必须是 vX.Y.Z 形式（例如 v1.0.0），当前是「$VERSION」"
+            exit 1
+          fi
+          STAMP="$(date -u +%Y%m%d-%H%M)"
+          {
+            echo "WIKI_VERSION=$VERSION"
+            echo "WIKI_STAMP=$STAMP"
+            echo "WIKI_TAG=wiki-${VERSION}"
+            echo "WIKI_ZIP_NAME=${VERSION}+${STAMP}+${WIKI_ZIP_SUFFIX}.zip"
+          } >> "$GITHUB_ENV"
+          echo "手册版本：$VERSION ｜ 打包时间（UTC）：$STAMP"
+
+      - name: 克隆 Wiki 仓库
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 用 token 克隆：公开仓库其实不需要，但私有 fork 上照样能跑，且失败会立刻报错不挂住
+          export GIT_TERMINAL_PROMPT=0
+          git clone --depth 1 -q \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" wiki
+          echo "页面文件："
+          ls -1 wiki
+          PAGES=$(find wiki -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
+          if [ "$PAGES" -eq 0 ]; then
+            echo "::error::Wiki 仓库里没有 .md 页面，先在 https://github.com/${GITHUB_REPOSITORY}/wiki 建一页再发"
+            exit 1
+          fi
+          echo "共 $PAGES 个 Markdown 页面"
+
+      - name: 归拢页面并写 MANIFEST
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WIKI_PAGES_DIR"
+          # 除 .git 之外全部带上：以后 wiki 里放图片也能一起打包
+          rsync -a --exclude '.git' wiki/ "$WIKI_PAGES_DIR"/
+          python3 .github/scripts/make_wiki_manifest.py \
+            --dir "$WIKI_PAGES_DIR" \
+            --out "$WIKI_PAGES_DIR/MANIFEST.txt" \
+            --version "$WIKI_VERSION"
+          du -sh "$WIKI_PAGES_DIR"
+
+      - name: 打成 <版本号>+<时间>+AutoOpsWiki.zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          (cd "$WIKI_PAGES_DIR" && zip -9 -q -r "../../release/$WIKI_ZIP_NAME" .)
+          cd release
+          sha256sum "$WIKI_ZIP_NAME" > SHA256SUMS-wiki.txt
+          ls -lh
+          cat SHA256SUMS-wiki.txt
+
+      - name: 生成 Wiki Release 说明
+        env:
+          WIKI_COMMIT: ${{ github.sha }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/make_wiki_release_notes.py \
+            --template .github/WikiRELEASE.md \
+            --out wiki-notes.md \
+            --version "$WIKI_VERSION" \
+            --stamp "$WIKI_STAMP" \
+            --zip "release/$WIKI_ZIP_NAME" \
+            --pages-dir "$WIKI_PAGES_DIR" \
+            --commit "$WIKI_COMMIT" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --wiki "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/wiki" \
+            --workflow "$WORKFLOW_URL"
+          head -40 wiki-notes.md
+
+      - name: 创建或更新 Wiki Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TITLE="AutoOps 使用手册 ${WIKI_VERSION}（${WIKI_STAMP}）"
+          # 标签推送时标签已经存在，用 --verify-tag 认它；手动触发时才让 gh 从当前提交建标签
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TARGET=(--target "$GITHUB_SHA")
+          else
+            TARGET=(--verify-tag)
+          fi
+          if gh release view "$WIKI_TAG" >/dev/null 2>&1; then
+            gh release edit "$WIKI_TAG" --title "$TITLE" --notes-file wiki-notes.md
+            gh release upload "$WIKI_TAG" release/* --clobber
+          else
+            gh release create "$WIKI_TAG" \
+              --title "$TITLE" \
+              --notes-file wiki-notes.md \
+              "${TARGET[@]}" \
+              release/*
+          fi
+          echo "=== 发布结果 ==="
+          gh release view "$WIKI_TAG" --json url,assets \
+            --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
