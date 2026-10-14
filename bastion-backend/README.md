@@ -272,7 +272,7 @@ ssh -p 2222 <堡垒机账号>@<堡垒机IP>
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | 兼容 OpenAI 协议的中转地址也能用 |
 | `AI_MODEL` | `deepseek-flash` | |
 | `AI_REQUEST_TIMEOUT` / `AI_MAX_TOKENS` | `120` / `8192` | |
-| `AI_MAX_TOOL_ROUNDS` | `8` | 一个回合里最多几次「模型要工具 → 执行 → 回灌」 |
+| `AI_MAX_TOOL_ROUNDS` | `8` | 一个回合里最多几次「模型要工具 → 执行 → 回灌」。**运行时可改**：优先用『系统设置 → 参数设置』里的「AI 任务最大调用轮数」（`ai_max_tool_rounds`，可填 1–50，保存即生效、不用重启），本项只在设置留空时兜底（见 `app/ai/service.py:max_tool_rounds()`） |
 | `AI_HISTORY_LIMIT` | `40` | 回灌的历史消息条数 |
 | `AI_CONFIRM_TTL` | `300` | 敏感操作确认的窗口（秒） |
 

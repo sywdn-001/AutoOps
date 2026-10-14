@@ -132,6 +132,7 @@ The AI assistant is not "another administrator": every tool it calls hits the ba
 - **Tool calls are visible**: every tool call leaves an expandable record in the bubble (tool name / input arguments / result / duration / whether it is sensitive), and failures show their reason too.
 - **Sensitive operations need a password**: when a `sensitive` tool is hit, a confirmation box for the **administrator account + password** pops up (listing the operation about to run and its parameters); refusing aborts, confirming lets the same conversation turn continue, and a wrong password is treated as a refusal and leaves an audit trace.
 - **The "what the AI may use" drawer**: lists, grouped, the tools that **the current account** can actually use (tools you lack permission for simply are not in the list).
+- **The per-turn tool-call limit is configurable**: how many rounds of "model asks for a tool → it runs → the result is fed back" one turn may use is set by **AI 任务最大调用轮数** in **System settings → Parameter settings** (`ai_max_tool_rounds`, default 8, allowed 1–50) and **takes effect the moment you save, with no backend restart** (the `.env` value `AI_MAX_TOOL_ROUNDS` is only a fallback when the setting is blank; an absurd value written straight into the database is clamped to 1–50). Hitting the cap stops the turn and appends "已达到单轮工具调用上限 N 次，先停下来，请确认后继续。", so it never spins forever.
 
 **Entry B · `/ask-ai` inside an SSH gateway session** (log in and pick a host under requirement ④ first)
 
