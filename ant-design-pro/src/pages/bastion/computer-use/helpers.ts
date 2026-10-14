@@ -37,7 +37,7 @@ export { parseLogStreamMessage } from '@/services/bastion/computeruse';
 /**
  * 某个阶段**完成时**对应多少百分比（未收录的 key，如 `queued`，返回 0）。
  *
- * 与后端 `app/computeruse/deploy.py::STAGES` 的值一一对应：6/28/48/68/82/92/100。
+ * 与后端 `app/computeruse/deploy.py::STAGES` 的值一一对应：6/28/48/68/82/92/96/100。
  */
 export function stageProgress(stage?: string | null): number {
   const meta = STAGE_SEQUENCE.find((item) => item.key === stage);
@@ -556,6 +556,7 @@ export function buildDeployResult(
     vbsPath: deployment.vbsPath,
     startupPath: deployment.startupPath,
     portproxy: Boolean(deployment.portproxy),
+    firewall: Boolean(deployment.firewall),
     mcpPort: Number(deployment.mcpPort) || 8000,
   };
 }

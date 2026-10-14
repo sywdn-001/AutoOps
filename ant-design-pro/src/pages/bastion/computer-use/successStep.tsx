@@ -103,7 +103,7 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
               label: 'MCP 端口',
               children: `${result.mcpPort}（${
                 result.portproxy ? '经 portproxy 转发' : '未开 portproxy'
-              }）`,
+              }${result.firewall ? '，防火墙已放行' : '，防火墙未确认'}）`,
             },
             {
               key: 'vbs',

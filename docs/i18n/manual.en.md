@@ -220,9 +220,9 @@ Open **System settings → ComputerUse Deployment** and you get a four-step wiza
 - When everything has finished you get the success page: the MCP address, the Python path, the tool list, and an "**open WebRDP console**" button (it jumps to `/rdp/console` carrying the `hostId`).
 - What that success page says is meant seriously: "the console only opens after a successful deployment" — the sidebar trusts a successfully probed deployment and nothing else.
 
-### The seven stages
+### The eight stages
 
-The seven stages on the progress bar are the seven things the backend really does (the front-end progress bar and the backend execution order read the same table):
+The eight stages on the progress bar are the eight things the backend really does (the front-end progress bar and the backend execution order read the same table):
 
 | Stage | Name | Anchor progress | What it does |
 | --- | --- | --- | --- |
@@ -231,7 +231,10 @@ The seven stages on the progress bar are the seven things the backend really doe
 | `install` | 静默安装 Python（`/quiet InstallAllUsers=1 PrependPath=1`）(silent Python install) | 48 | Installs silently, then reads back the new Python's path and version |
 | `pip` | 安装 windows-mcp（pip）(install windows-mcp with pip) | 68 | Upgrades pip first, then `pip install windows-mcp`, then reads back the version and the `windows-mcp.exe` path |
 | `vbs` | 写开机自启 VBS 并立即启动 MCP (write the boot-autostart VBS and start MCP immediately) | 82 | Writes the boot-autostart script, whose command is `windows-mcp serve --transport streamable-http --host localhost --port 8000`, then starts it **immediately** and waits for it to really listen on `127.0.0.1:8000` |
-| `expose` | 开 portproxy + 防火墙（只放行堡垒机）(open portproxy + firewall, allowing only the bastion) | 92 | `netsh interface portproxy` maps the LAN address to loopback, and the firewall allows only that one bastion IP |
+| `expose` | 开 portproxy（局域网地址 → 回环）(open portproxy: LAN address → loopback) | 92 | Picks the LAN address on the **default route's** NIC (the old code took the first address it found and often picked a NIC the bastion could not reach), sets the `IP Helper` (iphlpsvc) service to automatic and starts it, runs `netsh interface portproxy add v4tov4` to map `LAN:port → 127.0.0.1:port`, then reads the listening address back |
+| `firewall` | 放行 MCP 端口（只放行堡垒机 IP）(open the MCP port, only for the bastion IP) | 96 | Adds an inbound allow rule for the MCP port (source is the bastion IP only, falling back to `LocalSubnet` when the bastion IP is unknown), then **reads the rule back with `Get-NetFirewallRule` and checks every field** (present, enabled, direction, action, protocol, port, source; if netsh fails to write it, `New-NetFirewallRule` rewrites it once), and finally **really connects to the port from the bastion side** — if that connection fails the deployment fails |
+
+> Why opening the firewall is its own stage with a read-back check: `netsh advfirewall firewall add rule` **checks no return code and reads nothing back**. It used to sit inside `expose`, so a failed rule still let the deployment continue — which is exactly how you end up with "deployment says success, the sidebar cannot reach MCP". That step now fails the whole deployment, and the error hands you the manual re-check command (`netsh advfirewall firewall add rule name=AutoOps-ComputerUse dir=in action=allow protocol=TCP localport=<port> remoteip=<bastion IP>`) plus the three usual causes (the MCP process is not running / portproxy is not in effect / the port is taken).
 | `verify` | 探活 MCP（`tools/list`）(probe MCP for liveness) | 100 | Probes it with an MCP client and writes the tool list back into the database |
 
 ### How to use the sidebar

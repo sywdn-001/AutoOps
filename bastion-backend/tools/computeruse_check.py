@@ -11,13 +11,13 @@
 * **验证段（默认，只读）**：登录 → 列安装包版本 → 列可部署主机 → 查该主机部署状态 →
   探活 MCP → 列工具 → 调 `Screenshot` 存图 → 调 `PowerShell` 跑一条只读命令。
 * **部署段（`--deploy`，会真的在目标机上装东西）**：建部署 → 订阅 SSE 日志到结束 →
-  断言七个阶段都出现、终态是 success；随后接上验证段。
+  断言八个阶段都出现、终态是 success；随后接上验证段。
 
 用法：
     # 只验「已经部署好」的侧边栏通路（最快，推荐日常复跑）
     python tools/computeruse_check.py --host 5 --admin-password <管理员口令>
 
-    # 完整跑一遍七阶段部署，再验一遍
+    # 完整跑一遍八阶段部署，再验一遍（firewall 阶段会读回防火墙规则，并从堡垒机侧真连一次端口）
     python tools/computeruse_check.py --host 5 --account 5 --deploy --admin-password <口令>
 
     # 指定 Python 版本 / pip 源 / 访问密钥（前端向导的完整选项面）
@@ -55,7 +55,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ADMIN_USER = os.environ.get("BASTION_ADMIN", "admin")
 ADMIN_PW = os.environ.get("BASTION_ADMIN_PASSWORD", "admin123")
 BASE = os.environ.get("CU_BASE", "http://127.0.0.1:5000")
-STAGES = ("prepare", "upload", "install", "pip", "vbs", "expose", "verify")
+STAGES = ("prepare", "upload", "install", "pip", "vbs", "expose", "firewall", "verify")
 PIP_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 PASS: list[str] = []
@@ -238,16 +238,21 @@ def stream_logs(cli: Bastion, deployment_id: int, timeout: float) -> tuple[dict,
                 item = json.loads(line[5:].strip())
             except ValueError:
                 continue
-            if event == "log":
-                stages[item.get("stage", "")] = item
+            # 端点把类型写在 JSON 里（`data: {"type": "log", "event": {...}}`），并没有用 SSE 的
+            # `event:` 名。两种写法都认：真机上这里静默丢过一整轮日志，八条阶段断言全变 FAIL，
+            # 而同一轮部署其实 8/8 阶段都成功了。
+            kind = event or str(item.get("type", ""))
+            if kind == "log":
+                payload = item.get("event") if isinstance(item.get("event"), dict) else item
+                stages[payload.get("stage", "")] = payload
                 print(
                     "  [{stage}] {level:<7} {message}".format(
-                        stage=item.get("stage", ""),
-                        level=item.get("level", ""),
-                        message=str(item.get("message", ""))[:300],
+                        stage=payload.get("stage", ""),
+                        level=payload.get("level", ""),
+                        message=str(payload.get("message", ""))[:300],
                     )
                 )
-            elif event == "status":
+            elif kind == "status":
                 print(
                     "  == 状态 {status} · 阶段 {stage} · {progress}%".format(
                         status=item.get("status"),
@@ -256,7 +261,7 @@ def stream_logs(cli: Bastion, deployment_id: int, timeout: float) -> tuple[dict,
                     )
                 )
                 final = item
-            elif event == "end":
+            elif kind == "end":
                 final = item
                 print(f"  == 流结束 {brief(item, 300)}")
                 break
@@ -296,7 +301,7 @@ def deploy(cli: Bastion, args, items: list[dict]) -> int | None:
     final, logs = stream_logs(cli, int(deployment_id), args.sse_timeout)
     seen = {row.get("stage") for row in logs}
     for stage in STAGES:
-        check(f"七阶段日志出现 {stage}", stage in seen)
+        check(f"八阶段日志出现 {stage}", stage in seen)
     check(
         "部署终态 success",
         str(final.get("status")) == "success",
@@ -429,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--token", default="", help="直接给一个现成的 JWT（管理员口令被改过时用这个，省得写口令；与 live_e2e_check.py / ui_check.py 同名参数）")
     parser.add_argument("--host", type=int, default=0, help="目标主机 id（在 /hosts 里找）")
     parser.add_argument("--account", type=int, default=0, help="目标机上的账号 id（--deploy 必填）")
-    parser.add_argument("--deploy", action="store_true", help="真的跑一遍七阶段部署（会装东西、改防火墙）")
+    parser.add_argument("--deploy", action="store_true", help="真的跑一遍八阶段部署（会装东西、改防火墙）")
     parser.add_argument("--cache", default="", metavar="VERSION", help="先把该版本的安装包缓存到堡垒机")
     parser.add_argument("--list-versions", action="store_true", help="只列出镜像上的可用版本")
     parser.add_argument("--version", default="3.13.16", help="要部署的 Python 版本（默认 3.13.16）")

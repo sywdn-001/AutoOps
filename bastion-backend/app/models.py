@@ -1515,6 +1515,9 @@ class ComputerUseDeployment(TimestampMixin, db.Model):
     vbs_path = db.Column(db.String(256), default="")
     startup_path = db.Column(db.String(256), default="")
     portproxy = db.Column(db.Boolean, default=True, nullable=False)
+    #: 目标机上的入站防火墙规则有没有真的放行 MCP 端口（部署时读回核对的结果；
+    #: 老库由 app/schema_sync.py 补列并回填 True，因为历史上只有「放行成功」才会走到成功态）
+    firewall = db.Column(db.Boolean, default=True, nullable=False)
 
     #: 部署时的可选参数（pip 镜像、MCP 端口、是否监听所有网卡、是否开密钥…）
     options = db.Column(db.JSON)
@@ -1556,6 +1559,7 @@ class ComputerUseDeployment(TimestampMixin, db.Model):
             "vbsPath": self.vbs_path,
             "startupPath": self.startup_path,
             "portproxy": bool(self.portproxy),
+            "firewall": bool(self.firewall),
             "options": self.options or {},
             "bastionUrl": self.bastion_url,
             "deployedBy": self.deployed_by,

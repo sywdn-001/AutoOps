@@ -496,11 +496,26 @@ def deployment_logs(deployment_id: int):
     stored_tail = row.log_tail or ""
 
     if runner is None:
-        # 进程重启过（或这是很久以前的记录）：只回放库里存的摘要
+        # 进程重启过（或这是很久以前的记录）：只回放库里存的摘要。
+        # 库里每行是 `[stage] 消息`，这里把阶段前缀还原出来，页面上仍能按阶段着色/分组。
         def replay():
             yield _sse({"type": "hello", "deployment": initial})
             for line in stored_tail.splitlines():
-                yield _sse({"type": "log", "event": {"seq": 0, "level": "info", "message": line}})
+                stage, message = "", line
+                if line.startswith("[") and "] " in line:
+                    stage, _, message = line[1:].partition("] ")
+                yield _sse(
+                    {
+                        "type": "log",
+                        "event": {
+                            "seq": 0,
+                            "level": "info",
+                            "stage": stage,
+                            "stageLabel": deploy_mod.STAGE_LABELS.get(stage, stage),
+                            "message": message,
+                        },
+                    }
+                )
             yield _sse({"type": "end", "status": initial.get("status")})
 
         return Response(stream_with_context(replay()), mimetype="text/event-stream", headers=SSE_HEADERS)
@@ -607,6 +622,7 @@ def computeruse_status():
                 "tools": row.mcp_tools or [],
                 "hasAuthKey": bool(row.mcp_auth_key_enc),
                 "portproxy": bool(row.portproxy),
+                "firewall": bool(row.firewall),
                 "startupPath": row.startup_path,
             }
         )

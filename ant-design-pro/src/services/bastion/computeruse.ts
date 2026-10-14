@@ -22,6 +22,7 @@ export type DeploymentStage =
   | 'pip'
   | 'vbs'
   | 'expose'
+  | 'firewall'
   | 'verify';
 
 /** 部署状态 */
@@ -50,10 +51,13 @@ export type StageEntry = {
 };
 
 /**
- * 七个真实阶段的进度锚点（不含 `queued`）。
+ * 八个真实阶段的进度锚点（不含 `queued`）。
  *
  * 百分比是「该阶段做完时」的值，与后端 `STAGES` 的 `progress` 字段逐一对齐：
- * 6 / 28 / 48 / 68 / 82 / 92 / 100。
+ * 6 / 28 / 48 / 68 / 82 / 92 / 96 / 100。
+ *
+ * `expose` 只管 portproxy，`firewall` 是独立的一步（放行 MCP 端口并**读回核对**）：
+ * 目标机放行失败时后端会直接让部署失败，所以这一条必须能在进度条上看出来。
  */
 export const STAGE_SEQUENCE: StageMeta[] = [
   { key: 'prepare', label: '连接目标机 / 环境体检', progress: 6 },
@@ -61,7 +65,8 @@ export const STAGE_SEQUENCE: StageMeta[] = [
   { key: 'install', label: '静默安装 Python', progress: 48 },
   { key: 'pip', label: '安装 windows-mcp', progress: 68 },
   { key: 'vbs', label: '写开机自启 VBS 并启动 MCP', progress: 82 },
-  { key: 'expose', label: '开 portproxy + 防火墙', progress: 92 },
+  { key: 'expose', label: '开 portproxy（局域网地址 → 回环）', progress: 92 },
+  { key: 'firewall', label: '放行 MCP 端口（只放行堡垒机 IP）', progress: 96 },
   { key: 'verify', label: '探活 MCP（tools/list）', progress: 100 },
 ];
 
@@ -150,6 +155,7 @@ export type Deployment = {
   vbsPath: string;
   startupPath: string;
   portproxy: boolean;
+  firewall: boolean;
   options: Record<string, unknown>;
   bastionUrl: string;
   deployedBy: string;
@@ -257,6 +263,7 @@ export type ComputerUseStatus = {
   tools?: McpTool[];
   hasAuthKey?: boolean;
   portproxy?: boolean;
+  firewall?: boolean;
   startupPath?: string;
 };
 

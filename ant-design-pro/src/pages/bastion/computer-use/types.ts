@@ -59,6 +59,8 @@ export type DeployResult = {
   vbsPath: string;
   startupPath: string;
   portproxy: boolean;
+  /** 目标机入站防火墙有没有真的放行 MCP 端口（部署时读回核对的结果） */
+  firewall: boolean;
   mcpPort: number;
 };
 

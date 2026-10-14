@@ -72,6 +72,7 @@ function makeDeployment(overrides: Partial<Deployment> = {}): Deployment {
     vbsPath: '',
     startupPath: '',
     portproxy: false,
+    firewall: true,
     options: {},
     bastionUrl: '',
     deployedBy: 'admin',
@@ -109,7 +110,7 @@ function makeVersionItem(
 }
 
 describe('阶段与百分比', () => {
-  it('七个阶段的完成百分比与后端 STAGES 一致', () => {
+  it('八个阶段的完成百分比与后端 STAGES 一致', () => {
     expect(STAGE_SEQUENCE.map((item) => item.key)).toEqual([
       'prepare',
       'upload',
@@ -117,14 +118,15 @@ describe('阶段与百分比', () => {
       'pip',
       'vbs',
       'expose',
+      'firewall',
       'verify',
     ]);
     expect(STAGE_SEQUENCE.map((item) => item.progress)).toEqual([
-      6, 28, 48, 68, 82, 92, 100,
+      6, 28, 48, 68, 82, 92, 96, 100,
     ]);
   });
 
-  it('stageProgress 认全部七个阶段，未知阶段（如 queued）给 0', () => {
+  it('stageProgress 认全部八个阶段，未知阶段（如 queued）给 0', () => {
     for (const item of STAGE_SEQUENCE) {
       expect(stageProgress(item.key)).toBe(item.progress);
     }
@@ -133,8 +135,18 @@ describe('阶段与百分比', () => {
     expect(stageProgress(null)).toBe(0);
   });
 
+  it('放行防火墙是独立阶段（expose 之后、verify 之前）', () => {
+    expect(stageIndex('firewall')).toBe(6);
+    expect(stageLabel('firewall')).toBe('放行 MCP 端口（只放行堡垒机 IP）');
+    expect(stageProgress('firewall')).toBe(96);
+    // 目标机放行失败时部署会停在 firewall，进度条必须停在这一步
+    expect(stepStatus('firewall', 'failed', 'firewall')).toBe('error');
+    expect(stepStatus('firewall', 'running', 'expose')).toBe('finish');
+    expect(stepStatus('firewall', 'running', 'verify')).toBe('wait');
+  });
+
   it('stageIndex / stageLabel 对未知阶段不抛异常', () => {
-    expect(stageIndex('verify')).toBe(6);
+    expect(stageIndex('verify')).toBe(7);
     expect(stageIndex('queued')).toBe(-1);
     expect(stageIndex(null)).toBe(-1);
     expect(stageLabel('pip')).toBe('安装 windows-mcp');
@@ -185,7 +197,7 @@ describe('阶段与百分比', () => {
     ]);
 
     const fallback = buildStages(undefined, 'pip', 'running');
-    expect(fallback).toHaveLength(7);
+    expect(fallback).toHaveLength(8);
     expect(fallback[3]).toMatchObject({
       key: 'pip',
       state: 'process',
@@ -195,10 +207,10 @@ describe('阶段与百分比', () => {
     // 当前阶段不在列表里（部署取消后 stage 可能是 queued）时全部 wait
     const cancelled = buildStages(undefined, 'queued', 'cancelled');
     expect(cancelled.every((item) => item.state === 'wait')).toBe(true);
-    // 失败时正好停在当前阶段上
-    const failed = buildStages(undefined, 'expose', 'failed');
-    expect(failed[5].state).toBe('error');
-    expect(failed[6].state).toBe('wait');
+    // 失败时正好停在当前阶段上（放行防火墙是第 6 步）
+    const failed = buildStages(undefined, 'firewall', 'failed');
+    expect(failed[6].state).toBe('error');
+    expect(failed[7].state).toBe('wait');
   });
 });
 
@@ -544,7 +556,7 @@ describe('部署状态机（SSE 事件 → 界面状态）', () => {
       deployment: makeDeployment({ stage: 'expose', stageLabel: '' }),
     });
     expect(after.stage).toBe('expose');
-    expect(after.stageLabel).toBe('开 portproxy + 防火墙');
+    expect(after.stageLabel).toBe('开 portproxy（局域网地址 → 回环）');
   });
 
   it('log 帧追加一行并推进阶段，同 seq 的重复帧被丢掉', () => {
@@ -630,7 +642,7 @@ describe('部署状态机（SSE 事件 → 界面状态）', () => {
       id: 7,
       status: 'failed',
       stage: 'expose',
-      stageLabel: '开 portproxy + 防火墙',
+      stageLabel: '开 portproxy（局域网地址 → 回环）',
       progress: 92,
       error: 'portproxy 添加失败：端口已被占用',
       lastSeq: 21,
@@ -692,6 +704,7 @@ describe('结果摘要与其它小工具', () => {
         startupPath:
           'C:\\Users\\Administrator\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\computer-use-mcp.lnk',
         portproxy: true,
+        firewall: true,
       }),
       ['screenshot', 'click'],
     );
@@ -699,6 +712,7 @@ describe('结果摘要与其它小工具', () => {
     expect(result.mcpToolCount).toBe(2);
     expect(result.toolNames).toEqual(['screenshot', 'click']);
     expect(result.portproxy).toBe(true);
+    expect(result.firewall).toBe(true);
     expect(result.mcpPort).toBe(8000);
     expect(result.vbsPath).toContain('start-mcp.vbs');
   });

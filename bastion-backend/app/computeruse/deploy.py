@@ -1,16 +1,17 @@
 """ComputerUse（Windows-MCP）部署编排：把一台 Windows 目标机变成「AI 能用鼠标键盘操作」的机器。
 
-一次部署分 7 个阶段（前端向导的阶段式进度条直接读 `STAGES`）：
+一次部署分 8 个阶段（前端向导的阶段式进度条直接读 `STAGES`）：
 
 1. ``prepare``  连接目标机、环境体检（OS / 架构 / PowerShell / 磁盘 / 已有 Python 与 MCP）
 2. ``upload``   把堡垒机缓存好的 Python 安装包推到目标机 ``C:\\Installer\\``
 3. ``install``  静默安装 Python（``/quiet InstallAllUsers=1 PrependPath=1``）
 4. ``pip``      ``pip install windows-mcp``（装在这个刚装好的 Python 上）
 5. ``vbs``      写开机自启脚本并**立刻**启动 MCP（``serve --transport streamable-http``）
-6. ``expose``   开 ``netsh portproxy`` + 防火墙规则，让堡垒机连得上只监听回环的 MCP
-7. ``verify``   用 MCP 客户端探活（``tools/list``），把工具清单写回数据库
+6. ``expose``   开 ``netsh portproxy``（局域网地址 → 回环），让堡垒机连得上只监听回环的 MCP
+7. ``firewall`` 在目标机上放行 MCP 端口（只放行堡垒机 IP），并**读回核对**规则真的生效
+8. ``verify``   用 MCP 客户端探活（``tools/list``），把工具清单写回数据库
 
-四条设计约束（每条都吃过亏，别改）：
+五条设计约束（每条都吃过亏，别改）：
 
 * Windows-MCP 要求 Python **3.13+**，安装完成后必须回读实际版本确认。
 * MCP 默认只监听 ``localhost``：堡垒机要访问就得靠 portproxy 把 LAN 地址转发到回环，
@@ -19,6 +20,11 @@
   签名不对就退回让目标机自己去华为云镜像拉。
 * UIA / 截图按**登录会话**隔离：VBS 自启的 MCP 在控制台会话里，WebRDP 是另一个会话，
   所以侧边栏必须把 ``Screenshot`` 的结果内联渲染出来，操作员才看得到 AI 在做什么。
+* **防火墙规则必须读回核对**：`netsh advfirewall firewall add rule` 既不校验返回码、
+  也不回读，等于「发了一条命令然后假设它成功了」——用户实测的「堡垒机连不上 MCP」
+  十有八九卡在这里（规则名被换掉、被组策略/安全软件清掉、RemoteAddress 写错网段、
+  IP Helper 服务没起来都会命中）。所以规则写完要用 `Get-NetFirewallRule` 读回来核对，
+  并且**由堡垒机侧真的连一次端口**才敢说放行成功。
 
 进度与日志都落在 `ComputerUseDeployment` 行上（`stage` / `progress` / `log_tail`），
 进程重启后前端仍能回放最后 40 行；运行中的实时事件在内存里（`DeploymentRunner.events`）。
@@ -32,6 +38,7 @@ import hmac
 import html
 import logging
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -58,7 +65,8 @@ STAGES: tuple[tuple[str, str, int], ...] = (
     ("install", "静默安装 Python（/quiet InstallAllUsers=1 PrependPath=1）", 48),
     ("pip", "安装 windows-mcp（pip）", 68),
     ("vbs", "写开机自启 VBS 并立即启动 MCP", 82),
-    ("expose", "开 portproxy + 防火墙（只放行堡垒机）", 92),
+    ("expose", "开 portproxy（局域网地址 → 回环）", 92),
+    ("firewall", "放行 MCP 端口（只放行堡垒机 IP）", 96),
     ("verify", "探活 MCP（tools/list）", 100),
 )
 STAGE_LABELS = {key: label for key, label, _ in STAGES}
@@ -91,6 +99,42 @@ PS_PREAMBLE = (
 )
 
 SIGNED_DOWNLOAD_TTL = 7200  # 目标机下载安装包用的签名有效期（秒）
+
+# 目标机可能挂了多张网卡（Hyper-V 虚拟交换机、VPN、iSCSI…）：堡垒机走的是**默认路由**
+# 那条链路，所以先按默认路由的接口挑地址，挑不到再退回「第一个非回环地址」。老实现直接
+# 取 `Select-Object -First 1`，多网卡机器上很容易挑到一张堡垒机根本到不了的网卡。
+PS_PICK_LAN = (
+    "$lan = $null;"
+    "$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |"
+    "  Sort-Object RouteMetric, ifIndex | Select-Object -First 1;"
+    "if ($route) {"
+    "  $lan = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.ifIndex"
+    "    -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' } |"
+    "    Select-Object -First 1).IPAddress };"
+    "if (-not $lan) {"
+    "  $lan = (Get-NetIPAddress -AddressFamily IPv4 |"
+    "    Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } |"
+    "    Select-Object -First 1).IPAddress };"
+    "if (-not $lan) { throw '目标机上找不到可用的内网 IPv4 地址' };"
+)
+
+
+def _kv_lines(text: str) -> dict[str, str]:
+    """把目标机回传的 ``KEY=VALUE`` 行收成字典（值里允许再出现 ``=``）。
+
+    「读回来核对」那些片段都用这个格式回话：比解析 netsh 的中文输出稳（中文版 Windows
+    与英文版的字段名完全不同），也比让 PowerShell 拼 JSON 简单（目标机可能是 5.1，
+    `ConvertTo-Json` 会把中文转义成一堆 ``\\uXXXX``，日志里没法看）。
+    """
+    found: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key and key.replace("_", "").isalnum():
+            found[key] = value.strip()
+    return found
 
 
 class DeployError(RuntimeError):
@@ -386,6 +430,12 @@ class DeployContext:
     auth_key: str = ""
     mcp_url: str = ""
     lan_ip: str = ""
+    # 防火墙阶段的读回结果（verify 成功时写进 ComputerUseDeployment.firewall，
+    # 部署失败时也要拼进报错文案，让人一眼看到「规则到底有没有生效」）
+    firewall_ok: bool = False
+    firewall_rule: str = ""
+    firewall_remote: str = ""
+    lan_reachable: bool = False
     installer_size: int = 0
     installer_sha256: str = ""
 
@@ -656,6 +706,29 @@ class DeploymentRunner:
         if noise:
             self.emit_output(noise, stage=stage)
         return result.exit_code, result.stdout, result.stderr
+
+    def _tcp_reachable(
+        self, host: str, port: int, *, attempts: int = 6, pause: float = 2.0
+    ) -> tuple[bool, str]:
+        """从**堡垒机侧**真的连一下目标机的端口 —— 这才是「防火墙放行了没有」的最终判据。
+
+        目标机读回来的规则只说「规则在」，不代表包过得来（规则顺序、组策略、IP Helper
+        没起来都会拦）。所以放行之后必须由发起方真连一次：连不上就让部署失败，绝不留下
+        「部署成功、侧边栏却连不上」的假绿。
+        """
+        reason = ""
+        total = max(int(attempts), 1)
+        for index in range(total):
+            if self.cancelled:
+                return False, "部署已取消"
+            try:
+                with socket.create_connection((host, int(port)), timeout=6):
+                    return True, ""
+            except OSError as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                if index < total - 1:
+                    time.sleep(pause)
+        return False, reason
 
     def _write_remote_file(self, path: str, data: bytes, *, stage: str, label: str = "") -> None:
         """把字节写进目标机文件（base64 走命令行，避免引号与编码问题）。"""
@@ -1264,7 +1337,7 @@ class DeploymentRunner:
 
     # ---------------------------------------------------------------- 阶段 6
     def _stage_expose(self, app) -> None:
-        """让堡垒机连得上：只监听回环时开 portproxy，并只放行堡垒机 IP。"""
+        """让堡垒机连得上：只监听回环时开 portproxy，并确认它真的在监听。"""
         port = self.ctx.mcp_port
         if self.ctx.bind_all:
             self.ctx.mcp_url = f"http://{self.ctx.host_address}:{port}/mcp"
@@ -1275,48 +1348,163 @@ class DeploymentRunner:
             )
         else:
             script = (
-                "$lan = (Get-NetIPAddress -AddressFamily IPv4 |"
-                "  Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } |"
-                "  Select-Object -First 1).IPAddress;"
-                f"netsh interface portproxy delete v4tov4 listenaddress=$lan listenport={port} 2>$null | Out-Null;"
-                f"netsh interface portproxy add v4tov4 listenaddress=$lan listenport={port} "
-                f"connectaddress=127.0.0.1 connectport={port};"
-                "\"LAN=$lan\""
+                PS_PICK_LAN
+                + f"$port = {port};"
+                # portproxy 由 IP Helper 服务实现：服务没起来时规则在、端口没人听（真机踩过）
+                "Set-Service iphlpsvc -StartupType Automatic -ErrorAction SilentlyContinue;"
+                "Start-Service iphlpsvc -ErrorAction SilentlyContinue;"
+                "netsh interface portproxy delete v4tov4 listenaddress=$lan listenport=$port 2>$null | Out-Null;"
+                "netsh interface portproxy add v4tov4 listenaddress=$lan listenport=$port "
+                "connectaddress=127.0.0.1 connectport=$port;"
+                '"LAN=" + $lan;'
+                '"IPHLPSVC=" + (Get-Service iphlpsvc -ErrorAction SilentlyContinue).Status;'
+                "$pp = (netsh interface portproxy show v4tov4 | Out-String);"
+                '"PP_ENTRY=" + [bool]($pp -match [regex]::Escape($lan));'
+                '"LISTEN=" + ((Get-NetTCPConnection -State Listen -LocalPort $port '
+                "-ErrorAction SilentlyContinue).LocalAddress -join ',')"
             )
-            code, out, _ = self._ps(script, timeout=120, stage="expose", label="配置 portproxy")
-            if code != 0:
+            code, out, _ = self._ps(
+                script, timeout=120, stage="expose", label="配置 portproxy（局域网地址 → 回环）"
+            )
+            info = _kv_lines(out)
+            self.ctx.lan_ip = (info.get("LAN") or "").strip()
+            if code != 0 or not self.ctx.lan_ip:
                 raise DeployError(
-                    "配置 portproxy 失败：需要管理员权限，且目标机的 IP Helper 服务要能启动"
+                    "配置 portproxy 失败：需要管理员权限，且目标机的 IP Helper（iphlpsvc）服务要能启动"
                 )
-            for line in out.splitlines():
-                if line.startswith("LAN="):
-                    self.ctx.lan_ip = line.split("=", 1)[1].strip()
-            if not self.ctx.lan_ip:
-                raise DeployError("没能确定目标机的内网地址，无法建立从堡垒机到 MCP 的通道")
             self.ctx.mcp_url = f"http://{self.ctx.lan_ip}:{port}/mcp"
             self.emit(f"portproxy 已建立：{self.ctx.lan_ip}:{port} → 127.0.0.1:{port}", stage="expose")
-
-        remote_ip = self.ctx.bastion_ip or "LocalSubnet"
-        if self.ctx.bastion_ip:
-            self.emit(f"防火墙只放行堡垒机 {remote_ip} 访问 {port} 端口", stage="expose")
-        else:
+            iphlpsvc = (info.get("IPHLPSVC") or "").strip() or "未知"
+            if iphlpsvc.lower() != "running":
+                raise DeployError(
+                    f"目标机的 IP Helper（iphlpsvc）服务当前是「{iphlpsvc}」，portproxy 不会真的转发："
+                    "请在目标机上把它启动起来（`sc config iphlpsvc start= auto` 然后 `sc start iphlpsvc`），"
+                    "或者改用「让 MCP 监听 0.0.0.0」的部署选项后重新部署"
+                )
+            if (info.get("PP_ENTRY") or "").strip().lower() != "true":
+                # 读不回来只提示、不判死：真正的判据是下一个阶段「放行 + 从堡垒机真连一次」
+                self.emit(
+                    "portproxy 规则没在 `netsh interface portproxy show v4tov4` 里读回来，先继续",
+                    level="warning",
+                    stage="expose",
+                )
+            listen = [item.strip() for item in (info.get("LISTEN") or "").split(",") if item.strip()]
             self.emit(
-                f"没识别出堡垒机 IP，防火墙改为只放行本网段（LocalSubnet）访问 {port} 端口",
-                level="warning",
+                f"IP Helper 正在运行；{port} 端口当前监听地址：{', '.join(listen) or '（空）'}",
                 stage="expose",
             )
-        self._ps(
-            "netsh advfirewall firewall delete rule name='AutoOps-ComputerUse' 2>$null | Out-Null;"
-            "netsh advfirewall firewall add rule name='AutoOps-ComputerUse' dir=in action=allow "
-            f"protocol=TCP localport={port} remoteip={remote_ip} | Out-Null;"
-            "'FIREWALL=OK'",
-            timeout=120,
-            stage="expose",
-            label="添加防火墙放行规则",
-        )
+
         self.emit(f"MCP 地址：{self.ctx.mcp_url}", level="success", stage="expose")
 
     # ---------------------------------------------------------------- 阶段 7
+    def _stage_firewall(self, app) -> None:
+        """在目标机上放行 MCP 端口，并把「真的放行了」读回来 + 从堡垒机侧真连一次。
+
+        用户实测的「堡垒机连不上 MCP」就卡在这一步，所以这里不满足于「发一条 netsh 就当成功」：
+        写规则 → `Get-NetFirewallRule` 读回核对（存在 / 启用 / 入站 / 放行 / TCP / 端口 / 来源
+        都对）→ portproxy 与监听地址复核 → **由堡垒机侧 TCP 真连一次**。任何一环不过都让部署失败，
+        并把现场证据写进报错文案 —— 不留「部署成功但侧边栏连不上」的假绿。
+        """
+        port = self.ctx.mcp_port
+        remote_ip = (self.ctx.bastion_ip or "").strip() or "LocalSubnet"
+        if self.ctx.bastion_ip:
+            self.emit(f"防火墙只放行堡垒机 {remote_ip} 访问 {port} 端口", stage="firewall")
+        else:
+            self.emit(
+                f"没识别出堡垒机 IP，防火墙退化为只放行本网段（LocalSubnet）访问 {port} 端口",
+                level="warning",
+                stage="firewall",
+            )
+        script = (
+            f"$port = {port};"
+            f"$remote = '{remote_ip}';"
+            # 老名字（历史版本用过）一起清掉，免得两条规则打架、谁也说不清哪条在生效
+            "$names = @('AutoOps-ComputerUse','AutoOps-ComputerUse-MCP');"
+            'foreach ($n in $names) { netsh advfirewall firewall delete rule name="$n" 2>$null | Out-Null }'
+            # 先用 netsh（老系统也稳），读不回来再退到 PowerShell cmdlet 重写一次
+            "netsh advfirewall firewall add rule name='AutoOps-ComputerUse' dir=in action=allow "
+            "protocol=TCP localport=$port remoteip=$remote profile=any enable=yes 2>$null | Out-Null;"
+            "$r = Get-NetFirewallRule -DisplayName 'AutoOps-ComputerUse' -ErrorAction SilentlyContinue;"
+            "if (-not $r) {"
+            "  try { New-NetFirewallRule -DisplayName 'AutoOps-ComputerUse' -Direction Inbound "
+            "    -Action Allow -Protocol TCP -LocalPort $port -RemoteAddress $remote -Profile Any "
+            "    -Enabled True | Out-Null } catch { $null = $_ };"
+            "  $r = Get-NetFirewallRule -DisplayName 'AutoOps-ComputerUse' -ErrorAction SilentlyContinue };"
+            "if ($r) {"
+            "  $pf = $r | Get-NetFirewallPortFilter; $af = $r | Get-NetFirewallAddressFilter;"
+            "  'FW_PRESENT=1';"
+            "  'FW_ENABLED=' + $r.Enabled;"
+            "  'FW_DIRECTION=' + $r.Direction;"
+            "  'FW_ACTION=' + $r.Action;"
+            "  'FW_PROTO=' + $pf.Protocol;"
+            "  'FW_PORT=' + (($pf.LocalPort) -join ',');"
+            "  'FW_REMOTE=' + (($af.RemoteAddress) -join ',')"
+            "} else { 'FW_PRESENT=0' }"
+        )
+        _, out, err = self._ps(
+            script, timeout=120, stage="firewall", label="放行 MCP 端口并读回核对"
+        )
+        info = _kv_lines(out)
+        remotes: list[str] = [
+            item.strip().lower() for item in (info.get("FW_REMOTE") or "").split(",") if item.strip()
+        ]
+        problems: list[str] = []
+        if (info.get("FW_PRESENT") or "0").strip() != "1":
+            problems.append("规则没建上（netsh 与 New-NetFirewallRule 两种写法都试过）")
+        else:
+            if (info.get("FW_ENABLED") or "").strip().lower() not in {"true", "1"}:
+                problems.append(f"规则存在但没启用（Enabled={info.get('FW_ENABLED')}）")
+            if (info.get("FW_DIRECTION") or "").strip().lower() != "inbound":
+                problems.append(f"方向不对（{info.get('FW_DIRECTION')}，应为 Inbound）")
+            if (info.get("FW_ACTION") or "").strip().lower() != "allow":
+                problems.append(f"动作不对（{info.get('FW_ACTION')}，应为 Allow）")
+            if (info.get("FW_PROTO") or "").strip().lower() not in {"tcp", "6", "any"}:
+                problems.append(f"协议不对（{info.get('FW_PROTO')}，应为 TCP）")
+            ports = [item.strip() for item in (info.get("FW_PORT") or "").split(",") if item.strip()]
+            if str(port) not in ports and "any" not in [item.lower() for item in ports]:
+                problems.append(f"端口里没有 {port}（实际 {ports or '空'}）")
+            if not (set(remotes) & {remote_ip.lower(), "any", "localsubnet"}):
+                problems.append(f"放行来源里没有 {remote_ip}（实际 {remotes or '空'}）")
+        if problems:
+            raise DeployError(
+                f"在目标机上放行 {port} 端口失败：{'；'.join(problems)}。"
+                "请确认部署账号有管理员权限、目标机没有用组策略/安全软件锁死入站规则"
+                f"（可以在目标机上手工执行 `netsh advfirewall firewall add rule name=AutoOps-ComputerUse "
+                f"dir=in action=allow protocol=TCP localport={port} remoteip={remote_ip}` 复核）"
+                + (f"；目标机 stderr：{err.strip()[:200]}" if (err or "").strip() else "")
+            )
+        self.ctx.firewall_ok = True
+        self.ctx.firewall_remote = remote_ip
+        self.ctx.firewall_rule = (
+            f"AutoOps-ComputerUse：TCP {port} 入站放行，来源 {','.join(remotes) or remote_ip}"
+        )
+        self.emit(
+            f"防火墙规则已生效并读回核对：{self.ctx.firewall_rule}",
+            level="success",
+            stage="firewall",
+        )
+
+        host = self.ctx.host_for_url
+        reachable, why = self._tcp_reachable(host, port)
+        if not reachable:
+            _, probe_out, _ = self._ps(
+                f'"LISTEN=" + ((Get-NetTCPConnection -State Listen -LocalPort {port} '
+                "-ErrorAction SilentlyContinue).LocalAddress -join ',')",
+                timeout=60,
+                stage="firewall",
+            )
+            listen = (_kv_lines(probe_out).get("LISTEN") or "").strip()
+            raise DeployError(
+                f"防火墙规则已放行，但从堡垒机连不上目标机的 {host}:{port}（{why}）。"
+                f"目标机 {port} 端口上的监听地址：{listen or '（空）'}。"
+                "常见原因：① 目标机上的 MCP 进程没在跑（登录会话注销后它会退出，重新登录桌面或用"
+                "开机自启脚本把它拉起来即可）；② portproxy 没生效（在目标机上执行 "
+                "`netsh interface portproxy show v4tov4` 复核）；③ 端口被别的程序占用了。"
+            )
+        self.ctx.lan_reachable = True
+        self.emit(f"已从堡垒机侧连上 {host}:{port}", level="success", stage="firewall")
+
+    # ---------------------------------------------------------------- 阶段 8
     def _stage_verify(self, app) -> None:
         """从堡垒机侧探活，确认「AI 真的能用这台机器」。"""
         self.emit(f"探活 {self.ctx.mcp_url} …", stage="verify")
@@ -1343,7 +1531,10 @@ class DeploymentRunner:
                 time.sleep(10)
         if not probe.get("ok"):
             raise DeployError(
-                f"MCP 探活失败（重试 {attempts} 次）：{probe.get('error') or '目标机没有响应'}"
+                f"MCP 探活失败（重试 {attempts} 次）：{probe.get('error') or '目标机没有响应'}。"
+                f"防火墙：{self.ctx.firewall_rule or '未记录'}；"
+                f"从堡垒机到 {self.ctx.host_for_url}:{self.ctx.mcp_port} 的 TCP 连通："
+                f"{'通' if self.ctx.lan_reachable else '不通'}"
                 "（可以检查目标机防火墙、portproxy 规则与 server.log）"
             )
         tools = probe.get("tools") or []
@@ -1374,6 +1565,7 @@ class DeploymentRunner:
             row.vbs_path = VBS_LOCAL
             row.startup_path = VBS_STARTUP
             row.portproxy = not self.ctx.bind_all
+            row.firewall = self.ctx.firewall_ok
             row.error = ""
             db.session.commit()
         log_event(
@@ -1392,6 +1584,7 @@ class DeploymentRunner:
                 "mcpVersion": self.ctx.mcp_version,
                 "authKey": bool(self.ctx.auth_key),
                 "portproxy": not self.ctx.bind_all,
+                "firewall": self.ctx.firewall_ok,
                 "latencyMs": probe.get("latencyMs"),
             },
         )

@@ -200,3 +200,134 @@ def test_listen_wait_script_requires_a_new_owner():
     assert "$new = ($owner -ne '6620')" in script
     assert "-LocalPort 8123" in script
 
+
+# --------------------------------------------------------------------------- #
+# 放行防火墙：读回核对 + 从堡垒机侧真连一次
+# （用户实测「堡垒机连不上 MCP」的落点：以前只发一条 netsh 就当成功）
+# --------------------------------------------------------------------------- #
+RULE_OK = (
+    "FW_PRESENT=1\nFW_ENABLED=True\nFW_DIRECTION=Inbound\nFW_ACTION=Allow\n"
+    "FW_PROTO=TCP\nFW_PORT=8000\nFW_REMOTE=192.168.0.106"
+)
+
+
+def test_kv_lines_tolerates_equals_and_skips_noise():
+    info = cu_deploy._kv_lines("noise\nLAN=10.0.0.5\nLISTEN=0.0.0.0,::\nNOTE=a=b=c\n_=x\n")
+    assert info["LAN"] == "10.0.0.5"
+    assert info["LISTEN"] == "0.0.0.0,::"
+    # 值里再出现 = 也不能把后半截吃掉（stderr 里常带）
+    assert info["NOTE"] == "a=b=c"
+    # `_` 去掉下划线后不是字母数字 → 不是我们要的键
+    assert "_" not in info
+    assert "noise" not in info
+
+
+def test_stage_expose_requires_iphlpsvc_running():
+    runner, fake = _runner()
+    fake.replies.append((0, "LAN=192.168.0.75\nIPHLPSVC=Stopped\nLISTEN=", ""))
+    with pytest.raises(cu_deploy.DeployError, match="IP Helper"):
+        runner._stage_expose(app=None)
+    # 地址先记下来，报错文案里能指明是哪台机的哪个口
+    assert runner.ctx.lan_ip == "192.168.0.75"
+    assert runner.ctx.mcp_url == "http://192.168.0.75:8000/mcp"
+
+
+def test_stage_expose_picks_lan_by_default_route_and_reports_listener():
+    runner, fake = _runner()
+    fake.replies.append((0, "LAN=192.168.0.75\nIPHLPSVC=Running\nPP_ENTRY=True\nLISTEN=0.0.0.0", ""))
+    runner._stage_expose(app=None)
+    script = fake.scripts[0]
+    # 多网卡机器上按默认路由挑地址（老实现只看第一个地址，常挑到堡垒机到不了的网卡）
+    assert "Get-NetRoute -DestinationPrefix '0.0.0.0/0'" in script
+    assert "netsh interface portproxy add v4tov4" in script
+    assert "connectaddress=127.0.0.1" in script
+    assert "Get-NetTCPConnection -State Listen -LocalPort $port" in script
+
+
+def test_stage_firewall_passes_when_rule_reads_back_and_port_is_reachable():
+    runner, fake = _runner(bastion_ip="192.168.0.106")
+    fake.replies.append((0, RULE_OK, ""))
+    runner._tcp_reachable = lambda host, port, **kw: (True, "")  # type: ignore[method-assign]
+    runner._stage_firewall(app=None)
+    assert runner.ctx.firewall_ok is True
+    assert runner.ctx.lan_reachable is True
+    assert "192.168.0.106" in runner.ctx.firewall_rule
+    script = fake.scripts[0]
+    assert "netsh advfirewall firewall add rule name='AutoOps-ComputerUse'" in script
+    assert "remoteip=$remote" in script
+    assert "-RemoteAddress $remote" in script  # netsh 写不上时退到 cmdlet
+    assert "Get-NetFirewallRule -DisplayName 'AutoOps-ComputerUse'" in script
+
+
+def test_stage_firewall_rejects_a_rule_that_did_not_stick():
+    runner, fake = _runner(bastion_ip="192.168.0.106")
+    fake.replies.append((0, "FW_PRESENT=0", "Access is denied."))
+    with pytest.raises(cu_deploy.DeployError, match="放行 8000 端口失败"):
+        runner._stage_firewall(app=None)
+    assert runner.ctx.firewall_ok is False
+
+
+def test_stage_firewall_rejects_wrong_port_or_scope():
+    runner, fake = _runner(bastion_ip="192.168.0.106")
+    fake.replies.append(
+        (
+            0,
+            "FW_PRESENT=1\nFW_ENABLED=True\nFW_DIRECTION=Inbound\nFW_ACTION=Allow\n"
+            "FW_PROTO=TCP\nFW_PORT=3389\nFW_REMOTE=Any",
+            "",
+        )
+    )
+    with pytest.raises(cu_deploy.DeployError, match="端口里没有 8000"):
+        runner._stage_firewall(app=None)
+
+
+def test_stage_firewall_rejects_a_rule_that_never_got_enabled():
+    runner, fake = _runner(bastion_ip="192.168.0.106")
+    fake.replies.append(
+        (0, RULE_OK.replace("FW_ENABLED=True", "FW_ENABLED=False"), "")
+    )
+    with pytest.raises(cu_deploy.DeployError, match="没启用"):
+        runner._stage_firewall(app=None)
+
+
+def test_stage_firewall_fails_when_the_bastion_still_cannot_connect():
+    runner, fake = _runner(bastion_ip="192.168.0.106")
+    fake.replies.append((0, RULE_OK, ""))
+    # 复核监听地址那次（连不上时才会问）
+    fake.replies.append((0, "LISTEN=", ""))
+    runner._tcp_reachable = lambda host, port, **kw: (  # type: ignore[method-assign]
+        False,
+        "ConnectionRefusedError: [WinError 10061] 由于目标计算机积极拒绝",
+    )
+    with pytest.raises(cu_deploy.DeployError, match="从堡垒机连不上"):
+        runner._stage_firewall(app=None)
+    assert runner.ctx.lan_reachable is False
+
+
+def test_stage_firewall_falls_back_to_local_subnet_without_a_bastion_ip():
+    runner, fake = _runner(bastion_ip="")
+    fake.replies.append((0, RULE_OK.replace("192.168.0.106", "LocalSubnet"), ""))
+    runner._tcp_reachable = lambda host, port, **kw: (True, "")  # type: ignore[method-assign]
+    runner._stage_firewall(app=None)
+    assert "$remote = 'LocalSubnet';" in fake.scripts[0]
+    assert runner.ctx.firewall_remote == "LocalSubnet"
+
+
+def test_tcp_reachable_retries_then_reports_the_reason():
+    runner, _ = _runner()
+    calls: list[tuple] = []
+
+    def fake_connect(target, timeout=None):
+        calls.append(target)
+        raise ConnectionRefusedError("nope")
+
+    original = cu_deploy.socket.create_connection
+    cu_deploy.socket.create_connection = fake_connect  # type: ignore[assignment]
+    try:
+        ok, why = runner._tcp_reachable("192.168.0.75", 8000, attempts=2, pause=0)
+    finally:
+        cu_deploy.socket.create_connection = original
+    assert ok is False
+    assert "ConnectionRefusedError" in why
+    assert calls == [("192.168.0.75", 8000), ("192.168.0.75", 8000)]
+
