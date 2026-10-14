@@ -30,6 +30,7 @@ SETTING_LABELS = {
     "record_raw_transcript": "记录原始字节流录像",
     "notify_on_deny": "命令被拦截时提示用户",
     "gateway_enabled": "启用 SSH 网关",
+    "ai_max_tool_rounds": "AI 任务最大调用轮数",
 }
 
 INT_KEYS = {
@@ -40,10 +41,16 @@ INT_KEYS = {
     "login_lock_minutes",
     "max_sessions_per_user",
     "default_policy_id",
+    "ai_max_tool_rounds",
 }
 BOOL_KEYS = {"record_raw_transcript", "notify_on_deny", "gateway_enabled"}
 # 允许留空的整型配置：默认值本身就是空串，留空表示「未指定」（例如没有默认命令策略）
 OPTIONAL_INT_KEYS = {"default_policy_id"}
+# 整型配置的合法区间：既用来校验（PUT），也下发给前端做输入框的 min/max
+INT_RANGES = {
+    "gateway_port": (1, 65535),
+    "ai_max_tool_rounds": (1, 50),
+}
 
 
 def _payload() -> dict:
@@ -51,15 +58,17 @@ def _payload() -> dict:
     items = []
     for key, default in DEFAULTS.items():
         value = stored.get(key, default)
-        items.append(
-            {
-                "key": key,
-                "label": SETTING_LABELS.get(key, key),
-                "value": value,
-                "default": default,
-                "type": "int" if key in INT_KEYS else ("bool" if key in BOOL_KEYS else "string"),
-            }
-        )
+        item = {
+            "key": key,
+            "label": SETTING_LABELS.get(key, key),
+            "value": value,
+            "default": default,
+            "type": "int" if key in INT_KEYS else ("bool" if key in BOOL_KEYS else "string"),
+        }
+        if key in INT_RANGES:
+            # 下发区间，前端 InputNumber 直接照它设 min/max（后端仍然独立校验一遍）
+            item["min"], item["max"] = INT_RANGES[key]
+        items.append(item)
     return {"items": items, "values": {item["key"]: item["value"] for item in items}}
 
 
@@ -85,8 +94,13 @@ def put_settings():
             number = parse_int(value)
             if number is None:
                 return api_error(f"「{SETTING_LABELS.get(key, key)}」必须是整数", 400, code="INVALID_ARGUMENT")
-            if key == "gateway_port" and not (1 <= number <= 65535):
-                return api_error("SSH 网关端口必须在 1-65535 之间", 400, code="INVALID_ARGUMENT")
+            bounds = INT_RANGES.get(key)
+            if bounds and not (bounds[0] <= number <= bounds[1]):
+                return api_error(
+                    f"「{SETTING_LABELS.get(key, key)}」必须在 {bounds[0]}-{bounds[1]} 之间",
+                    400,
+                    code="INVALID_ARGUMENT",
+                )
             if key == "default_policy_id":
                 if number and db.session.get(CommandPolicy, number) is None:
                     return api_error("指定的默认策略不存在", 400, code="INVALID_ARGUMENT")

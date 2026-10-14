@@ -1219,3 +1219,56 @@ def test_a_legacy_dangling_tool_call_is_repaired_on_the_next_turn(app, client, a
     assert any(
         "未执行" in (item.get("content") or "") for item in sent if item.get("role") == "tool"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 单轮工具调用上限：参数设置项 ai_max_tool_rounds（原本写死 8）
+# --------------------------------------------------------------------------- #
+def test_tool_round_limit_comes_from_the_system_setting(app, client, admin_headers, monkeypatch):
+    """「AI 任务最大调用轮数」是参数设置里的项：改成 2 就真只跑 2 轮，不再是写死的 8。"""
+    _enable_ai(app)
+    with app.app_context():
+        assert ai_service.max_tool_rounds(app) == 8
+
+    resp = client.put("/api/settings", json={"ai_max_tool_rounds": 2}, headers=admin_headers)
+    assert resp.status_code == 200, resp.get_json()
+    with app.app_context():
+        assert ai_service.max_tool_rounds(app) == 2
+    status = client.get("/api/ai/status", headers=admin_headers).get_json()["data"]
+    assert status["maxToolRounds"] == 2
+
+    # 每轮都让模型要工具：脚本给足 6 轮，看看它到底问了模型几次
+    fake = _patch_client(
+        monkeypatch, [_text_tool_call("list_hosts", {}, f"call_{i}") for i in range(6)]
+    )
+    events = _chat(client, admin_headers, message="一直查主机")
+    assert len(fake.calls) == 2
+    assert len([event for event in events if event["type"] == "tool_call"]) == 2
+
+    end = [event for event in events if event["type"] == "message_end"][-1]
+    assert end["status"] == "max_rounds"
+    text = "".join(event.get("delta", "") for event in events if event["type"] == "content")
+    assert "已达到单轮工具调用上限 2 次" in text
+
+
+def test_tool_round_limit_clamps_absurd_values_and_falls_back_to_env(app, monkeypatch):
+    """手填离谱值（或绕过接口直接写库）会被夹进 1..50；设置留空则回落到 .env 那份。"""
+    from app.settings_store import set_setting
+
+    with app.app_context():
+        set_setting("ai_max_tool_rounds", "999")
+        db.session.commit()
+        assert ai_service.max_tool_rounds(app) == ai_service.MAX_TOOL_ROUNDS_CAP
+
+        monkeypatch.setitem(app.config, "AI_MAX_TOOL_ROUNDS", 3)
+        set_setting("ai_max_tool_rounds", "0")
+        db.session.commit()
+        assert ai_service.max_tool_rounds(app) == 3
+
+        set_setting("ai_max_tool_rounds", "")
+        db.session.commit()
+        assert ai_service.max_tool_rounds(app) == 3
+
+        set_setting("ai_max_tool_rounds", "5")
+        db.session.commit()
+        assert ai_service.max_tool_rounds(app) == 5

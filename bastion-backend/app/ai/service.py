@@ -10,7 +10,7 @@
                 ├─ 无权限     → AiToolCall(denied) + 审计 + 回灌模型
                 ├─ 敏感操作   → AiToolCall(pending) + SSE confirm_required（暂停，等管理员密码）
                 └─ 允许       → 调自己的 REST API → AiToolCall(success/failure) + 审计 + 回灌模型
-      └─ 循环直到模型不再请求工具，或达到 AI_MAX_TOOL_ROUNDS
+      └─ 循环直到模型不再请求工具，或达到「AI 任务最大调用轮数」（参数设置页可改）
 
 **所有**环节都落库：``AiMessage`` 存原话与输出，``AiToolCall`` 存工具名/参数/结果/提权人，
 ``AuditLog(category="ai")`` 存事件级流水，于是「用户说了什么、AI 答了什么、调用了什么」可查。
@@ -39,6 +39,27 @@ logger = logging.getLogger("bastion.ai")
 CARD_RE = re.compile(r"```ai-card\s*\n(.*?)```", re.S)
 CARD_TYPES = {"table", "keyvalue", "alert", "steps", "list", "markdown"}
 MAX_ARG_PREVIEW = 600
+
+#: 「AI 任务最大调用轮数」的兜底值与硬上限 —— 实际取哪一份见 :func:`max_tool_rounds`
+DEFAULT_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS_CAP = 50
+#: 系统设置里那个键（参数设置页可改，改完立刻生效、不用重启后端）
+TOOL_ROUNDS_SETTING = "ai_max_tool_rounds"
+
+
+def max_tool_rounds(app) -> int:
+    """一个用户回合里最多几轮工具调用。
+
+    取值顺序：系统设置 ``ai_max_tool_rounds``（参数设置页可改，**改完立刻生效**）
+    → 环境变量/config ``AI_MAX_TOOL_ROUNDS`` → 兜底 :data:`DEFAULT_TOOL_ROUNDS`；
+    最后统一夹到 ``1..MAX_TOOL_ROUNDS_CAP``，免得手填一个离谱的数字把一次对话拖成几十轮。
+    """
+    from ..settings_store import get_int
+
+    rounds = get_int(TOOL_ROUNDS_SETTING, 0)
+    if rounds <= 0:
+        rounds = int(app.config.get("AI_MAX_TOOL_ROUNDS") or DEFAULT_TOOL_ROUNDS)
+    return max(1, min(int(rounds), MAX_TOOL_ROUNDS_CAP))
 
 
 # --------------------------------------------------------------------------
@@ -614,7 +635,7 @@ def run_turn(
     """执行一个 AI 回合，产出 SSE 事件字典（由 api 层序列化成 text/event-stream）。"""
     cfg = app.config
     limit = int(cfg.get("AI_HISTORY_LIMIT") or 40)
-    max_rounds = max(1, int(cfg.get("AI_MAX_TOOL_ROUNDS") or 8))
+    max_rounds = max_tool_rounds(app)
     confirm_ttl = int(cfg.get("AI_CONFIRM_TTL") or 300)
 
     available = caller.available_tools()

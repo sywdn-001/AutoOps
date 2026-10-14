@@ -18,6 +18,10 @@ DEFAULTS: dict[str, str] = {
     "default_policy_id": "",
     "record_raw_transcript": "1",
     "notify_on_deny": "1",
+    # AI 任务最大调用轮数：一个用户回合里最多几次「模型要工具 → 执行 → 回灌」。
+    # 与 config.AI_MAX_TOOL_ROUNDS（环境变量）同义，但这里是**运行时可改**的那份，
+    # 见 app/ai/service.py 的 max_tool_rounds()。
+    "ai_max_tool_rounds": "8",
 }
 
 

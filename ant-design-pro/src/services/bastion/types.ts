@@ -443,6 +443,9 @@ export type SettingItem = {
   type: 'string' | 'int' | 'bool';
   value: string;
   default: string;
+  /** 整型配置的合法区间（后端下发，用于输入框 min/max；后端仍会独立校验） */
+  min?: number;
+  max?: number;
 };
 
 export type SettingsPayload = {

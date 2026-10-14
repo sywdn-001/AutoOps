@@ -162,7 +162,15 @@ const Settings: React.FC = () => {
   const renderControl = (item: SettingItem) => {
     if (item.type === 'bool') return <Switch />;
     if (item.type === 'int') {
-      return <InputNumber style={{ width: '100%' }} step={1} precision={0} />;
+      return (
+        <InputNumber
+          style={{ width: '100%' }}
+          step={1}
+          precision={0}
+          min={item.min ?? undefined}
+          max={item.max ?? undefined}
+        />
+      );
     }
     return <Input allowClear />;
   };

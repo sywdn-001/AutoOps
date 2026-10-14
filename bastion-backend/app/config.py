@@ -205,7 +205,9 @@ class Config:
     AI_REQUEST_TIMEOUT = int(os.environ.get("AI_REQUEST_TIMEOUT", "120"))
     #: 单轮生成上限；**推理模型会先消耗 reasoning token**，给小了会空响应
     AI_MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "8192"))
-    #: 一个用户回合内最多允许的工具调用轮数
+    #: 一个用户回合内最多允许的工具调用轮数。
+    #: **运行时优先用系统设置 `ai_max_tool_rounds`（参数设置页可改，保存即生效）**，
+    #: 本项只在设置留空时兜底；两边都会被夹到 1..50（见 app/ai/service.py:max_tool_rounds）
     AI_MAX_TOOL_ROUNDS = int(os.environ.get("AI_MAX_TOOL_ROUNDS", "8"))
     #: 敏感操作确认票据有效期（秒）
     AI_CONFIRM_TTL = int(os.environ.get("AI_CONFIRM_TTL", "300"))

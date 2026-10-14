@@ -70,3 +70,33 @@ def test_changed_settings_are_reported_and_audited(client, app, admin_headers):
     assert again.status_code == 200
     assert "设置无变化" in again.get_json()["message"]
     _ = db
+
+
+def test_ai_tool_rounds_setting_is_offered_with_its_range(client, admin_headers):
+    """「AI 任务最大调用轮数」要出现在参数设置里，并告诉前端能填什么区间。"""
+    items = {
+        item["key"]: item
+        for item in client.get("/api/settings", headers=admin_headers).get_json()["data"]["items"]
+    }
+    item = items["ai_max_tool_rounds"]
+    assert item["label"] == "AI 任务最大调用轮数"
+    assert item["type"] == "int"
+    assert item["default"] == "8"
+    assert (item["min"], item["max"]) == (1, 50)
+
+
+def test_ai_tool_rounds_can_be_changed_but_only_inside_the_range(client, admin_headers):
+    ok = client.put("/api/settings", json={"ai_max_tool_rounds": 12}, headers=admin_headers)
+    assert ok.status_code == 200, ok.get_json()
+    assert "已更新 1 项设置" in ok.get_json()["message"]
+    values = client.get("/api/settings", headers=admin_headers).get_json()["data"]["values"]
+    assert values["ai_max_tool_rounds"] == "12"
+
+    for bad in (0, 51, -3):
+        resp = client.put("/api/settings", json={"ai_max_tool_rounds": bad}, headers=admin_headers)
+        assert resp.status_code == 400, bad
+        assert "「AI 任务最大调用轮数」必须在 1-50 之间" in resp.get_json()["message"]
+
+    resp = client.put("/api/settings", json={"ai_max_tool_rounds": "十次"}, headers=admin_headers)
+    assert resp.status_code == 400
+    assert "必须是整数" in resp.get_json()["message"]
