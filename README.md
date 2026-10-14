@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/sywdn-001/AutoOps?color=blue" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-749%20passed-brightgreen" alt="Backend tests: 749 passed">
+  <img src="https://img.shields.io/badge/tests-782%20passed-brightgreen" alt="Backend tests: 782 passed">
   <img src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white" alt="Python 3.13">
   <img src="https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1">
   <img src="https://img.shields.io/badge/React%2019%20%2B%20Ant%20Design%206-61DAFB?logo=react&logoColor=white" alt="React 19 + Ant Design 6">
@@ -366,10 +366,10 @@ export BASTION_API=http://192.168.1.10:5000     # Linux / macOS
 
 ## 验证记录
 
-后端 749 个用例、前端 12 个文件 180 个单测，加上四套真机联调脚本：
+后端 782 个用例、前端 12 个文件 183 个单测，加上四套真机联调脚本：
 
 ```bash
-cd bastion-backend && python -m pytest -q          # 749 passed（35 个文件）
+cd bastion-backend && python -m pytest -q          # 782 passed（35 个文件）
 python tools/live_e2e_check.py                     # 97 项：HTTP + Socket.IO + SSH 网关 + SFTP + AI 端到端
 python tools/ui_check.py                           # 21 项：真实 Chrome 逐路由巡检后台
 python tools/console_check.py                      # 33 项：真实 Chrome 驱动网页终端与文件管理器
