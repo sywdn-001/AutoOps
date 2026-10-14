@@ -162,28 +162,89 @@ def clean_remote_stderr(text: str) -> str:
 def mcp_listen_wait_script(port: int, old_pid: str = "") -> str:
     """生成「等新 MCP 真的接手端口」的 PowerShell。
 
-    真机踩过的坑：接管脚本会先把老会话里那个 MCP 停掉再起新的，中间有几秒空档。
-    如果只判断「端口有人在听」，就会把**还没被杀掉的老进程**误判成新的已经起来了，
-    紧接着探活就被连接重置（实测 verify 阶段就是这么失败的）。
-    所以记下老进程号，要求监听者换人。
+    两个真机踩过的坑都要防：
+
+    1. 接管脚本会先把老会话里那个 MCP 停掉再起新的，中间有几秒空档。只判断「端口有人
+       在听」，就会把**还没被杀掉的老进程**误判成新的已经起来了（实测 verify 阶段就是
+       这么失败的）→ 记下老进程号，要求监听者换人。
+    2. 8000 端口上还有**portproxy**（IP Helper 的 svchost）在听局域网地址。拿它当
+       「MCP 起来了」会假成功：面板报「重启成功」，而堡垒机照样连不上（实测）。
+       → 只认回环地址上的监听者，且它的进程名必须是 python / windows-mcp。
     """
     expect_new = f"$new = ($owner -ne '{old_pid}')" if old_pid else "$new = $true"
     return (
-        "$ErrorActionPreference='SilentlyContinue';$ok = $false;$who = '';"
+        "$ErrorActionPreference='SilentlyContinue';$ok = $false;$who = '';$name = '';"
         "for ($i = 0; $i -lt 40; $i++) {"
         f"  $c = Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue "
+        "| Where-Object { $_.LocalAddress -eq '127.0.0.1' -or $_.LocalAddress -eq '::1' } "
         "| Select-Object -First 1;"
         "  $t = $false;"
         f"  if ($c) {{ $t = (Test-NetConnection -ComputerName 127.0.0.1 -Port {port} "
         "-WarningAction SilentlyContinue).TcpTestSucceeded };"
         "  if ($c -and $t) {"
         "    $owner = [string]$c.OwningProcess;"
+        "    $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue;"
+        "    $name = ''; if ($p) { $name = $p.ProcessName.ToLower() };"
         f"    {expect_new};"
-        "    if ($new) { $ok = $true; $who = $owner; break }"
+        "    if ($new -and @('python','pythonw','windows-mcp') -contains $name) "
+        "{ $ok = $true; $who = $owner; break }"
         "  };"
         "  Start-Sleep -Seconds 2 };"
-        '"LISTEN=$ok WHO=$who"'
+        '"LISTEN=$ok WHO=$who NAME=$name"'
     )
+
+
+def mcp_proxy_heal_script(port: int) -> str:
+    """生成「顺手把 portproxy 修回来」的 PowerShell（自愈的第二半）。
+
+    真机现场：老的重启逻辑把 portproxy 的 svchost 当 MCP 杀掉 ⇒ IP Helper 停了，
+    即使 MCP 已经重新监听 ``127.0.0.1:8000``，堡垒机连 ``192.168.0.75:8000`` 也只会
+    拿到 10061。这里按部署时同一套判据修：局域网地址上没人听（= MCP 不是 bindAll
+    那种 0.0.0.0 监听）才重建 portproxy，然后读回核对。
+    """
+    return (
+        "$ErrorActionPreference='Continue';"
+        + PS_PICK_LAN
+        + f"$port = {port};"
+        "$lanListen = @(Get-NetTCPConnection -LocalPort $port -State Listen "
+        "-ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -eq $lan }).Count;"
+        "if ($lanListen -eq 0) {"
+        "  Set-Service iphlpsvc -StartupType Automatic -ErrorAction SilentlyContinue;"
+        "  Start-Service iphlpsvc -ErrorAction SilentlyContinue;"
+        "  Start-Sleep -Seconds 3;"
+        "  netsh interface portproxy delete v4tov4 listenaddress=$lan listenport=$port "
+        "2>$null | Out-Null;"
+        "  netsh interface portproxy add v4tov4 listenaddress=$lan listenport=$port "
+        "connectaddress=127.0.0.1 connectport=$port | Out-Null;"
+        "  Start-Sleep -Seconds 2 };"
+        "$now = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue "
+        "| Where-Object { $_.LocalAddress -eq $lan }).Count;"
+        '"LAN=" + $lan;'
+        '"IPHLPSVC=" + (Get-Service iphlpsvc -ErrorAction SilentlyContinue).Status;'
+        '"PP_ENTRY=" + [bool]((netsh interface portproxy show v4tov4 | Out-String) '
+        "-match [regex]::Escape($lan));"
+        '"PROXY=" + [bool]($now -gt 0)'
+    )
+
+
+def restart_verdict(*, listen: bool, proxy: bool, error: str = "") -> tuple[bool, str]:
+    """把「重启 MCP」的几个事实折算成 ok + 给人看的原因。
+
+    真机教训：只看「端口有人监听」会假成功 —— portproxy 也在听同一个端口，而 MCP 的
+    python 根本没起来；只看「MCP 起来了」也不行 —— portproxy 被误杀时堡垒机照样连不上
+    （10061）。两个都过才算重启成功，最终再由调用方从堡垒机侧真探活确认。
+    """
+    if error:
+        return False, error
+    if not listen:
+        return False, "目标机上没有新的 MCP 进程监听回环端口（python/windows-mcp 没起来）"
+    if not proxy:
+        return False, (
+            "MCP 已经起来，但 portproxy（IP Helper）没有在目标机的局域网地址上监听，"
+            "堡垒机仍然连不上：请在目标机上确认 IP Helper 服务已启动"
+            "（`netsh interface portproxy show v4tov4` 复核规则）"
+        )
+    return True, ""
 
 
 # --------------------------------------------------------------------------- #
@@ -218,13 +279,29 @@ def mcp_restart_script(
         [
             "$ErrorActionPreference='Continue'",
             INTERACTIVE_PROBE,
-            f"$c = Get-NetTCPConnection -LocalPort {port} -State Listen "
-            "-ErrorAction SilentlyContinue | Select-Object -First 1",
-            "$old = ''",
-            "if ($c) { $old = [string]$c.OwningProcess;",
-            "  Stop-Process -Id $old -Force -ErrorAction SilentlyContinue;",
-            "  Start-Sleep -Seconds 1 }",
-            '"KILLED=$old"',
+            # 只收 MCP 自己的进程（python / windows-mcp）。真机上 8000 端口的监听者
+            # 还可能是 IP Helper（portproxy）的 svchost —— 老实现不看进程名就
+            # Stop-Process 第一个监听者，实测把 portproxy 一起杀掉，端口从「能连」
+            # 变成 10061（连接被拒绝），自愈把现场越修越坏。
+            "$mcpNames = @('python','pythonw','windows-mcp')",
+            "$killed = @();$skipped = @()",
+            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |"
+            " Where-Object { $_.CommandLine -and $_.CommandLine -match 'windows[-_]mcp' -and"
+            " $mcpNames -contains ($_.Name -replace '\\.exe$','').ToLower() } |"
+            " ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue;"
+            " $killed += [string]$_.ProcessId }",
+            f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue |"
+            " ForEach-Object {"
+            "  $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue;"
+            "  $n = ''; if ($p) { $n = $p.ProcessName.ToLower() };"
+            "  if ($mcpNames -contains $n) {"
+            "    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue;"
+            "    $killed += [string]$_.OwningProcess"
+            "  } else { $skipped += ('{0}:{1}' -f $_.OwningProcess, $n) }"
+            " }",
+            "Start-Sleep -Seconds 1",
+            '"KILLED=" + ($killed -join ",")',
+            '"SKIPPED=" + ($skipped -join ",")',
             # 跑我们这个 VBS 的 wscript 也一起收掉（它起的 python 可能已经不在端口上）
             "Get-CimInstance Win32_Process -Filter \"Name='wscript.exe'\" "
             "-ErrorAction SilentlyContinue "
@@ -263,11 +340,15 @@ def restart_target_mcp(
         "hostName": "",
         "port": int(port),
         "killedPid": "",
+        "skippedPid": "",
         "started": "",
         "logon": "",
         "desktopActive": False,
         "listen": False,
         "ownerPid": "",
+        "proxy": False,
+        "proxyAddress": "",
+        "proxyService": "",
         "ok": False,
         "error": "",
         "output": "",
@@ -275,7 +356,11 @@ def restart_target_mcp(
 
     def finish() -> dict:
         result["durationMs"] = int((time.monotonic() - started) * 1000)
-        result["ok"] = bool(result["listen"])
+        result["ok"], result["error"] = restart_verdict(
+            listen=bool(result["listen"]),
+            proxy=bool(result["proxy"]),
+            error=str(result["error"]),
+        )
         return result
 
     with app.app_context():
@@ -330,6 +415,8 @@ def restart_target_mcp(
                 line = line.strip()
                 if line.startswith("KILLED="):
                     result["killedPid"] = line[len("KILLED=") :].strip()
+                elif line.startswith("SKIPPED="):
+                    result["skippedPid"] = line[len("SKIPPED=") :].strip()
                 elif line.startswith("START="):
                     tail = line[len("START=") :].strip()
                     result["started"] = tail.split()[0] if tail else ""
@@ -357,6 +444,16 @@ def restart_target_mcp(
                 result["error"] = (
                     result["error"] or f"MCP 重启后没有在 {timeout} 秒内监听 {port} 端口"
                 )
+
+            # 第二半：把 portproxy（IP Helper）也确认/修回来。老实现只杀进程不看名字，
+            # 会把 portproxy 的 svchost 一起杀掉 —— 那样 MCP 起来了堡垒机也连不上。
+            heal = winrm_client.run_script(
+                connection, PS_PREAMBLE + mcp_proxy_heal_script(port), timeout=120
+            )
+            proxy_info = _kv_lines(heal.stdout or "")
+            result["proxy"] = (proxy_info.get("PROXY") or "").strip().lower() == "true"
+            result["proxyAddress"] = (proxy_info.get("LAN") or "").strip()
+            result["proxyService"] = (proxy_info.get("IPHLPSVC") or "").strip()
         except winrm_client.WinrmError as exc:
             result["error"] = result["error"] or f"在目标机上执行命令失败：{exc}"
         finally:

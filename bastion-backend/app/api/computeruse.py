@@ -732,8 +732,10 @@ def mcp_restart():
         port=port,
     )
     probe: dict = {}
-    if result.get("ok"):
-        # 重启完立刻探一次活：这才能证明「MCP 真的又能用了」，而不是只是端口起来了
+    if result.get("listen") or result.get("ok"):
+        # 重启完立刻探一次活：这才能证明「MCP 真的又能用了」，而不是只是端口起来了。
+        # 判据必须是 listen（而不是 ok）：老代码只在 ok 时才探活，而 ok 又只看「端口
+        # 有人听」—— portproxy 也在听同一个端口，于是假成功时根本走不到探活这一步。
         try:
             probe = _client_for(row, timeout=20.0).probe()
         except (mcp_mod.McpError, LookupError) as exc:
@@ -743,6 +745,9 @@ def mcp_restart():
             row.mcp_tools = probe.get("tools") or []
             row.mcp_url = probe.get("endpoint") or row.mcp_url
             db.session.commit()
+        elif result.get("ok"):
+            result["ok"] = False
+            result["error"] = f"MCP 进程起来了，但堡垒机探活仍然失败：{probe.get('error')}"
     result["probe"] = probe
     log_event(
         "computeruse",

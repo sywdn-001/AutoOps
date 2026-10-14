@@ -201,6 +201,47 @@ def test_listen_wait_script_requires_a_new_owner():
     assert "-LocalPort 8123" in script
 
 
+def test_listen_wait_script_ignores_the_portproxy_listener():
+    """8000 端口上的 portproxy（IP Helper 的 svchost）不算「MCP 起来了」。
+
+    真机现场：自愈报 listen=true / ok=true，但 MCP 的 python 根本没起来，
+    堡垒机连上去还是 10061 —— 因为看到的是 portproxy 在听局域网地址。
+    """
+    script = cu_deploy.mcp_listen_wait_script(8000)
+    assert "$_.LocalAddress -eq '127.0.0.1' -or $_.LocalAddress -eq '::1'" in script
+    assert "@('python','pythonw','windows-mcp') -contains $name" in script
+    assert "NAME=$name" in script
+
+
+def test_proxy_heal_script_rebuilds_and_reads_back_the_portproxy():
+    script = cu_deploy.mcp_proxy_heal_script(8000)
+    # 局域网地址上没人听才重建（bindAll 部署时 MCP 自己就在监听 LAN，不该插一条 portproxy）
+    assert "$lanListen -eq 0" in script
+    assert "Set-Service iphlpsvc -StartupType Automatic" in script
+    assert "Start-Service iphlpsvc" in script
+    assert "netsh interface portproxy add v4tov4 listenaddress=$lan listenport=$port" in script
+    assert "$port = 8000" in script
+    assert "connectaddress=127.0.0.1" in script
+    # 读回核对：PROXY 才是「堡垒机这条路通了」的判据
+    assert '"PROXY=" + [bool]($now -gt 0)' in script
+    assert '"IPHLPSVC=" + (Get-Service iphlpsvc' in script
+
+
+def test_restart_verdict_requires_both_the_process_and_the_proxy():
+    # MCP 没起来
+    ok, why = cu_deploy.restart_verdict(listen=False, proxy=True)
+    assert ok is False and "MCP" in why
+    # MCP 起来了但 portproxy 没转发（真机那次：10061）
+    ok, why = cu_deploy.restart_verdict(listen=True, proxy=False)
+    assert ok is False and "portproxy" in why
+    # 两个都过
+    ok, why = cu_deploy.restart_verdict(listen=True, proxy=True)
+    assert ok is True and why == ""
+    # 前面已经报错就保留原原因，别被后面的判据覆盖
+    ok, why = cu_deploy.restart_verdict(listen=False, proxy=False, error="连接目标机失败：拒绝连接")
+    assert ok is False and why == "连接目标机失败：拒绝连接"
+
+
 # --------------------------------------------------------------------------- #
 # 放行防火墙：读回核对 + 从堡垒机侧真连一次
 # （用户实测「堡垒机连不上 MCP」的落点：以前只发一条 netsh 就当成功）

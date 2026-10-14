@@ -439,11 +439,18 @@ def test_mcp_client_gives_up_at_deadline_instead_of_hanging(monkeypatch):
     assert "重启" in str(excinfo.value)
 
 
-def test_mcp_restart_script_kills_listener_and_starts_task():
+def test_mcp_restart_script_only_kills_the_mcp_itself():
     script = cu_deploy.mcp_restart_script(8000, user="Administrator")
     assert "Get-NetTCPConnection -LocalPort 8000" in script
-    assert "Stop-Process -Id $old -Force" in script
-    assert '"KILLED=$old"' in script
+    # 真机踩过：不看进程名就 Stop-Process「8000 端口上的第一个监听者」，而那个监听者
+    # 其实是 portproxy 的 svchost（IP Helper）—— 结果 portproxy 被干掉，端口从「能连」
+    # 变成 10061。现在只杀 python / windows-mcp。
+    assert "$mcpNames = @('python','pythonw','windows-mcp')" in script
+    assert "$mcpNames -contains $n" in script
+    assert "$skipped += " in script
+    assert "Stop-Process -Id $old -Force" not in script
+    assert '"KILLED=" + ($killed -join ",")' in script
+    assert '"SKIPPED=" + ($skipped -join ",")' in script
     # 跑我们 VBS 的 wscript 也要收掉（它起的 python 可能已经不在端口上）
     assert "AutoOps-ComputerUse*" in script
     assert "Start-ScheduledTask -TaskName 'AutoOps-ComputerUse-MCP'" in script
@@ -885,6 +892,108 @@ def test_mcp_restart_endpoint_never_returns_5xx(app, client, admin_headers, wind
             .first()
         )
         assert entry is not None and entry.result == "failure"
+
+
+def test_mcp_restart_endpoint_refuses_to_claim_success_when_the_probe_fails(
+    app, client, admin_headers, windows_host, monkeypatch
+):
+    """真机现场：端口/进程都「看起来好了」，但堡垒机探活连不上 —— 不能报成功。
+
+    那次是自愈把 portproxy 的 svchost 当 MCP 杀掉（Bug A），同时 ok 只看
+    「端口有人听」（Bug B），于是面板显示「重启成功」而 agent 一直 10061。
+    """
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    def fake_restart(app_obj, *, host_id, account_id=None, port=None, timeout=240):
+        return {
+            "hostId": host_id,
+            "port": port,
+            "listen": True,
+            "proxy": True,
+            "ok": True,
+            "error": "",
+        }
+
+    class DownClient:
+        def probe(self):
+            return {"ok": False, "toolCount": 0, "tools": [], "error": "连不上目标机的 MCP 服务"}
+
+    monkeypatch.setattr(cu_deploy, "restart_target_mcp", fake_restart)
+    monkeypatch.setattr("app.api.computeruse._client_for", lambda row, timeout=60.0: DownClient())
+    resp = client.post("/api/computer-use/mcp/restart", headers=admin_headers, json={"hostId": host_id})
+    assert resp.status_code == 200, resp.get_json()
+    data = resp.get_json()["data"]
+    # listen 为真 ⇒ 必须真的探一次活，且探活失败要把 ok 拉回来
+    assert data["ok"] is False
+    assert "探活仍然失败" in data["error"]
+    assert data["probe"]["ok"] is False
+    with app.app_context():
+        entry = (
+            AuditLog.query.filter_by(category="computeruse", action="mcp_restart")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        assert entry is not None and entry.result == "failure"
+
+
+def test_restart_target_mcp_needs_listen_and_proxy(app, windows_host, monkeypatch):
+    """`restart_target_mcp` 的两个判据都要过：MCP 真的听回环 + portproxy 真的在转发。"""
+    host_id, account_id = windows_host
+    with app.app_context():
+        _ready_deployment(host_id, account_id)
+
+    class FakeWinrm:
+        def __init__(self, replies):
+            self.replies = list(replies)
+            self.scripts: list[str] = []
+
+        def build_target(self, *args, **kwargs):
+            return "target"
+
+        def connect(self, target):
+            return "conn"
+
+        def run_script(self, connection, script, *, timeout=None, cancel=None):
+            self.scripts.append(script)
+
+            class Reply:
+                stdout = self.replies.pop(0)
+                stderr = ""
+                timed_out = False
+
+            return Reply()
+
+        def close(self, connection):
+            return None
+
+    kill = "KILLED=3028\nSKIPPED=3104:svchost\nSTART=task LOGON=S4U ACTIVE=False\n"
+    listen = "LISTEN=True WHO=6064 NAME=python\n"
+    proxy_ok = "LAN=192.168.0.75\nIPHLPSVC=Running\nPP_ENTRY=True\nPROXY=True\n"
+    proxy_bad = "LAN=192.168.0.75\nIPHLPSVC=Stopped\nPP_ENTRY=True\nPROXY=False\n"
+
+    fake = FakeWinrm([kill, listen, proxy_bad])
+    monkeypatch.setattr(cu_deploy, "winrm_client", fake)
+    result = cu_deploy.restart_target_mcp(app, host_id=host_id, account_id=account_id, port=8000)
+    assert result["listen"] is True
+    assert result["proxy"] is False
+    assert result["ok"] is False
+    assert "portproxy" in result["error"]
+    # 被跳过的进程（真机上是 portproxy 的 svchost）如实回传，便于排查
+    assert result["skippedPid"] == "3104:svchost"
+    # 三个脚本：杀 + 等监听 + 修 portproxy
+    assert len(fake.scripts) == 3
+    assert "AutoOps-ComputerUse-MCP" in fake.scripts[0]
+    assert "Get-NetTCPConnection -LocalPort 8000" in fake.scripts[1]
+    assert "portproxy" in fake.scripts[2]
+
+    fake2 = FakeWinrm([kill, listen, proxy_ok])
+    monkeypatch.setattr(cu_deploy, "winrm_client", fake2)
+    good = cu_deploy.restart_target_mcp(app, host_id=host_id, account_id=account_id, port=8000)
+    assert good["proxy"] is True
+    assert good["ok"] is True
+    assert good["error"] == ""
 
 
 def test_failed_probe_keeps_recorded_tools(app, client, admin_headers, windows_host, monkeypatch):
