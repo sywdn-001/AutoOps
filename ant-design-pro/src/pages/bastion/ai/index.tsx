@@ -63,6 +63,8 @@ import {
   listAiConversations,
   streamAiChat,
 } from '@/services/bastion/ai';
+import type { RoundBlock } from './blocks';
+import { patchRoundBlock, roundBlocksOf } from './blocks';
 import { AiCardView, AiCode } from './cards';
 import './ai.css';
 
@@ -92,6 +94,13 @@ interface ChatTurn {
   reasoning: string;
   cards: AiCard[];
   toolCalls: ToolCallState[];
+  /**
+   * 按轮切块：模型每轮「思考 → 调用工具 → 该轮正文」各占一块。
+   *
+   * 扁平字段仍是整条回答的聚合（pending 计数、收口状态、用量都用它），
+   * 渲染走 blocks，读起来才是「思考 | 工具调用 | 思考 | 工具调用 | … | 回答」。
+   */
+  blocks?: RoundBlock<ToolCallState>[];
   streaming?: boolean;
   error?: string;
   status?: string;
@@ -261,6 +270,8 @@ const AiPage = () => {
   const applyEvent = useCallback(
     (key: string, event: AiStreamEvent) => {
       const delta = asString(event.delta);
+      // 后端给每轮事件盖了 round：同一条回答里第几轮的工具调用
+      const round = asNumber(event.round);
       switch (event.type) {
         case 'start': {
           const conversationId = asNumber(event.conversationId);
@@ -274,6 +285,10 @@ const AiPage = () => {
             patchTurn(key, (turn) => ({
               ...turn,
               reasoning: turn.reasoning + delta,
+              blocks: patchRoundBlock(turn.blocks, round, (block) => ({
+                ...block,
+                reasoning: block.reasoning + delta,
+              })),
             }));
           }
           break;
@@ -283,6 +298,10 @@ const AiPage = () => {
             patchTurn(key, (turn) => ({
               ...turn,
               content: turn.content + delta,
+              blocks: patchRoundBlock(turn.blocks, round, (block) => ({
+                ...block,
+                content: block.content + delta,
+              })),
             }));
           }
           break;
@@ -300,27 +319,35 @@ const AiPage = () => {
           patchTurn(key, (turn) => ({
             ...turn,
             toolCalls: [...turn.toolCalls, call],
+            blocks: patchRoundBlock(turn.blocks, round, (block) => ({
+              ...block,
+              toolCalls: [...block.toolCalls, call],
+            })),
           }));
           break;
         }
         case 'tool_result': {
           const callId = asString(event.callId);
+          // 同一个 callId：扁平聚合与它所属那一块都要回填
+          const merge = (item: ToolCallState): ToolCallState =>
+            item.callId === callId
+              ? {
+                  ...item,
+                  status: event.ok === false ? 'failure' : 'success',
+                  summary: asString(event.summary) ?? item.summary,
+                  preview: asString(event.preview) ?? item.preview,
+                  durationMs: asNumber(event.durationMs) ?? item.durationMs,
+                  confirmedBy: asString(event.confirmedBy) ?? item.confirmedBy,
+                  card: (event.card as AiCard | null) ?? item.card,
+                }
+              : item;
           patchTurn(key, (turn) => ({
             ...turn,
-            toolCalls: turn.toolCalls.map((item) =>
-              item.callId === callId
-                ? {
-                    ...item,
-                    status: event.ok === false ? 'failure' : 'success',
-                    summary: asString(event.summary) ?? item.summary,
-                    preview: asString(event.preview) ?? item.preview,
-                    durationMs: asNumber(event.durationMs) ?? item.durationMs,
-                    confirmedBy:
-                      asString(event.confirmedBy) ?? item.confirmedBy,
-                    card: (event.card as AiCard | null) ?? item.card,
-                  }
-                : item,
-            ),
+            toolCalls: turn.toolCalls.map(merge),
+            blocks: patchRoundBlock(turn.blocks, round, (block) => ({
+              ...block,
+              toolCalls: block.toolCalls.map(merge),
+            })),
           }));
           break;
         }
@@ -328,7 +355,15 @@ const AiPage = () => {
           const cards = Array.isArray(event.cards)
             ? (event.cards as AiCard[])
             : [];
-          patchTurn(key, (turn) => ({ ...turn, cards }));
+          patchTurn(key, (turn) => ({
+            ...turn,
+            // 后端每轮只吐这一轮的卡片，聚合字段把各轮接起来（块里各留各的）
+            cards: [...turn.cards, ...cards],
+            blocks: patchRoundBlock(turn.blocks, round, (block) => ({
+              ...block,
+              cards,
+            })),
+          }));
           break;
         }
         case 'message_end': {
@@ -364,6 +399,16 @@ const AiPage = () => {
               );
               return found ? { ...item, status: 'pending' } : item;
             }),
+            // 挂起的调用就在最后一块里：显式不传 round，让它落回那一块
+            blocks: patchRoundBlock(turn.blocks, undefined, (block) => ({
+              ...block,
+              toolCalls: block.toolCalls.map((item) => {
+                const found = pendingCalls.find(
+                  (call) => call.callId === item.callId,
+                );
+                return found ? { ...item, status: 'pending' } : item;
+              }),
+            })),
           }));
           resumeTurnKeyRef.current = key;
           setConfirmCalls(pendingCalls);
@@ -521,32 +566,62 @@ const AiPage = () => {
             cards: [],
             toolCalls: [],
           });
-        } else if (item.role === 'assistant') {
-          const calls = (detail.toolCalls ?? []).filter(
+          continue;
+        }
+        if (item.role !== 'assistant') {
+          continue;
+        }
+        const calls: ToolCallState[] = (detail.toolCalls ?? [])
+          .filter(
             (call) => call.messageId === item.id || call.conversationId === id,
-          );
-          restored.push({
-            key: `m-${item.id}`,
-            role: 'assistant',
-            content: item.content,
-            reasoning: item.reasoning ?? '',
-            cards: item.cards ?? [],
-            toolCalls: calls.map((call) => ({
-              callId: call.callId,
-              name: call.toolName,
-              args: call.arguments,
-              permission: call.requiredPermission,
-              sensitive: call.sensitive,
-              status: call.status,
-              summary: call.resultSummary,
-              preview: call.resultPreview,
-              durationMs: call.durationMs,
-              confirmedBy: call.confirmedBy,
-            })),
+          )
+          .map((call) => ({
+            callId: call.callId,
+            name: call.toolName,
+            args: call.arguments,
+            permission: call.requiredPermission,
+            sensitive: call.sensitive,
+            status: call.status,
+            summary: call.resultSummary,
+            preview: call.resultPreview,
+            durationMs: call.durationMs,
+            confirmedBy: call.confirmedBy,
+          }));
+        const last = restored[restored.length - 1];
+        const block: RoundBlock<ToolCallState> = {
+          // 库里每个 assistant 消息就是一轮：round 取它在本条回答里的序号
+          round: last?.role === 'assistant' ? (last.blocks?.length ?? 0) : 0,
+          reasoning: item.reasoning ?? '',
+          content: item.content ?? '',
+          toolCalls: calls,
+          cards: item.cards ?? [],
+        };
+        if (last?.role === 'assistant') {
+          // 同一轮问答里连续的 assistant 消息合并进**同一条**气泡（一条消息 = 一块），
+          // 刷新之后与实时流的按轮排版完全一致。
+          restored[restored.length - 1] = {
+            ...last,
+            content: last.content + block.content,
+            reasoning: last.reasoning + block.reasoning,
+            cards: [...last.cards, ...block.cards],
+            toolCalls: [...last.toolCalls, ...calls],
+            blocks: [...(last.blocks ?? []), block],
             status: item.status,
             elapsedMs: item.elapsedMs,
-          });
+          };
+          continue;
         }
+        restored.push({
+          key: `m-${item.id}`,
+          role: 'assistant',
+          content: block.content,
+          reasoning: block.reasoning,
+          cards: block.cards,
+          toolCalls: calls,
+          blocks: [block],
+          status: item.status,
+          elapsedMs: item.elapsedMs,
+        });
       }
       setTurns(restored);
     } catch (error) {
@@ -618,55 +693,84 @@ const AiPage = () => {
     if (turn.role === 'user') {
       return <div className="bastion-ai-user-text">{turn.content}</div>;
     }
-    const pendingCalls = turn.toolCalls.filter(
-      (call) => call.status === 'pending',
-    );
-    const items = [];
-    if (turn.reasoning) {
-      items.push({
-        key: 'reasoning',
-        label: <span className="bastion-ai-collapse-label">思考过程</span>,
-        children: <pre className="bastion-ai-reasoning">{turn.reasoning}</pre>,
-      });
-    }
-    if (turn.toolCalls.length > 0) {
-      items.push({
-        key: 'tools',
-        label: (
-          <span className="bastion-ai-collapse-label">
-            工具调用 {turn.toolCalls.length} 次
-            {pendingCalls.length > 0 ? (
-              <Tag color="warning">待确认 {pendingCalls.length}</Tag>
-            ) : null}
-          </span>
-        ),
-        children: (
-          <div className="bastion-ai-tools">
-            {turn.toolCalls.map(renderToolCall)}
-          </div>
-        ),
-      });
-    }
+    // 按轮渲染：每块「思考过程折叠 → 工具调用折叠 → 这一轮的正文」，
+    // 整条回答读起来是 思考|工具|思考|工具|…|回答，而不是全糊在回答前面。
+    const blocks = roundBlocksOf(turn.blocks, {
+      reasoning: turn.reasoning,
+      content: turn.content,
+      toolCalls: turn.toolCalls,
+      cards: turn.cards,
+    });
     return (
       <div className="bastion-ai-turn">
-        {items.length > 0 ? (
-          <Collapse
-            ghost
-            size="small"
-            className="bastion-ai-collar"
-            defaultActiveKey={pendingCalls.length > 0 ? ['tools'] : undefined}
-            items={items}
-          />
-        ) : null}
-        {turn.content ? (
-          <XMarkdown
-            className="bastion-ai-markdown"
-            content={turn.content}
-            openLinksInNewTab
-            streaming={{ hasNextChunk: Boolean(turn.streaming) }}
-            components={{ code: AiCode }}
-          />
-        ) : null}
+        {blocks.map((block, blockIndex) => {
+          const isLast = blockIndex === blocks.length - 1;
+          const pendingCalls = block.toolCalls.filter(
+            (call) => call.status === 'pending',
+          );
+          const items = [];
+          if (block.reasoning) {
+            items.push({
+              key: 'reasoning',
+              label: (
+                <span className="bastion-ai-collapse-label">思考过程</span>
+              ),
+              children: (
+                <pre className="bastion-ai-reasoning">{block.reasoning}</pre>
+              ),
+            });
+          }
+          if (block.toolCalls.length > 0) {
+            items.push({
+              key: 'tools',
+              label: (
+                <span className="bastion-ai-collapse-label">
+                  工具调用 {block.toolCalls.length} 次
+                  {pendingCalls.length > 0 ? (
+                    <Tag color="warning">待确认 {pendingCalls.length}</Tag>
+                  ) : null}
+                </span>
+              ),
+              children: (
+                <div className="bastion-ai-tools">
+                  {block.toolCalls.map(renderToolCall)}
+                </div>
+              ),
+            });
+          }
+          return (
+            <div
+              className="bastion-ai-round"
+              data-testid="ai-round"
+              data-round={block.round}
+              /* biome-ignore lint/suspicious/noArrayIndexKey: 块只追加或就地改最后一块，index 就是稳定的身份 */
+              key={`round-${block.round}-${blockIndex}`}
+            >
+              {items.length > 0 ? (
+                <Collapse
+                  ghost
+                  size="small"
+                  className="bastion-ai-collar"
+                  defaultActiveKey={
+                    pendingCalls.length > 0 ? ['tools'] : undefined
+                  }
+                  items={items}
+                />
+              ) : null}
+              {block.content ? (
+                <XMarkdown
+                  className="bastion-ai-markdown"
+                  content={block.content}
+                  openLinksInNewTab
+                  streaming={{
+                    hasNextChunk: Boolean(turn.streaming) && isLast,
+                  }}
+                  components={{ code: AiCode }}
+                />
+              ) : null}
+            </div>
+          );
+        })}
         {turn.streaming && !turn.content && !turn.reasoning ? (
           <span className="bastion-ai-thinking">
             <Spin size="small" /> 正在思考…

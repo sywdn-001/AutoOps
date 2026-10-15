@@ -747,10 +747,10 @@ def run_turn(
                 kind = event.get("type")
                 if kind == "content":
                     content_parts.append(event["text"])
-                    yield {"type": "content", "delta": event["text"]}
+                    yield {"type": "content", "delta": event["text"], "round": round_index}
                 elif kind == "reasoning":
                     reasoning_parts.append(event["text"])
-                    yield {"type": "reasoning", "delta": event["text"]}
+                    yield {"type": "reasoning", "delta": event["text"], "round": round_index}
                 elif kind == "tool_call":
                     index = int(event.get("index") or 0)
                     slot = tool_buffer.setdefault(index, {"id": "", "name": "", "arguments": ""})
@@ -795,7 +795,7 @@ def run_turn(
         )
 
         if cards:
-            yield {"type": "cards", "cards": cards}
+            yield {"type": "cards", "cards": cards, "round": round_index}
 
         if not calls:
             yield {
@@ -831,6 +831,7 @@ def run_turn(
                     "summary": "工具参数解析失败",
                     "preview": raw_args[:400],
                     "card": None,
+                    "round": round_index,
                 }
                 continue
 
@@ -847,6 +848,7 @@ def run_turn(
                     "summary": f"未知工具：{name} 不存在，请从可用工具里选择",
                     "preview": tool_message,
                     "card": None,
+                    "round": round_index,
                 }
                 continue
 
@@ -865,6 +867,7 @@ def run_turn(
                     "preview": reason,
                     "card": None,
                     "denied": True,
+                    "round": round_index,
                 }
                 continue
 
@@ -895,6 +898,7 @@ def run_turn(
                         "permission": tool.permission,
                         "status": "pending",
                         "description": tool.description,
+                        "round": round_index,
                     }
                     continue
 
@@ -907,6 +911,7 @@ def run_turn(
                 "permission": tool.permission,
                 "status": "running",
                 "description": tool.description,
+                "round": round_index,
             }
             outcome = execute_tool(app, conversation, caller, tool, call_id, args)
             messages.append({"role": "tool", "tool_call_id": call_id, "content": outcome["tool_message"]})
@@ -921,6 +926,7 @@ def run_turn(
                 "preview": outcome["preview"][:4000],
                 "card": outcome["card"],
                 "durationMs": outcome["record"].duration_ms,
+                "round": round_index,
             }
 
         if blocked:
@@ -930,7 +936,7 @@ def run_turn(
         if round_index == max_rounds - 1:
             note = f"（已达到单轮工具调用上限 {max_rounds} 次，先停下来，请确认后继续。）"
             add_message(conversation, "assistant", note, status="done")
-            yield {"type": "content", "delta": note}
+            yield {"type": "content", "delta": note, "round": round_index}
             yield {"type": "message_end", "messageId": assistant.id, "status": "max_rounds"}
             return
 

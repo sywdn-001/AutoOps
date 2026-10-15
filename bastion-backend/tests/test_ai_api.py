@@ -1251,6 +1251,75 @@ def test_tool_round_limit_comes_from_the_system_setting(app, client, admin_heade
     assert "已达到单轮工具调用上限 2 次" in text
 
 
+def test_every_round_event_carries_its_round_number(app, client, admin_headers, monkeypatch):
+    """排版要按轮交错（思考|工具|思考|工具|…|回答）：每轮的事件都带 round，前端据此切块。"""
+    _enable_ai(app)
+    _patch_client(
+        monkeypatch,
+        [
+            [{"type": "reasoning", "text": "先看一眼主机"}, *_text_tool_call("list_hosts", {}, "call_a")],
+            [{"type": "reasoning", "text": "再看一眼"}, *_text_tool_call("list_hosts", {}, "call_b")],
+            [{"type": "reasoning", "text": "够了"}, *_simple_answer("两台都看过了。")],
+        ],
+    )
+    events = _chat(client, admin_headers, message="看看主机")
+    kinds = ("reasoning", "content", "tool_call", "tool_result", "cards")
+    stamped = [event for event in events if event["type"] in kinds]
+    assert stamped, _types(events)
+    assert all(isinstance(event.get("round"), int) for event in stamped), stamped
+    rounds = [event["round"] for event in stamped]
+    # 轮次只增不减，0/1/2 三轮都出现过（第三轮是纯回答）
+    assert rounds == sorted(rounds), rounds
+    assert set(rounds) == {0, 1, 2}, rounds
+    last_content = [event for event in events if event["type"] == "content"][-1]
+    assert last_content["round"] == 2
+    assert last_content["delta"] == "两台都看过了。"
+    # 一次调用与它的结果必须在同一轮（否则卡片会跑到别的块里）
+    call_round = {
+        event["callId"]: event["round"] for event in events if event["type"] == "tool_call"
+    }
+    for event in events:
+        if event["type"] == "tool_result" and event.get("callId") in call_round:
+            assert event["round"] == call_round[event["callId"]], event
+
+
+def test_resume_tool_result_has_no_round_so_it_lands_in_the_pending_block(
+    app, client, admin_headers, monkeypatch
+):
+    """确认后续流：循环外补执行那条 tool_result 故意不带 round —— 前端把它并进最后一块，
+    正好把「待确认」那张卡片翻成成功；之后的第 0 轮事件也并进同一块。"""
+    _enable_ai(app)
+    _patch_client(
+        monkeypatch,
+        [_text_tool_call("create_host", {"name": "ai-rounds", "address": "10.7.7.7"})],
+    )
+    events = _chat(client, admin_headers, message="新增主机 ai-rounds 10.7.7.7")
+    pending = next(event for event in events if event["type"] == "tool_call")
+    assert pending["status"] == "pending" and pending["round"] == 0
+
+    with app.app_context():
+        conversation_id = AiConversation.query.one().id
+    resp = client.post(
+        "/api/ai/confirm",
+        json={
+            "conversationId": conversation_id,
+            "adminUsername": "admin",
+            "adminPassword": "admin123",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200 and resp.get_json()["data"]["approved"] == 1
+
+    _patch_client(monkeypatch, [_simple_answer("已经创建好了。")])
+    events = _chat(client, admin_headers, conversationId=conversation_id, resume=True)
+    result = next(event for event in events if event["type"] == "tool_result")
+    assert result["ok"] is True
+    assert "round" not in result, result
+    assert result["callId"] == pending["callId"]
+    content = [event for event in events if event["type"] == "content"]
+    assert content and all(event["round"] == 0 for event in content), content
+
+
 def test_tool_round_limit_clamps_absurd_values_and_falls_back_to_env(app, monkeypatch):
     """手填离谱值（或绕过接口直接写库）会被夹进 1..50；设置留空则回落到 .env 那份。"""
     from app.settings_store import set_setting

@@ -53,6 +53,8 @@ import type { AiCard } from '@/services/bastion/ai';
 import { confirmAiOperation, streamAiChat } from '@/services/bastion/ai';
 import { unwrap } from '@/services/bastion/client';
 import type { ApiData } from '@/services/bastion/types';
+import type { RoundBlock } from '../ai/blocks';
+import { patchRoundBlock, roundBlocksOf } from '../ai/blocks';
 import { AiCards, AiCardView, AiCode } from '../ai/cards';
 import '../ai/ai.css';
 
@@ -136,6 +138,14 @@ export interface ComputerUseTurn {
   reasoning: string;
   cards: AiCard[];
   toolCalls: ComputerUseToolCall[];
+  /**
+   * 按轮切块：模型每轮「思考 → 调用工具 → 该轮正文」各占一块。
+   *
+   * 扁平字段（content / reasoning / toolCalls / cards）仍是整条回答的聚合，
+   * 供 pending 计数、收口状态与既有测试使用；渲染走 blocks，读起来才是
+   * 「思考 | 工具调用 | 思考 | 工具调用 | … | 回答」。
+   */
+  blocks?: RoundBlock<ComputerUseToolCall>[];
   streaming?: boolean;
   error?: string;
   /** message_end 带回来的收口状态（如 max_rounds：已达单轮工具调用上限） */
@@ -160,6 +170,8 @@ export interface ChatEvent {
   kind: ChatEventKind;
   conversationId?: number;
   delta?: string;
+  /** 后端盖的轮次（从 0 开始）：同一条回答里第几轮的工具调用 */
+  round?: number;
   toolCall?: ComputerUseToolCall;
   callId?: string;
   pendingCalls?: ComputerUseToolCall[];
@@ -400,16 +412,18 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
   if (!record) return { kind: 'unknown' };
   const type = asText(record.type) ?? '';
   const delta = asStreamDelta(record.delta);
+  const round = asNumber(record.round);
   switch (type) {
     case 'start':
       return { kind: 'start', conversationId: asNumber(record.conversationId) };
     case 'reasoning':
-      return { kind: 'reasoning', delta };
+      return { kind: 'reasoning', delta, round };
     case 'content':
-      return { kind: 'content', delta };
+      return { kind: 'content', delta, round };
     case 'tool_call':
       return {
         kind: 'tool_call',
+        round,
         toolCall: {
           callId: asText(record.callId) ?? nextToolCallId(),
           name: asText(record.name) ?? '未知工具',
@@ -421,6 +435,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
     case 'tool_result':
       return {
         kind: 'tool_result',
+        round,
         callId: asText(record.callId),
         toolCall: {
           callId: asText(record.callId) ?? nextToolCallId(),
@@ -436,6 +451,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
     case 'cards':
       return {
         kind: 'cards',
+        round,
         cards: Array.isArray(record.cards) ? (record.cards as AiCard[]) : [],
       };
     case 'message_end':
@@ -478,40 +494,79 @@ export const applyChatEvent = (
   event: ChatEvent,
 ): ComputerUseTurn => {
   switch (event.kind) {
-    case 'reasoning':
-      return event.delta
-        ? { ...turn, reasoning: turn.reasoning + event.delta }
-        : turn;
-    case 'content':
-      return event.delta
-        ? { ...turn, content: turn.content + event.delta }
-        : turn;
-    case 'tool_call':
-      return event.toolCall
-        ? { ...turn, toolCalls: [...turn.toolCalls, event.toolCall] }
-        : turn;
+    case 'reasoning': {
+      const delta = event.delta;
+      if (!delta) return turn;
+      return {
+        ...turn,
+        reasoning: turn.reasoning + delta,
+        blocks: patchRoundBlock(turn.blocks, event.round, (block) => ({
+          ...block,
+          reasoning: block.reasoning + delta,
+        })),
+      };
+    }
+    case 'content': {
+      const delta = event.delta;
+      if (!delta) return turn;
+      return {
+        ...turn,
+        content: turn.content + delta,
+        blocks: patchRoundBlock(turn.blocks, event.round, (block) => ({
+          ...block,
+          content: block.content + delta,
+        })),
+      };
+    }
+    case 'tool_call': {
+      const call = event.toolCall;
+      if (!call) return turn;
+      return {
+        ...turn,
+        toolCalls: [...turn.toolCalls, call],
+        blocks: patchRoundBlock(turn.blocks, event.round, (block) => ({
+          ...block,
+          toolCalls: [...block.toolCalls, call],
+        })),
+      };
+    }
     case 'tool_result': {
       const patch = event.toolCall;
       if (!patch) return turn;
+      // 同一个 callId 的调用既在扁平聚合里、也在它所属那一块里：两处都要回填
+      const merge = (item: ComputerUseToolCall): ComputerUseToolCall =>
+        item.callId === event.callId
+          ? {
+              ...item,
+              status: patch.status,
+              summary: patch.summary ?? item.summary,
+              preview: patch.preview ?? item.preview,
+              durationMs: patch.durationMs ?? item.durationMs,
+              confirmedBy: patch.confirmedBy ?? item.confirmedBy,
+              card: patch.card ?? item.card,
+            }
+          : item;
       return {
         ...turn,
-        toolCalls: turn.toolCalls.map((item) =>
-          item.callId === event.callId
-            ? {
-                ...item,
-                status: patch.status,
-                summary: patch.summary ?? item.summary,
-                preview: patch.preview ?? item.preview,
-                durationMs: patch.durationMs ?? item.durationMs,
-                confirmedBy: patch.confirmedBy ?? item.confirmedBy,
-                card: patch.card ?? item.card,
-              }
-            : item,
-        ),
+        toolCalls: turn.toolCalls.map(merge),
+        blocks: patchRoundBlock(turn.blocks, event.round, (block) => ({
+          ...block,
+          toolCalls: block.toolCalls.map(merge),
+        })),
       };
     }
-    case 'cards':
-      return { ...turn, cards: event.cards ?? [] };
+    case 'cards': {
+      // 后端每轮只吐这一轮的卡片，聚合字段是把各轮接起来（块里各留各的）
+      const cards = [...turn.cards, ...(event.cards ?? [])];
+      return {
+        ...turn,
+        cards,
+        blocks: patchRoundBlock(turn.blocks, event.round, (block) => ({
+          ...block,
+          cards: event.cards ?? [],
+        })),
+      };
+    }
     case 'message_end':
       return {
         ...turn,
@@ -521,16 +576,21 @@ export const applyChatEvent = (
       };
     case 'error':
       return { ...turn, error: event.error ?? 'AI 执行失败' };
-    case 'confirm_required':
+    case 'confirm_required': {
+      const mark = (item: ComputerUseToolCall): ComputerUseToolCall =>
+        (event.pendingCalls ?? []).some((call) => call.callId === item.callId)
+          ? { ...item, status: 'pending' }
+          : item;
       return {
         ...turn,
-        toolCalls: turn.toolCalls.map((item) => {
-          const found = (event.pendingCalls ?? []).find(
-            (call) => call.callId === item.callId,
-          );
-          return found ? { ...item, status: 'pending' } : item;
-        }),
+        toolCalls: turn.toolCalls.map(mark),
+        // 挂起的调用就在最后一块里；带上 round 也一样能落到它（这里显式不传）
+        blocks: patchRoundBlock(turn.blocks, undefined, (block) => ({
+          ...block,
+          toolCalls: block.toolCalls.map(mark),
+        })),
       };
+    }
     default:
       return turn;
   }
@@ -801,6 +861,17 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
 
   const streamRef = useRef<AbortController | undefined>(undefined);
   const conversationIdRef = useRef<number | undefined>(undefined);
+  /**
+   * 续流要往哪条气泡里追加事件。
+   *
+   * 敏感操作确认（confirm_required）之后必须回到**挂着那条调用的**气泡：
+   * 之前这里写成 `runStream(\`resume-${conversationId}\`)`，而 turns 里从来没有这个 key，
+   * patchTurn 找不到就静默丢掉所有事件 —— 于是卡片一直停在「待确认」、
+   * 后面的思考和工具卡片也全都不长出来（用户报的第一个 Bug）。
+   */
+  const pendingTurnKeyRef = useRef<string | undefined>(undefined);
+  /** 最后一条 assistant 气泡的 key：续流兜底（正常都会命中 pendingTurnKeyRef） */
+  const lastAssistantKeyRef = useRef<string | undefined>(undefined);
   /** 收起状态回调放 ref：父级每次渲染传新函数也不该触发副作用 */
   const onToggleRef = useRef(onToggle);
   onToggleRef.current = onToggle;
@@ -953,6 +1024,8 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         return;
       }
       if (event.kind === 'confirm_required') {
+        // 记住是哪条气泡挂起了调用：确认/拒绝后要续回同一条，否则事件全丢
+        pendingTurnKeyRef.current = key;
         setConfirmCalls(event.pendingCalls ?? []);
         setConfirmReason(event.reason ?? '该操作需要管理员确认');
         setConfirmError(undefined);
@@ -1012,6 +1085,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       setInput('');
       const userKey = nextToolCallId('user');
       const assistantKey = nextToolCallId('assistant');
+      lastAssistantKeyRef.current = assistantKey;
       setTurns((prev) => [
         ...prev,
         {
@@ -1045,6 +1119,29 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
     send(input);
   }, [input, send]);
 
+  /**
+   * 确认/拒绝之后续流：事件必须写回**挂着那条调用**的气泡。
+   *
+   * 旧写法用 `resume-${conversationId}` 当 key，可 turns 里从来没有这个 key，
+   * patchTurn 找不到就静默丢事件 —— 卡片一直「待确认」、后面也不再长思考/工具卡片。
+   */
+  const resumeAfterConfirm = useCallback(
+    async (conversationId: number) => {
+      const key = pendingTurnKeyRef.current ?? lastAssistantKeyRef.current;
+      if (!key) {
+        setConfirmError('找不到对应的对话气泡：请重新发送一次请求');
+        return;
+      }
+      setTurns((prev) =>
+        prev.map((turn) =>
+          turn.key === key ? { ...turn, streaming: true } : turn,
+        ),
+      );
+      await runStream(key, { conversationId, resume: true });
+    },
+    [runStream],
+  );
+
   /** 管理员确认通过 → 续流执行挂起的写操作 */
   const submitConfirm = useCallback(async () => {
     setConfirmError(undefined);
@@ -1070,16 +1167,13 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       });
       setConfirmOpen(false);
       confirmForm.resetFields();
-      await runStream(`resume-${conversationId}`, {
-        conversationId,
-        resume: true,
-      });
+      await resumeAfterConfirm(conversationId);
     } catch (error) {
       setConfirmError(describeApiError(error, '确认失败'));
     } finally {
       setConfirming(false);
     }
-  }, [confirmForm, runStream]);
+  }, [confirmForm, resumeAfterConfirm]);
 
   /** 拒绝：也要续流，让模型知道被拒绝并给替代方案 */
   const rejectConfirm = useCallback(async () => {
@@ -1097,16 +1191,13 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       });
       setConfirmOpen(false);
       confirmForm.resetFields();
-      await runStream(`resume-${conversationId}`, {
-        conversationId,
-        resume: true,
-      });
+      await resumeAfterConfirm(conversationId);
     } catch (error) {
       setConfirmError(describeApiError(error, '拒绝失败'));
     } finally {
       setConfirming(false);
     }
-  }, [confirmForm, runStream]);
+  }, [confirmForm, resumeAfterConfirm]);
 
   /** status === undefined 时还在查：先不占地方 */
   if (status === undefined) {
@@ -1257,88 +1348,119 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                   </div>
                 );
               }
-              // 思考过程与工具调用折叠成两块、默认展开 —— 与 AI 运维页同一套阅读顺序。
-              // 用受控 activeKey：新长出来的块（比如后到的「工具调用 N 次」）也要自动展开。
-              const pending = turn.toolCalls.filter(
-                (call) => call.status === 'pending',
-              ).length;
-              const collarItems: CollapseProps['items'] = [];
-              if (turn.reasoning) {
-                collarItems.push({
-                  key: 'reasoning',
-                  label: (
-                    <span className="bastion-ai-collapse-label">思考过程</span>
-                  ),
-                  children: (
-                    <pre className="bastion-ai-reasoning">{turn.reasoning}</pre>
-                  ),
-                });
-              }
-              if (turn.toolCalls.length > 0) {
-                collarItems.push({
-                  key: 'tools',
-                  label: (
-                    <span className="bastion-ai-collapse-label">
-                      工具调用 {turn.toolCalls.length} 次
-                      {pending > 0 ? (
-                        <Tag color="warning">待确认 {pending}</Tag>
-                      ) : null}
-                    </span>
-                  ),
-                  children: (
-                    <div className="bastion-ai-tools">
-                      {turn.toolCalls.map((call) => (
-                        <ToolCallView key={call.callId} call={call} />
-                      ))}
-                    </div>
-                  ),
-                });
-              }
+              // 按轮渲染：每块是「思考过程折叠 → 工具调用折叠 → 这一轮的正文」，
+              // 整条回答读起来才是 思考|工具|思考|工具|…|回答（用户要的交错排版），
+              // 而不是把所有轮的思考与工具调用糊成两块堆在回答前面。
+              const blocks = roundBlocksOf(turn.blocks, {
+                reasoning: turn.reasoning,
+                content: turn.content,
+                toolCalls: turn.toolCalls,
+                cards: turn.cards,
+              });
               return (
                 <div className="bastion-ai-turn" key={turn.key}>
-                  {collarItems.length > 0 ? (
-                    <Collapse
-                      ghost
-                      size="small"
-                      className="bastion-ai-collar"
-                      items={collarItems}
-                      activeKey={collarItems
-                        .map((item) => String(item?.key))
-                        .filter(
-                          (key) => !collapsedCollars[`${turn.key}:${key}`],
-                        )}
-                      onChange={(keys) => {
-                        const next = Array.isArray(keys) ? keys : [keys];
-                        setCollapsedCollars((prev) => {
-                          const map = { ...prev };
-                          for (const item of collarItems) {
-                            const key = `${turn.key}:${String(item?.key)}`;
-                            if (next.includes(String(item?.key))) {
-                              delete map[key];
-                            } else {
-                              map[key] = true;
-                            }
-                          }
-                          return map;
-                        });
-                      }}
-                    />
-                  ) : null}
-                  {turn.content ? (
-                    <XMarkdown
-                      className="bastion-ai-markdown"
-                      content={turn.content}
-                      openLinksInNewTab
-                      streaming={{ hasNextChunk: Boolean(turn.streaming) }}
-                      components={{ code: AiCode }}
-                    />
-                  ) : turn.streaming ? (
+                  {blocks.map((block, blockIndex) => {
+                    const isLast = blockIndex === blocks.length - 1;
+                    // 受控 activeKey：新长出来的块（比如后到的「工具调用 N 次」）也要自动展开，
+                    // 只记住用户手动收起的键。
+                    const collarKey = (itemKey: string) =>
+                      `${turn.key}:${blockIndex}:${itemKey}`;
+                    const pending = block.toolCalls.filter(
+                      (call) => call.status === 'pending',
+                    ).length;
+                    const collarItems: CollapseProps['items'] = [];
+                    if (block.reasoning) {
+                      collarItems.push({
+                        key: 'reasoning',
+                        label: (
+                          <span className="bastion-ai-collapse-label">
+                            思考过程
+                          </span>
+                        ),
+                        children: (
+                          <pre className="bastion-ai-reasoning">
+                            {block.reasoning}
+                          </pre>
+                        ),
+                      });
+                    }
+                    if (block.toolCalls.length > 0) {
+                      collarItems.push({
+                        key: 'tools',
+                        label: (
+                          <span className="bastion-ai-collapse-label">
+                            工具调用 {block.toolCalls.length} 次
+                            {pending > 0 ? (
+                              <Tag color="warning">待确认 {pending}</Tag>
+                            ) : null}
+                          </span>
+                        ),
+                        children: (
+                          <div className="bastion-ai-tools">
+                            {block.toolCalls.map((call) => (
+                              <ToolCallView key={call.callId} call={call} />
+                            ))}
+                          </div>
+                        ),
+                      });
+                    }
+                    return (
+                      <div
+                        className="bastion-ai-round"
+                        data-testid="computeruse-round"
+                        data-round={block.round}
+                        /* biome-ignore lint/suspicious/noArrayIndexKey: 块只追加或就地改最后一块，index 就是稳定的身份 */
+                        key={`${turn.key}:round-${block.round}-${blockIndex}`}
+                      >
+                        {collarItems.length > 0 ? (
+                          <Collapse
+                            ghost
+                            size="small"
+                            className="bastion-ai-collar"
+                            items={collarItems}
+                            activeKey={collarItems
+                              .map((item) => String(item?.key))
+                              .filter(
+                                (key) => !collapsedCollars[collarKey(key)],
+                              )}
+                            onChange={(keys) => {
+                              const next = Array.isArray(keys) ? keys : [keys];
+                              setCollapsedCollars((prev) => {
+                                const map = { ...prev };
+                                for (const item of collarItems) {
+                                  const key = collarKey(String(item?.key));
+                                  if (next.includes(String(item?.key))) {
+                                    delete map[key];
+                                  } else {
+                                    map[key] = true;
+                                  }
+                                }
+                                return map;
+                              });
+                            }}
+                          />
+                        ) : null}
+                        {block.content ? (
+                          <XMarkdown
+                            className="bastion-ai-markdown"
+                            content={block.content}
+                            openLinksInNewTab
+                            streaming={{
+                              hasNextChunk: Boolean(turn.streaming) && isLast,
+                            }}
+                            components={{ code: AiCode }}
+                          />
+                        ) : null}
+                        {block.cards.length > 0 ? (
+                          <AiCards cards={block.cards} />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {turn.streaming && !turn.content && !turn.reasoning ? (
                     <span className="bastion-ai-thinking">
                       <Spin size="small" /> 正在思考…
                     </span>
-                  ) : null}
-                  {turn.cards.length > 0 ? (
-                    <AiCards cards={turn.cards} />
                   ) : null}
                   {turn.elapsedMs ? (
                     <div className="bastion-ai-meta">

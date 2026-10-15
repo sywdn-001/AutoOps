@@ -497,6 +497,129 @@ describe('事件合并进气泡', () => {
   });
 });
 
+describe('按轮切块（思考 | 工具调用 | 思考 | 工具调用 | … | 回答）', () => {
+  const base: ComputerUseTurn = {
+    key: 'a1',
+    role: 'assistant',
+    content: '',
+    reasoning: '',
+    cards: [],
+    toolCalls: [],
+  };
+
+  it('事件带 round：各归各块，正文按轮交错，扁平聚合照旧', () => {
+    let turn = applyChatEvent(base, {
+      kind: 'reasoning',
+      delta: '先看一眼桌面',
+      round: 0,
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'tool_call',
+      round: 0,
+      toolCall: { callId: 'c1', name: 'Screenshot', status: 'running' },
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'tool_result',
+      round: 0,
+      callId: 'c1',
+      toolCall: {
+        callId: 'c1',
+        name: '',
+        status: 'success',
+        summary: '拿到图',
+      },
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'content',
+      delta: '桌面是空的。',
+      round: 0,
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'reasoning',
+      delta: '再查分辨率',
+      round: 1,
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'tool_call',
+      round: 1,
+      toolCall: { callId: 'c2', name: 'DisplayInventory', status: 'running' },
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'content',
+      delta: '分辨率 1280x720。',
+      round: 1,
+    });
+
+    const blocks = turn.blocks ?? [];
+    expect(blocks.map((block) => block.round)).toEqual([0, 1]);
+    expect(blocks[0]).toMatchObject({
+      reasoning: '先看一眼桌面',
+      content: '桌面是空的。',
+    });
+    expect(blocks[0].toolCalls.map((call) => call.callId)).toEqual(['c1']);
+    expect(blocks[0].toolCalls[0].status).toBe('success');
+    expect(blocks[1]).toMatchObject({
+      reasoning: '再查分辨率',
+      content: '分辨率 1280x720。',
+    });
+    expect(blocks[1].toolCalls.map((call) => call.callId)).toEqual(['c2']);
+    // 扁平字段仍然在维护：pending 计数、收口状态与既有测试都靠它
+    expect(turn.content).toBe('桌面是空的。分辨率 1280x720。');
+    expect(turn.toolCalls.map((call) => call.callId)).toEqual(['c1', 'c2']);
+  });
+
+  it('续流补执行的 tool_result 没有 round：落回最后一块，把待确认翻成成功', () => {
+    let turn = applyChatEvent(base, {
+      kind: 'reasoning',
+      delta: '要清磁盘了',
+      round: 0,
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'tool_call',
+      round: 0,
+      toolCall: { callId: 'c9', name: 'PowerShell', status: 'running' },
+    });
+    turn = applyChatEvent(turn, {
+      kind: 'confirm_required',
+      pendingCalls: [{ callId: 'c9', name: 'PowerShell', status: 'pending' }],
+      reason: '需要管理员确认',
+    });
+    expect(turn.blocks?.[0].toolCalls[0].status).toBe('pending');
+
+    // 用户确认后恢复的那条流：这条 tool_result 是后端在循环外补执行的，故意不带 round
+    turn = applyChatEvent(turn, {
+      kind: 'tool_result',
+      callId: 'c9',
+      toolCall: {
+        callId: 'c9',
+        name: '',
+        status: 'success',
+        summary: '清完了',
+        confirmedBy: 'admin',
+      },
+    });
+    expect(turn.blocks?.[0].toolCalls[0]).toMatchObject({
+      status: 'success',
+      summary: '清完了',
+      confirmedBy: 'admin',
+    });
+    expect(turn.blocks).toHaveLength(1);
+  });
+
+  it('classifyChatEvent 把 round 带出来，缺省就是 undefined', () => {
+    expect(
+      classifyChatEvent({ type: 'content', delta: 'x', round: 1 }).round,
+    ).toBe(1);
+    expect(classifyChatEvent({ type: 'content', delta: 'x' }).round).toBe(
+      undefined,
+    );
+    // 脏数据不当成第 0 轮（宁可落回最后一块，也不要凭空多一块）
+    expect(
+      classifyChatEvent({ type: 'reasoning', delta: 'x', round: 'two' }).round,
+    ).toBe(undefined);
+  });
+});
+
 describe('组件行为（mock 后端）', () => {
   it('没就绪（ready !== true）时整块侧边栏不渲染', async () => {
     requestMock.mockImplementation(() =>
@@ -762,5 +885,96 @@ describe('组件行为（mock 后端）', () => {
     );
     render(<ComputerUsePanel hostId={7} />);
     expect(await screen.findByText(/请以截图为准/)).toBeTruthy();
+  });
+
+  it('确认后恢复的那条流必须落回原气泡：卡片翻成成功，后面的轮次继续长出来', async () => {
+    localStorage.setItem(PANEL_OPEN_KEY, '1');
+    requestMock.mockImplementation((url: string) => {
+      if (url.includes('/status')) return ok(READY_STATUS);
+      if (url.includes('/tools'))
+        return ok({ data: { items: READY_STATUS.tools } });
+      return ok({});
+    });
+    // 第一段流：模型要跑一个敏感工具，后端挂起等管理员确认
+    streamAiChatMock.mockImplementationOnce(
+      (_payload: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'start', conversationId: 77 });
+        onEvent({ type: 'reasoning', delta: '要看一下磁盘', round: 0 });
+        onEvent({
+          type: 'tool_call',
+          round: 0,
+          callId: 'call-9',
+          name: 'PowerShell',
+          args: { command: 'Get-PSDrive' },
+          description: '看看磁盘',
+          status: 'running',
+        });
+        onEvent({
+          type: 'confirm_required',
+          reason: '该操作会在目标机上执行命令',
+          count: 1,
+          tool: 'PowerShell',
+          sensitive: true,
+          toolCalls: [
+            {
+              callId: 'call-9',
+              name: 'PowerShell',
+              args: { command: 'Get-PSDrive' },
+              description: '看看磁盘',
+              permission: 'computeruse:use',
+            },
+          ],
+        });
+        return Promise.resolve();
+      },
+    );
+    // 第二段流（resume）：后端在循环外补执行挂起的调用，那条 tool_result **故意不带 round**
+    streamAiChatMock.mockImplementationOnce(
+      (_payload: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({
+          type: 'tool_result',
+          callId: 'call-9',
+          ok: true,
+          summary: '磁盘读出来了',
+          confirmedBy: 'admin',
+        });
+        onEvent({ type: 'content', delta: '磁盘还剩 40G。', round: 0 });
+        onEvent({ type: 'reasoning', delta: '再看看别的', round: 1 });
+        onEvent({ type: 'content', delta: '没有别的异常。', round: 1 });
+        onEvent({ type: 'message_end', status: 'done', elapsedMs: 2000 });
+        return Promise.resolve();
+      },
+    );
+
+    render(<ComputerUsePanel hostId={7} />);
+    const box = await screen.findByLabelText('ComputerUse AI 指令');
+    fireEvent.change(box, { target: { value: '看一下磁盘' } });
+    fireEvent.click(screen.getByLabelText('发送'));
+
+    expect(await screen.findByText('敏感操作需要管理员确认')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('管理员密码'), {
+      target: { value: 'pw' },
+    });
+    fireEvent.click(screen.getByText('确认执行'));
+
+    await waitFor(() => expect(streamAiChatMock).toHaveBeenCalledTimes(2));
+    // 恢复流带着 resume 与同一个 conversationId（以前挂在不存在的 key 上，事件全被丢掉）
+    const payload = streamAiChatMock.mock.calls[1][0] as {
+      resume?: boolean;
+      conversationId?: number;
+    };
+    expect(payload.resume).toBe(true);
+    expect(payload.conversationId).toBe(77);
+
+    // 卡片真的从「待确认」翻成成功，而且后面的轮次还在长
+    expect(await screen.findByText('磁盘读出来了')).toBeTruthy();
+    const rounds = await screen.findAllByTestId('computeruse-round');
+    expect(rounds.map((node) => node.getAttribute('data-round'))).toEqual([
+      '0',
+      '1',
+    ]);
+    // 工具调用的描述在两处出现（弹窗里的详情 + 工具卡片），这里只确认它还在
+    expect(screen.getAllByText('看看磁盘').length).toBeGreaterThan(0);
+    expect(screen.getByText('没有别的异常。')).toBeTruthy();
   });
 });
