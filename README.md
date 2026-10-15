@@ -245,7 +245,9 @@ SSH 网关不是 HTTP，用户直接 `ssh -p 2222 <账号>@<服务器IP>`；想�
 
 **⑧ Windows 免安装包**（目标机不想装 Python / Node 时）
 
-推一个 `v*` tag，GitHub Actions 会自动发 Release：Windows(Server) **x64 / x32** 各一份 onedir 免安装包（PyInstaller 打包、前端 `dist/` 已内置、双击 `start-autoops.bat` 即用），并附上华为云镜像的 Python 3.15.0 x64/x32 安装包、阿里云镜像的 Node v26.11.1 x64 msi 与 `SHA256SUMS.txt`；Release 说明中英双语（`.github/workflows/release.yml`）。
+推一个 `v*` tag，GitHub Actions 会自动发正式 Release；**推 `Dev` 分支也会自动出一版「Dev 分支夜间构建（Nightly Build）」预发布**——版本号在候选版号后带 RC 与日期/运行号（形如 `v1.1.1-RC-nightly.20261016.42`，每次都是新 tag），Release 标题、说明横幅与包内 `README-FIRST.txt` 都写明「开发分支夜间构建，仅供体验新功能，请勿用于生产环境」。
+
+两种发布都产出 Windows(Server) **x64 / x32** 各一份 onedir 免安装包（PyInstaller 打包、前端 `dist/` 已内置、双击 `start-autoops.bat` 即用），并附上**源码包** `*-Source-Code.tar.gz` 与 `*-Source-Code.zip`（按本次构建的提交导出）与 `SHA256SUMS.txt`；正式版还另附华为云镜像的 Python 3.15.0 x64/x32 安装包、阿里云镜像的 Node v26.11.1 x64 msi（夜间构建不重复挂这 150 MB，说明里指向最新正式版）。Release 说明中英双语（`.github/workflows/release.yml`）。
 
 想在本机打一份：**先建一个干净的 venv**，不要在本机全局 Python 里打 —— PyInstaller 会给「当前环境里能导入的每个包」找 hook，全局环境能慢到十几分钟：
 

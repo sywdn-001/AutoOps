@@ -234,7 +234,9 @@ The SSH gateway is not HTTP: users connect with `ssh -p 2222 <account>@<server-i
 
 **⑧ Windows portable packages** (for targets that should not install Python or Node)
 
-Push a `v*` tag and GitHub Actions publishes the release for you: one PyInstaller **onedir** portable package per architecture — Windows(Server) **x64 / x32**, with the frontend `dist/` already bundled and a double-clickable `start-autoops.bat` — plus the Python 3.15.0 installers (x64/x32) from the Huawei Cloud mirror, the Node v26.11.1 x64 MSI from the Aliyun mirror, and `SHA256SUMS.txt`. The release notes are bilingual; see `.github/workflows/release.yml`.
+Push a `v*` tag and GitHub Actions publishes a stable release for you. **Pushing the `Dev` branch also publishes a "Dev nightly build" pre-release** — the version keeps the RC marker plus a date/run number (e.g. `v1.1.1-RC-nightly.20261016.42`, a fresh tag every time), and the release title, the notes banner and the bundled `README-FIRST.txt` all state that it is a development-branch nightly build meant only for trying new features and not for production.
+
+Both channels ship one PyInstaller **onedir** portable package per architecture — Windows(Server) **x64 / x32**, with the frontend `dist/` already bundled and a double-clickable `start-autoops.bat` — plus the **source packages** `*-Source-Code.tar.gz` and `*-Source-Code.zip` (exported from the exact commit that was built) and `SHA256SUMS.txt`; stable releases additionally carry the Python 3.15.0 installers (x64/x32) from the Huawei Cloud mirror and the Node v26.11.1 x64 MSI from the Aliyun mirror (nightly builds skip those 150 MB and point at the latest stable release instead). The release notes are bilingual; see `.github/workflows/release.yml`.
 
 To build one locally, **create a clean venv first** — do not build from your machine's global Python: PyInstaller looks for a hook for every importable package, which can turn into ten-plus minutes there:
 
