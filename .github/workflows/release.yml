@@ -392,6 +392,9 @@ jobs:
   release:
     name: 发布 Release
     needs: [plan, package, installers]
+    # needs 里只要有一个 job 被 skip（夜间构建不从 installers 取安装包），默认会把这个 job 一起 skip，
+    # 所以必须显式放行 skipped；否则夜间构建跑完什么都不发。
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.package.result == 'success' && (needs.installers.result == 'success' || needs.installers.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: 取出代码（要仓库里的说明模板、脚本与源码）
