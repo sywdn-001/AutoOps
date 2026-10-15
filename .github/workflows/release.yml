@@ -1,27 +1,53 @@
-# 文件简介（AI 生成）：GitHub Actions 发布工作流。打 v* 标签（或手动触发）后：
+# 文件简介（AI 生成）：GitHub Actions 发布工作流。三种触发方式：
+#   ① 推 `v*` 标签（正式版，形如 v1.1.1）→ 发正式 Release；
+#   ② 推 Dev 分支 → 自动发一个「Dev 分支夜间构建（Nightly Build）」预发布，版本号形如
+#      `v1.1.1-RC-nightly.20261016.42`（RC = 候选版；日期 + 工作流运行号保证 tag 唯一）；
+#   ③ Actions 页面手动触发（可指定 tag 与 channel：正式版 / 候选版）。
+# 每次发布都做四件事：
 #   ① 用 Node 构建前端、用 PyInstaller 把后端打成 onedir 目录包，分成
 #      Windows(Server) x64 / x32 两个压缩包；
-#   ② 从华为云 Python 镜像抓 Python 3.15.0 的 x64 / x32 安装包、从阿里云 Node 镜像抓
-#      Node v26.11.1 x64 安装包，一起挂到 Release；
-#   ③ 用 .github/scripts/make_release_notes.py 合成中英双语的 Release 说明并附 SHA256。
+#   ② 正式版另从华为云 Python 镜像抓 Python 3.15.0 的 x64 / x32 安装包、从阿里云 Node 镜像抓
+#      Node v26.11.1 x64 安装包，一起挂到 Release；候选版/夜间构建不重复挂这 150 MB，
+#      说明里指向最新的正式版；
+#   ③ 用 `git archive` 把本次构建的源码打成 `*-Source-Code.tar.gz` 与 `*-Source-Code.zip` 一起挂上；
+#   ④ 用 .github/scripts/make_release_notes.py 合成中英双语的 Release 说明并附 SHA256。
+# 注意：本仓库开着「不可变发布（immutable releases）」——已发布 Release 的 tag 与附件都改不了，
+# 所以夜间构建每次都带日期 + 运行号、用全新 tag，绝不复用或改写旧 tag。
 # 打包配置在 bastion-backend/packaging/（spec + 启动脚本 + 首读说明）。
 
 name: Release
 
-# 打 v* 标签自动发版；也可以在 Actions 页面手动跑，手动跑时填 tag。
+# 打 v* 标签自动发版；推 Dev 分支发夜间构建；也可以在 Actions 页面手动跑（手动要填 tag）。
 on:
   push:
     tags:
       - 'v*'
+    branches:
+      - Dev
   workflow_dispatch:
     inputs:
       tag:
-        description: '版本号，必须是 vX.Y.Z（例如 v1.0.0）'
+        description: '版本号：正式版填 vX.Y.Z（例如 v1.1.1）；候选版填 vX.Y.Z-RC；留空 = 用 env.DEV_RC_VERSION'
         required: false
-        default: 'v1.0.0'
+        default: ''
+      channel:
+        description: '通道：auto 按 ref 判断；stable 正式版；rc 候选版（预发布）'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - stable
+          - rc
 
 permissions:
   contents: write
+
+# 推分支（夜间构建）时，新提交直接把上一次还没跑完的构建取消掉：省 runner，也省镜像流量；
+# 标签发版不取消（只有同一个 tag 重跑才会互相取消）。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 env:
   # 打这个包用的 Python / Node：跟仓库开发口径一致（Python 3.13、Node 22），
@@ -29,15 +55,142 @@ env:
   BUILD_PYTHON: '3.13'
   BUILD_NODE: '22'
   PROJECT_NAME: AutoOps-Bastion
+  # Dev 分支（以及手动触发的候选版）用的版本号：每轮迭代只改这一行。
+  DEV_RC_VERSION: 'v1.1.1-RC'
   PYTHON_VERSION_FOR_MIRROR: '3.15.0'
   PYTHON_MIRROR: 'https://mirrors.huaweicloud.com/python'
   NODE_VERSION_FOR_MIRROR: '26.11.1'
   NODE_MIRROR: 'https://mirrors.aliyun.com/nodejs-release'
 
 jobs:
+  # ------------------------------------------- ⓪ 先算清版本号与通道（下面三个 job 共用一套）
+  plan:
+    name: 解析版本号与通道
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      channel: ${{ steps.plan.outputs.channel }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      dev_build: ${{ steps.plan.outputs.dev_build }}
+      title: ${{ steps.plan.outputs.title }}
+    steps:
+      - name: 解析版本号与通道
+        id: plan
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y%m%d)"
+
+          # 手动触发用输入；推分支时版本号留空（用 env.DEV_RC_VERSION）；推标签时版本号就是标签名。
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+            CHANNEL="${INPUT_CHANNEL:-auto}"
+            # 在 Actions 页面直接选某个标签手动跑、又没填版本号：就用那个标签
+            if [ -z "$TAG" ] && [ "$REF_TYPE" = "tag" ]; then
+              TAG="$REF_NAME"
+            fi
+          elif [ "$REF_TYPE" = "branch" ]; then
+            TAG=""
+            CHANNEL=auto
+          else
+            TAG="$REF_NAME"
+            CHANNEL=auto
+          fi
+
+          # 本工作流自己发出的夜间构建 tag（`gh release create --target` 会顺手建 tag）。
+          # 仓库的 GITHUB_TOKEN 建的 tag 不会再触发工作流；这条只是防着以后换成 PAT：
+          # 万一被触发，直接说清「别重跑这个 tag」，而不是报一句莫名其妙的版本号格式错。
+          case "$TAG" in
+            v*-nightly.*)
+              echo "::error::「$TAG」是发布工作流自己生成的 Dev 夜间构建 tag，不要重跑；要出新构建请推 Dev 分支，或在 Actions 页面手动触发并填版本号"
+              exit 1
+              ;;
+          esac
+
+          # 是不是「Dev 分支上的构建」（推 Dev，或在 Actions 页面选 Dev 手动跑）
+          BRANCH_BUILD=false
+          if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "Dev" ]; then
+            BRANCH_BUILD=true
+          fi
+
+          # 自动判通道：填了版本号就按版本号形态判（带后缀 `-RC` / `-rc1` / `-beta` ⇒ 候选版，
+          # 干净的 `vX.Y.Z` ⇒ 正式版）；没填版本号（推 Dev / 手动没填）⇒ 候选版。
+          if [ "$CHANNEL" = "auto" ]; then
+            CHANNEL=rc
+            if [ -n "$TAG" ] && [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[.-][0-9A-Za-z.]+$ ]]; then
+              CHANNEL=stable
+            fi
+          fi
+
+          if [ "$CHANNEL" = "rc" ]; then
+            DEV_BUILD="$BRANCH_BUILD"
+            # 候选版版本号：手动填了就用填的，没填就用 env.DEV_RC_VERSION。
+            BASE="${TAG:-$DEV_RC_VERSION}"
+            # 必须带后缀，免得跟以后的正式版撞名。
+            if ! [[ "$BASE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[.-][0-9A-Za-z.]+$ ]]; then
+              echo "::error::候选版版本号必须形如 v1.1.1-RC（当前是「$BASE」；可改 env.DEV_RC_VERSION，或手动触发时填 tag）"
+              exit 1
+            fi
+            # 没显式填版本号 ⇒ 每次构建都用全新 tag（本仓库开着不可变发布：同一个 tag 的
+            # 附件改不了，所以既不复用旧 tag，也不去动旧 Release）。
+            if [ -z "$TAG" ]; then
+              if [ "$DEV_BUILD" = "true" ]; then
+                TAG="${BASE}-nightly.${DATE}.${RUN_NUMBER}"
+              else
+                TAG="${BASE}.${DATE}.${RUN_NUMBER}"
+              fi
+            fi
+            PRERELEASE=true
+          else
+            DEV_BUILD=false
+            if [ -z "$TAG" ]; then
+              echo "::error::手动触发正式版必须填版本号（形如 v1.1.1）"
+              exit 1
+            fi
+            # 正式版版本号一律 vX.Y.Z：标签名就是 Release 名，也是 zip 文件名的一部分，
+            # 格式不统一以后很难对应「哪个包是哪个版本」。
+            if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::正式版版本号必须是 vX.Y.Z（例如 v1.1.1），当前是「$TAG」；候选版请用 v1.1.1-RC 或推 Dev 分支"
+              exit 1
+            fi
+            PRERELEASE=false
+          fi
+
+          if [ "$DEV_BUILD" = "true" ]; then
+            TITLE="$TAG · Dev 分支夜间构建 (Nightly Build)"
+          elif [ "$CHANNEL" = "rc" ]; then
+            TITLE="$TAG · 候选版 (Release Candidate)"
+          else
+            TITLE="$TAG"
+          fi
+
+          {
+            echo "tag=$TAG"
+            echo "channel=$CHANNEL"
+            echo "prerelease=$PRERELEASE"
+            echo "dev_build=$DEV_BUILD"
+            echo "title=$TITLE"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### 本次发布"
+            echo ""
+            echo "- 版本号：\`$TAG\`"
+            echo "- 通道：$CHANNEL ｜ 预发布：$PRERELEASE ｜ 夜间构建：$DEV_BUILD"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "版本号：$TAG ｜ 通道：$CHANNEL ｜ 预发布：$PRERELEASE ｜ 夜间构建：$DEV_BUILD"
+
   # ---------------------------------------------------------------- ① 打包两个架构
   package:
     name: 打包 ${{ matrix.label }}
+    needs: plan
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -55,22 +208,20 @@ jobs:
       - name: 取出代码
         uses: actions/checkout@v4
 
-      - name: 解析版本号
+      - name: 接管版本号与通道
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          DEV_BUILD: ${{ needs.plan.outputs.dev_build }}
         run: |
-          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          if [ -z "$TAG" ]; then
-            echo "::error::手动触发时必须填版本号（形如 v1.0.0）"
-            exit 1
-          fi
-          # 版本号一律 vX.Y.Z（可带 -rc1 / .1 这类后缀）：标签名就是 Release 名，
-          # 也是 zip 文件名的一部分，格式不统一以后很难对应「哪个包是哪个版本」。
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::版本号必须是 vX.Y.Z 形式（例如 v1.0.0），当前是「$TAG」"
-            exit 1
-          fi
-          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "版本号：$TAG"
+          set -euo pipefail
+          {
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "CHANNEL=$CHANNEL"
+            echo "DEV_BUILD=$DEV_BUILD"
+          } >> "$GITHUB_ENV"
+          echo "版本号：$RELEASE_TAG ｜ 通道：$CHANNEL ｜ 夜间构建：$DEV_BUILD"
 
       - name: 装 Node（构建前端）
         uses: actions/setup-node@v4
@@ -122,11 +273,32 @@ jobs:
           $root  = "bastion-backend/build/dist/$env:PROJECT_NAME"
           if (-not (Test-Path $root)) { throw "PyInstaller 产物不存在：$root" }
 
+          if ($env:CHANNEL -eq 'stable') {
+            $channel = '正式版 / Stable release'
+          } elseif ($env:DEV_BUILD -eq 'true') {
+            $channel = '开发分支夜间构建（Nightly Build，仅适用于体验新功能）/ Dev-branch nightly build (preview only)'
+          } else {
+            $channel = '候选版（Release Candidate）/ Release candidate'
+          }
+
           New-Item -ItemType Directory -Force -Path "$root/frontend" | Out-Null
           Copy-Item -Recurse -Force "ant-design-pro/dist/*" "$root/frontend/"
           Copy-Item -Force "bastion-backend/packaging/windows/start-autoops.bat" "$root/"
           # 说明文件重新写一遍并带 UTF-8 BOM：老版本记事本没有 BOM 会把中文当 ANSI 显示成乱码
           $first = Get-Content -Raw -Encoding utf8 "bastion-backend/packaging/windows/README-FIRST.txt"
+          # 夜间构建的包，解开第一眼就得看见「这不是正式版」
+          if ($env:DEV_BUILD -eq 'true') {
+            $notice = @"
+          ============================================================
+          这是 Dev 分支的夜间构建产物（Nightly Build），版本 $env:RELEASE_TAG
+          仅供体验新功能，请勿用于生产环境。
+          This is a Dev-branch nightly build - for previewing new features only,
+          do not deploy it to production.
+          ============================================================
+
+          "@
+            $first = $notice + $first
+          }
           [System.IO.File]::WriteAllText("$root/README-FIRST.txt", $first, [System.Text.UTF8Encoding]::new($true))
           Copy-Item -Force "LICENSE" "$root/LICENSE"
           Copy-Item -Force "README.md" "$root/README.md"
@@ -138,6 +310,7 @@ jobs:
           $info = @"
           项目 / Project   : AutoOps 堡垒机 (AutoOps Bastion)
           版本 / Version   : $env:RELEASE_TAG
+          发布通道 / Channel: $channel
           系统 / OS        : $env:MACHINE_LABEL  ($env:ARCH_LABEL)
           打包方式 / Build : PyInstaller onedir（前端 dist 已内置 / frontend dist bundled）
           构建 Python      : $pyver ($pybits bit)
@@ -147,6 +320,13 @@ jobs:
           工作流 / Workflow: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
           仓库 / Repo      : $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY
           "@
+          if ($env:DEV_BUILD -eq 'true') {
+            $info += @"
+
+          注意 / Notice    : 这是 Dev 分支的夜间构建产物，仅供体验新功能，请勿用于生产环境。
+                             This is a Dev-branch nightly build: preview only, not for production.
+          "@
+          }
           Set-Content -Path "$root/BUILD-INFO.txt" -Value $info -Encoding utf8
 
       - name: 打 zip（文件名带系统、架构、Python 与打包方式）
@@ -160,6 +340,7 @@ jobs:
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           "$hash  $zip" | Set-Content -Path "$zip.sha256" -Encoding ascii
+          "版本号：$env:RELEASE_TAG ｜ 通道：$env:CHANNEL ｜ 夜间构建：$env:DEV_BUILD" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "压缩包：$zip（$size MB）" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "SHA256：$hash" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
 
@@ -176,6 +357,9 @@ jobs:
   # ---------------------------------------------------------------- ② 抓运行时安装包
   installers:
     name: 收集运行时安装包（Python / Node）
+    needs: plan
+    # 只有正式版才重复挂这 150 MB：候选版/夜间构建的说明里直接指向最新的正式版。
+    if: needs.plan.outputs.channel == 'stable'
     runs-on: ubuntu-latest
     steps:
       - name: 下载 Python（x64 / x32）与 Node（x64）安装包
@@ -207,39 +391,34 @@ jobs:
   # ---------------------------------------------------------------- ③ 发 Release
   release:
     name: 发布 Release
-    needs: [package, installers]
+    needs: [plan, package, installers]
     runs-on: ubuntu-latest
     steps:
-      - name: 取出代码（要仓库里的说明模板与脚本）
+      - name: 取出代码（要仓库里的说明模板、脚本与源码）
         uses: actions/checkout@v4
-
-      - name: 解析版本号
-        shell: bash
-        run: |
-          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          if [ -z "$TAG" ]; then
-            echo "::error::手动触发时必须填版本号（形如 v1.0.0）"
-            exit 1
-          fi
-          # 版本号一律 vX.Y.Z（可带 -rc1 / .1 这类后缀）：标签名就是 Release 名，
-          # 也是 zip 文件名的一部分，格式不统一以后很难对应「哪个包是哪个版本」。
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::版本号必须是 vX.Y.Z 形式（例如 v1.0.0），当前是「$TAG」"
-            exit 1
-          fi
-          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "版本号：$TAG"
 
       - name: 取回所有产物
         uses: actions/download-artifact@v4
         with:
           path: dist
 
+      - name: 打源码附件（tar.gz / zip 两种格式）
+        shell: bash
+        env:
+          SRC_BASE: ${{ env.PROJECT_NAME }}-${{ needs.plan.outputs.tag }}-Source-Code
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # `git archive` 只打本次构建的那个提交（HEAD == 本次运行的 $GITHUB_SHA），
+          # 包含全部被 git 跟踪的文件；加一层同名目录，解压出来不会散一地。
+          git archive --format=tar.gz --prefix="${SRC_BASE}/" -o "release/${SRC_BASE}.tar.gz" HEAD
+          git archive --format=zip    --prefix="${SRC_BASE}/" -o "release/${SRC_BASE}.zip"    HEAD
+          ls -lh release
+
       - name: 归拢附件并算总校验和
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release
           find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' \) -exec cp {} release/ \;
           cd release
           sha256sum * > SHA256SUMS.txt
@@ -249,9 +428,15 @@ jobs:
       - name: 生成中英双语 Release 说明
         shell: bash
         env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          DEV_BUILD: ${{ needs.plan.outputs.dev_build }}
           RELEASE_COMMIT: ${{ github.sha }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
+          EXTRA=(--channel "$CHANNEL")
+          if [ "$DEV_BUILD" = "true" ]; then EXTRA+=(--dev-build); fi
           python3 .github/scripts/make_release_notes.py \
             --template .github/RELEASE_README.md \
             --assets-dir release \
@@ -259,23 +444,34 @@ jobs:
             --version "$RELEASE_TAG" \
             --commit "$RELEASE_COMMIT" \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --workflow "$WORKFLOW_URL"
-          head -60 release-notes.md
+            --workflow "$WORKFLOW_URL" \
+            "${EXTRA[@]}"
+          head -80 release-notes.md
 
       - name: 创建或更新 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_TITLE: ${{ needs.plan.outputs.title }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         shell: bash
         run: |
           set -euo pipefail
+          EXTRA=()
+          if [ "$PRERELEASE" = "true" ]; then EXTRA+=(--prerelease); else EXTRA+=(--latest); fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file release-notes.md
-            gh release upload "$RELEASE_TAG" release/* --clobber
+            # 同一个 tag 又跑了一遍才会走到这里（夜间构建的 tag 带运行号，每次都是新的）。
+            # 本仓库开着不可变发布：附件换不了，这里只更新说明，并明确告诉大家产物在哪儿。
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file release-notes.md "${EXTRA[@]}" || true
+            if ! gh release upload "$RELEASE_TAG" release/* --clobber; then
+              echo "::warning::Release $RELEASE_TAG 已存在，且本仓库开着「不可变发布」，附件没能覆盖；本次产物只留在 Actions artifacts 里"
+            fi
           else
             gh release create "$RELEASE_TAG" \
-              --title "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
               --notes-file release-notes.md \
               --target "${{ github.sha }}" \
+              "${EXTRA[@]}" \
               release/*
           fi
-          gh release view "$RELEASE_TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
+          gh release view "$RELEASE_TAG" --json url,isPrerelease,assets --jq '.url, "prerelease=\(.isPrerelease)", (.assets[] | "\(.name)  \(.size) bytes")'

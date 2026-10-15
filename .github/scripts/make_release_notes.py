@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 """把 Release 说明模板 + 本次真实附件，合成 GitHub Release 的正文（中英双语）。
 
-做三件事：
+做四件事：
   1. 扫 `--assets-dir`，按文件名认出每个附件是什么（两个 onedir 压缩包、
-     Python 的 x64/x32 安装包、Node 的 x64 安装包、SHA256SUMS.txt），
-     生成一张中英对照的表（平台 / 大小 / 说明）；
+     Python 的 x64/x32 安装包、Node 的 x64 安装包、`*-Source-Code.tar.gz` /
+     `*-Source-Code.zip` 源码附件、SHA256SUMS.txt），生成一张中英对照的表（平台 / 大小 / 说明）；
   2. 从 `SHA256SUMS.txt` 里读回校验和（没有也照样能生成，只是正文少一行总数）；
-  3. 把 `--template`（`.github/RELEASE_README.md`）里的 `{{占位符}}` 全部替换掉，
-     写 `--out`。**有占位符没被替换掉就直接报错退出**，避免发出去一篇带 {{...}} 的说明。
+  3. 按 `--channel`（stable / rc）与 `--dev-build` 裁模板里的条件块：
+     `<!-- if:stable -->…<!-- endif -->` 只在正式版留下，`<!-- if:rc -->` 只在候选版/夜间构建留下，
+     `<!-- if:dev -->` 只在 Dev 分支夜间构建留下；同时填 `{{CHANNEL_BANNER_ZH}}` /
+     `{{CHANNEL_BANNER_EN}}` 两条醒目提示（正式版填空，候选版/夜间构建写明
+     「仅供体验新功能，请勿用于生产环境」）；
+  4. 把 `--template`（`.github/RELEASE_README.md`）里的 `{{占位符}}` 全部替换掉，写 `--out`。
+     **有占位符没被替换掉就直接报错退出**，避免发出去一篇带 {{...}} 的说明。
 
 用法（在工作流里就是这样调的）::
 
     python3 .github/scripts/make_release_notes.py \\
         --template .github/RELEASE_README.md --assets-dir release \\
-        --out release-notes.md --version v1.0.0 --commit "$GITHUB_SHA" \\
+        --out release-notes.md --version v1.1.1 --commit "$GITHUB_SHA" \\
         --repo https://github.com/sywdn-001/AutoOps \\
         --workflow https://github.com/sywdn-001/AutoOps/actions/runs/123
+
+    # Dev 分支的夜间构建（候选版 + 预发布）：
+    python3 .github/scripts/make_release_notes.py \\
+        --template .github/RELEASE_README.md --assets-dir release --out release-notes.md \\
+        --version v1.1.1-RC-nightly.20261016.42 --channel rc --dev-build \\
+        --repo https://github.com/sywdn-001/AutoOps
 """
 
 from __future__ import annotations
@@ -61,6 +72,22 @@ CATALOG: list[tuple[str, int, str, str, str, str]] = [
         "Official Node.js installer (x64 only — upstream publishes no 32-bit msi)",
     ),
     (
+        "-Source-Code.tar.gz",
+        50,
+        "源代码（tar.gz）",
+        "Source code (.tar.gz)",
+        "本次构建对应的完整源码（`git archive` 自构建提交导出，含全部被跟踪的文件）",
+        "The exact source of this build (`git archive` of the built commit, every tracked file included)",
+    ),
+    (
+        "-Source-Code.zip",
+        51,
+        "源代码（zip）",
+        "Source code (.zip)",
+        "同上，只是换了个压缩格式（Windows 上双击就能解）",
+        "Same as above, zipped (handy on Windows)",
+    ),
+    (
         "SHA256SUMS",
         90,
         "校验和",
@@ -71,6 +98,58 @@ CATALOG: list[tuple[str, int, str, str, str, str]] = [
 ]
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+# 模板里的条件块：`<!-- if:stable -->…<!-- endif -->`，按本次通道只留命中的那一段。
+# 行首那段空白一起吃掉，免得裁完留下一堆空行。
+CONDITIONAL_RE = re.compile(
+    r"(?ms)^[ \t]*<!--\s*if:([a-z_]+)\s*-->[ \t]*\n(.*?)^[ \t]*<!--\s*endif\s*-->[ \t]*\n?"
+)
+
+
+def strip_conditionals(text: str, conditions: set[str]) -> str:
+    """只保留条件命中的 `<!-- if:xxx -->…<!-- endif -->` 块内容（其余整块删掉）。"""
+
+    def _pick(match: re.Match[str]) -> str:
+        return match.group(2) if match.group(1) in conditions else ""
+
+    return CONDITIONAL_RE.sub(_pick, text)
+
+
+def channel_banner(channel: str, dev_build: bool, ctx: dict[str, str]) -> tuple[str, str]:
+    """说明最上面那条「这不是正式版」的提示（中 / 英）；正式版返回两个空串。"""
+    if channel != "rc":
+        return "", ""
+    if dev_build:
+        zh = (
+            "> ⚠️ **这是 Dev 分支的夜间构建产物（Nightly Build），版本 `{version}` —— "
+            "也就是下一版的候选版（RC），仅供体验新功能，请勿用于生产环境。**\n"
+            ">\n"
+            "> 构建于 {date}（UTC），对应提交 [`{commit_short}`]({repo_url}/commit/{commit})；"
+            "要上生产环境，请到 [Releases]({repo_url}/releases/latest) 取不带 RC 的正式版。"
+        )
+        en = (
+            "> ⚠️ **This is a Dev-branch nightly build: `{version}`, a release candidate (RC) for the "
+            "next version. It is here so you can preview new features, not for production use.**\n"
+            ">\n"
+            "> Built on {date} (UTC) from commit [`{commit_short}`]({repo_url}/commit/{commit}). "
+            "For production, take the non-RC stable release from "
+            "[Releases]({repo_url}/releases/latest)."
+        )
+    else:
+        zh = (
+            "> ⚠️ **这是候选版（Release Candidate）`{version}`，仅供体验新功能，请勿用于生产环境。**\n"
+            ">\n"
+            "> 构建于 {date}（UTC），对应提交 [`{commit_short}`]({repo_url}/commit/{commit})；"
+            "正式版见 [Releases]({repo_url}/releases/latest)。"
+        )
+        en = (
+            "> ⚠️ **This is a release candidate (RC): `{version}` — preview new features with it, "
+            "do not put it into production.**\n"
+            ">\n"
+            "> Built on {date} (UTC) from commit [`{commit_short}`]({repo_url}/commit/{commit}). "
+            "See [Releases]({repo_url}/releases/latest) for the stable version."
+        )
+    return zh.format(**ctx), en.format(**ctx)
 
 
 def human_size(num_bytes: int) -> str:
@@ -149,6 +228,17 @@ def main() -> int:
     parser.add_argument("--python-installer-version", default="3.15.0")
     parser.add_argument("--node-installer-version", default="26.11.1")
     parser.add_argument("--date", default="", help="发布日期，默认取当前 UTC 日期")
+    parser.add_argument(
+        "--channel",
+        choices=("stable", "rc"),
+        default="stable",
+        help="发布通道：stable 正式版（默认）；rc 候选版/夜间构建（预发布）",
+    )
+    parser.add_argument(
+        "--dev-build",
+        action="store_true",
+        help="Dev 分支的夜间构建：说明顶部写明「开发分支夜间构建，仅供体验新功能」",
+    )
     args = parser.parse_args()
 
     template_path = Path(args.template)
@@ -160,7 +250,8 @@ def main() -> int:
         print(f"找不到附件目录：{assets_dir}", file=sys.stderr)
         return 2
 
-    assets = sorted(p for p in assets_dir.iterdir() if p.is_file() and p.suffix in (".zip", ".exe", ".msi", ".txt"))
+    suffixes = (".zip", ".exe", ".msi", ".txt", ".gz")
+    assets = sorted(p for p in assets_dir.iterdir() if p.is_file() and p.suffix in suffixes)
     if not assets:
         print(f"{assets_dir} 里没有任何附件，拒绝生成空说明", file=sys.stderr)
         return 2
@@ -169,21 +260,43 @@ def main() -> int:
     table, count, total_bytes = build_table(assets, checksums)
 
     build_date = args.date or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    # 先按通道裁模板里的条件块，再替换占位符（裁掉的那段里就算有占位符也不会被算作残留）。
+    conditions = {"stable"} if args.channel == "stable" else {"rc"}
+    if args.dev_build:
+        conditions.add("dev")
+    template_text = strip_conditionals(template_path.read_text(encoding="utf-8"), conditions)
+
+    repo_url = args.repo.rstrip("/")
+    commit_short = args.commit[:7] if args.commit else "-"
+    banner_zh, banner_en = channel_banner(
+        args.channel,
+        args.dev_build,
+        {
+            "version": args.version,
+            "date": build_date,
+            "commit": args.commit,
+            "commit_short": commit_short,
+            "repo_url": repo_url,
+        },
+    )
     values = {
         "VERSION": args.version,
         "BUILD_DATE": build_date,
         "COMMIT": args.commit,
-        "COMMIT_SHORT": args.commit[:7] if args.commit else "-",
+        "COMMIT_SHORT": commit_short,
         "ASSET_TABLE": table,
         "ASSET_COUNT": str(count),
         "TOTAL_SIZE": human_size(total_bytes),
-        "REPO_URL": args.repo.rstrip("/"),
-        "WORKFLOW_URL": args.workflow or f"{args.repo.rstrip('/')}/actions",
+        "REPO_URL": repo_url,
+        "WORKFLOW_URL": args.workflow or f"{repo_url}/actions",
         "PYTHON_INSTALLER_VERSION": args.python_installer_version,
         "NODE_INSTALLER_VERSION": args.node_installer_version,
+        # 放最后：这两条是整段文本（里面已经填好真实值），排在最后最保险。
+        "CHANNEL_BANNER_ZH": banner_zh,
+        "CHANNEL_BANNER_EN": banner_en,
     }
 
-    text = template_path.read_text(encoding="utf-8")
+    text = template_text
     for key, value in values.items():
         text = text.replace("{{" + key + "}}", value)
     # [中文](#autoops-堡垒机-version) 这类自锚点跟着版本号变，这里一起改掉
@@ -197,7 +310,10 @@ def main() -> int:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8", newline="\n")
-    print(f"[notes] {out_path}  {len(text.splitlines())} 行 | 附件 {count} 个 / {human_size(total_bytes)} | 校验和 {len(checksums)} 条")
+    print(
+        f"[notes] {out_path}  {len(text.splitlines())} 行 | 附件 {count} 个 / {human_size(total_bytes)} "
+        f"| 校验和 {len(checksums)} 条 | 通道 {args.channel}{'（Dev 夜间构建）' if args.dev_build else ''}"
+    )
     return 0
 
 
