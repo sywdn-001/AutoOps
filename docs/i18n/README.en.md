@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="../../LICENSE"><img src="https://img.shields.io/github/license/sywdn-001/AutoOps?color=blue" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-788%20passed-brightgreen" alt="Backend tests: 788 passed">
+  <img src="https://img.shields.io/badge/tests-792%20passed-brightgreen" alt="Backend tests: 792 passed">
   <img src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white" alt="Python 3.13">
   <img src="https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1">
   <img src="https://img.shields.io/badge/React%2019%20%2B%20Ant%20Design%206-61DAFB?logo=react&logoColor=white" alt="React 19 + Ant Design 6">
@@ -308,7 +308,7 @@ AutoOps/
 │   │   ├── ai/                 # AI assistant (tool registry + model client)
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # additive-only schema alignment at startup
-│   ├── tests/                  # 788 test cases across 35 files
+│   ├── tests/                  # 792 test cases across 35 files
 │   ├── tools/                  # demo target, three E2E suites, audit-chain verifier, screenshot generator
 │   └── instance/               # runtime data (SQLite, keys, recordings) — gitignored
 ├── ant-design-pro/             # Frontend: Ant Design Pro 6 + Umi Max 4, all business pages rewritten
@@ -354,10 +354,10 @@ export BASTION_API=http://192.168.1.10:5000     # Linux / macOS
 
 ## Verification
 
-788 backend test cases, 195 frontend unit tests, plus four real-machine E2E suites:
+792 backend test cases, 195 frontend unit tests, plus four real-machine E2E suites:
 
 ```bash
-cd bastion-backend && python -m pytest -q          # 788 passed (35 files)
+cd bastion-backend && python -m pytest -q          # 792 passed (35 files)
 python tools/live_e2e_check.py                     # 97 assertions: HTTP + Socket.IO + SSH gateway + SFTP + AI
 python tools/ui_check.py                           # 21 assertions: real Chrome walkthrough of the admin UI
 python tools/console_check.py                      # 33 assertions: real Chrome driving the terminal and file manager

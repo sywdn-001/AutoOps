@@ -270,3 +270,38 @@ def test_terminal_targets_needs_a_real_grant_to_expose_its_shape(
     assert body["allowed"] is True
     assert body["port"] == 22
     assert body["accounts"][0]["name"] == "root"
+
+
+def test_host_accounts_list_returns_rows(client, admin_headers, make_host, make_account):
+    """回归守卫：`GET /api/hosts/<id>/accounts` 必须能列出这台机器的账号。
+
+    事故背景：2026-10-05「一台主机多个协议端点」那次改动把 `hosts.py` 里这条
+    装饰器粘进了上一行的分隔注释（`# ----@bp.get(...)`），整个账号列表接口静默
+    404 —— 资产页点进**任何**机器都是空表 + 「接口不存在」。当时只覆盖了
+    POST/PUT/DELETE 与 `/test`，列表这条路没人测，所以整套用例照样全绿。
+    """
+    host_id = make_host("acct-list-01", "10.0.0.11", 22)
+    account_id = make_account(host_id, "root", "root")
+    make_account(host_id, "deploy", "deploy", auth_type="key", password=None)
+
+    resp = client.get(f"/api/hosts/{host_id}/accounts", headers=admin_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    items = resp.get_json()["data"]
+    assert [item["name"] for item in items] == ["root", "deploy"]  # 按 id 升序
+    first = items[0]
+    assert first["id"] == account_id
+    assert first["hostId"] == host_id
+    assert first["username"] == "root"
+    assert first["authType"] == "password"
+    assert first["hasSecret"] is True
+    assert first["grantCount"] == 0
+    # 管理员有 host:manage，列表里能拿到解密后的口令（页面「是否有口令」靠 hasSecret）
+    assert first["secret"] == "s3cret"
+
+
+def test_host_accounts_list_is_empty_not_404_for_a_brand_new_host(client, admin_headers, make_host):
+    """没建过账号的机器要返回**空数组**（200），而不是 404 —— 前端靠这条区分「没数据」。"""
+    host_id = make_host("acct-list-empty", "10.0.0.12", 22)
+    resp = client.get(f"/api/hosts/{host_id}/accounts", headers=admin_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["data"] == []

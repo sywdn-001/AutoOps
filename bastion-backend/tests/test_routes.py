@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import re
+from pathlib import Path
 
 import pytest
 from flask import Blueprint
@@ -59,6 +60,47 @@ def test_url_map_has_no_duplicate_rule_method_pairs(app):
 def test_core_paths_are_not_404(client, admin_headers, path):
     resp = client.get(path, headers=admin_headers)
     assert resp.status_code != 404, f"{path} 返回 404 —— 蓝图没注册或路径写错"
+
+
+# --------------------------------------------------------------------------
+# 单条路由被「注释吃掉」的守卫
+#
+# 事故背景：2026-10-05 那次「一台主机多个协议端点」的改动把 hosts.py 里
+#
+#     # --------------------------------------------------------------------------
+#     @bp.get("/<int:host_id>/accounts")
+#
+# 粘成了一行（分隔线末尾直接跟上了装饰器），整条「主机账号列表」路由**变成注释**。
+# 症状：资产页点进任何一台机器，账号列表都是空表 + 「接口不存在」；而 POST/PUT/DELETE
+# 都还在，所以建账号能成功、列表永远空。蓝图级守卫抓不到它（蓝图注册得好好的，
+# 少的是模块里的一条规则），5xx 冒烟也抓不到（404 不是 5xx）。
+# --------------------------------------------------------------------------
+
+ACCOUNT_RULES = [
+    ("/api/hosts/<int:host_id>/accounts", "GET"),
+    ("/api/hosts/<int:host_id>/accounts", "POST"),
+    ("/api/hosts/<int:host_id>/accounts/<int:account_id>", "PUT"),
+    ("/api/hosts/<int:host_id>/accounts/<int:account_id>", "DELETE"),
+    ("/api/hosts/<int:host_id>/accounts/<int:account_id>/test", "POST"),
+]
+
+
+def test_host_account_rules_are_registered(app):
+    registered = {(str(rule), method) for rule in app.url_map.iter_rules() for method in rule.methods}
+    missing = [f"{method} {path}" for path, method in ACCOUNT_RULES if (path, method) not in registered]
+    assert not missing, "以下主机账号路由没有注册（多半是装饰器被上一行的注释吃掉）：" + "；".join(missing)
+
+
+def test_no_decorator_is_swallowed_by_a_comment():
+    """源码级守卫：任何 `# ...@bp.get(...)` 形态的行都意味着装饰器被注释掉了。"""
+    api_dir = Path(__file__).resolve().parents[1] / "app"
+    pattern = re.compile(r"#.*@\w+\.(get|post|put|delete|route)\s*\(")
+    offenders = []
+    for path in sorted(api_dir.rglob("*.py")):
+        for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if pattern.search(line):
+                offenders.append(f"{path.relative_to(api_dir.parent)}:{index}: {line.strip()}")
+    assert not offenders, "发现被注释吃掉的装饰器（整条路由会静默 404）：" + "；".join(offenders)
 
 
 # --------------------------------------------------------------------------

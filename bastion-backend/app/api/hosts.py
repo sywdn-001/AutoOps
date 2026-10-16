@@ -549,7 +549,10 @@ def merge_host(host_id: int):
 
 # --------------------------------------------------------------------------
 # 主机登录账号
-# --------------------------------------------------------------------------@bp.get("/<int:host_id>/accounts")
+# --------------------------------------------------------------------------
+
+
+@bp.get("/<int:host_id>/accounts")
 @permission_required("account:view", "host:view", "grant:view")
 def list_accounts(host_id: int):
     host = db.session.get(Host, host_id)
