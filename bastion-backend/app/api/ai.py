@@ -259,8 +259,12 @@ def _stream_turn(conversation_id: int, caller, client, *, text: str, resume: boo
         except Exception as exc:  # noqa: BLE001 - 流里必须把异常变成可读事件
             app.logger.exception("AI 对话执行失败 conversation=%s", conversation_id)
             yield f"data: {json.dumps({'type': 'error', 'message': f'AI 执行失败：{exc}'}, ensure_ascii=False)}\n\n"
-        finally:
-            yield f"data: {json.dumps({'type': 'close', 'conversationId': conversation_id}, ensure_ascii=False)}\n\n"
+        # 收尾事件**不能**放在 finally 里：客户端关页面/断网时 Flask 会对本生成器调
+        # close()，GeneratorExit 正好落在这条 yield 上；finally 里再 yield 一次就会抛
+        # `RuntimeError: generator ignored GeneratorExit`（控制台那一行
+        # 「Exception ignored in: <generator object stream_with_context...>」就是它）。
+        # 放在这里：正常结束与异常收尾都会发；对端已经走了就没必要再发。
+        yield f"data: {json.dumps({'type': 'close', 'conversationId': conversation_id}, ensure_ascii=False)}\n\n"
 
 
 # --------------------------------------------------------------------------- #

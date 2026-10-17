@@ -1341,3 +1341,51 @@ def test_tool_round_limit_clamps_absurd_values_and_falls_back_to_env(app, monkey
         set_setting("ai_max_tool_rounds", "5")
         db.session.commit()
         assert ai_service.max_tool_rounds(app) == 5
+
+
+# --------------------------------------------------------------------------- #
+# SSE 收尾（真机回归：关掉 AI 面板时控制台刷 GeneratorExit 报错）
+# --------------------------------------------------------------------------- #
+def test_ai_stream_says_goodbye_and_survives_an_early_disconnect(app, monkeypatch):
+    """一条 AI SSE 流的两个收尾约束。
+
+    ① 正常跑完时最后一条事件必须是 `close`（前端据此把气泡收尾）；
+    ② 客户端半路断开（Flask 对生成器调 close()）时不许抛
+       `RuntimeError: generator ignored GeneratorExit` —— 真机上关面板/断网就是这么刷屏的。
+    """
+    from app.api import ai as ai_api
+
+    _enable_ai(app)
+
+    def fake_run_turn(*args, **kwargs):  # noqa: ANN002, ANN003 - 只关心事件序列
+        yield {"type": "content", "delta": "甲"}
+        yield {"type": "content", "delta": "乙"}
+        yield {"type": "message_end", "messageId": 1, "status": "done"}
+
+    monkeypatch.setattr(ai_service, "run_turn", fake_run_turn)
+
+    with app.app_context():
+        admin = User.query.filter_by(username="admin").first()
+        conversation = AiConversation(
+            user_id=admin.id, username=admin.username, source="test", title="流收尾"
+        )
+        db.session.add(conversation)
+        db.session.commit()
+
+        stream = ai_api._stream_turn(conversation.id, None, None, text="你好", resume=False)
+        assert next(stream).startswith(": aiops stream opened")
+        assert '"type": "open"' in next(stream)
+        rest = list(stream)
+        assert '"type": "close"' in rest[-1], "最后一条事件必须是把气泡收尾的 close"
+
+        # 半路断开：Reader 走掉，Flask 调 close()，GeneratorExit 落在 yield 上
+        early = ai_api._stream_turn(conversation.id, None, None, text="你好", resume=False)
+        next(early)
+        next(early)
+        next(early)
+        problem = None
+        try:
+            early.close()
+        except RuntimeError as exc:  # pragma: no cover - 改回 finally: yield 就会走这里
+            problem = exc
+        assert problem is None, f"客户端断开时不允许抛 RuntimeError：{problem}"
