@@ -69,6 +69,7 @@ import { AiCardView, AiCode } from './cards';
 import './ai.css';
 
 import { t } from '@/i18n';
+import { useSuggestions } from '@/components/Bastion/useSuggestions';
 
 const { Text, Paragraph } = Typography;
 
@@ -164,8 +165,21 @@ const notifyError = (error: unknown, fallback: string) => {
   );
 };
 
+const CHAT_HINT_FALLBACK = [
+  t('列出当前所有在线会话'),
+  t('有哪些主机？把最近新增的三台列出来'),
+  t('在 web-01 上执行 uptime 和 df -h'),
+  t('新建一个只读用户，只给查看权限'),
+  t('审计一下最近的敏感命令'),
+];
+
 const AiPage = () => {
   const access = useAccess();
+  const {
+    items: hints,
+    refresh: refreshHints,
+    loading: hintsLoading,
+  } = useSuggestions('chat', CHAT_HINT_FALLBACK);
   const [status, setStatus] = useState<AiStatus>();
   const [tools, setTools] = useState<{
     tools: AiToolInfo[];
@@ -964,13 +978,7 @@ const AiPage = () => {
                   {t('告诉我要做什么，我来操作并给你证据')}
                 </div>
                 <div className="bastion-ai-welcome-hints">
-                  {[
-                    t('列出当前所有在线会话'),
-                    t('有哪些主机？把最近新增的三台列出来'),
-                    t('在 web-01 上执行 uptime 和 df -h'),
-                    t('新建一个只读用户，只给查看权限'),
-                    t('审计一下最近的敏感命令'),
-                  ].map((hint) => (
+                  {hints.map((hint) => (
                     <Tag
                       key={hint}
                       className="bastion-ai-hint"
@@ -979,6 +987,14 @@ const AiPage = () => {
                       {hint}
                     </Tag>
                   ))}
+                  <Button
+                    size="small"
+                    type="link"
+                    loading={hintsLoading}
+                    onClick={refreshHints}
+                  >
+                    {t('换一换')}
+                  </Button>
                 </div>
               </div>
             ) : (

@@ -741,6 +741,7 @@
   "按用户名 / 姓名过滤": "Filter by username / name",
   "按用户筛选": "Filter by user",
   "挑一台启用了 WinRM 的 Windows 主机与资产账号": "Pick a Windows host with WinRM enabled and an asset account",
+  "换一换": "Shuffle",
   "换取回放票据失败": "Failed to exchange the playback ticket",
   "授权": "Grant",
   "授权列表": "Grant list",

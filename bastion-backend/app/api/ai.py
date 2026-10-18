@@ -16,6 +16,7 @@ AI 越权不了，也不用维护第二套业务逻辑。
 
 from __future__ import annotations
 
+import datetime
 import json
 
 from flask import Blueprint, Response, current_app, request, stream_with_context
@@ -498,4 +499,199 @@ def ai_settings():
             "envFile": "bastion-backend/.env",
         },
         "AI 配置来自 .env（修改后需重启服务）；「最大调用轮数」改在『系统设置 → 参数设置』里，保存即生效",
+    )
+
+# --------------------------------------------------------------------------- #
+# 输入框的示例建议：按系统当前状态生成，24 小时换一轮，也可以手动换一批
+# --------------------------------------------------------------------------- #
+CHAT_SUGGESTION_COUNT = 4
+COMPUTER_USE_SUGGESTION_COUNT = 3
+
+
+def _state_facts() -> dict:
+    """抓一份「现在系统长什么样」，抓不到的项就当 0（接口不能因为统计失败而 500）。"""
+    facts = {
+        "hosts": 0,
+        "windows": 0,
+        "linux": 0,
+        "online": 0,
+        "users": 0,
+        "denied": 0,
+        "cu_ready": 0,
+        "cu_failed": 0,
+    }
+    try:
+        from ..models import CommandLog, ComputerUseDeployment, Host, SessionRecord
+
+        facts["hosts"] = Host.query.count()
+        try:
+            facts["windows"] = Host.query.filter(
+                db.func.lower(Host.os_type).like("%windows%")
+            ).count()
+        except Exception:  # noqa: BLE001 - 列名变了也不影响主流程
+            facts["windows"] = 0
+        facts["linux"] = max(facts["hosts"] - facts["windows"], 0)
+        facts["online"] = SessionRecord.query.filter_by(status="active").count()
+        facts["users"] = User.query.count()
+        try:
+            facts["denied"] = CommandLog.query.filter_by(result="denied").count()
+        except Exception:  # noqa: BLE001
+            facts["denied"] = 0
+        try:
+            facts["cu_ready"] = ComputerUseDeployment.query.filter_by(status="success").count()
+            facts["cu_failed"] = ComputerUseDeployment.query.filter_by(status="failed").count()
+        except Exception:  # noqa: BLE001
+            facts["cu_ready"] = 0
+            facts["cu_failed"] = 0
+    except Exception:  # noqa: BLE001 - 统计失败就全部退回「通用建议」
+        pass
+    return facts
+
+
+def _chat_pool(facts: dict) -> list[dict]:
+    """AI 运维页的建议池：先放与当前状态强相关的，再放几条通用兜底。"""
+    pool: list[dict] = []
+
+    def add(zh: str, en: str, when: bool = True) -> None:
+        if when:
+            pool.append({"zh": zh, "en": en})
+
+    add(
+        f"现在有 {facts['online']} 个在线会话，帮我看看它们分别是谁在用",
+        f"There are {facts['online']} live sessions right now — who is using each of them?",
+        facts["online"] > 0,
+    )
+    add(
+        "列出所有在线会话，按开始时间排一下",
+        "List every live session, ordered by start time",
+        facts["online"] == 0,
+    )
+    add(
+        f"纳管了 {facts['hosts']} 台主机（Windows {facts['windows']} / Linux {facts['linux']}），"
+        "帮我挑三台做个健康巡检",
+        f"{facts['hosts']} hosts are managed (Windows {facts['windows']} / Linux {facts['linux']}) — "
+        "pick three and run a health check",
+        facts["hosts"] > 0,
+    )
+    add(
+        "帮我接入第一台主机，然后给它建一个只读账号",
+        "Help me onboard the first host and create a read-only account for it",
+        facts["hosts"] == 0,
+    )
+    add(
+        f"最近有 {facts['denied']} 条命令被拦截，帮我按命令和主机归个类",
+        f"{facts['denied']} commands have been blocked so far — group them by command and host",
+        facts["denied"] > 0,
+    )
+    add(
+        "审计一下最近的敏感命令，有高危的就标出来",
+        "Audit recent sensitive commands and flag anything high risk",
+        facts["denied"] == 0,
+    )
+    add(
+        f"系统里现在有 {facts['users']} 个账号，帮我看看谁的权限给大了",
+        f"There are {facts['users']} accounts — check which ones are over-privileged",
+        facts["users"] > 1,
+    )
+    add(
+        "新建一个只读用户，只给查看权限",
+        "Create a read-only user with view-only permissions",
+        facts["users"] <= 1,
+    )
+    add(
+        "把最近 24 小时的登录失败和被拦截命令整理成一份小结",
+        "Summarize the last 24 hours of failed logins and blocked commands",
+    )
+    add(
+        "有哪些主机还没有分组？帮我整理一下",
+        "Which hosts are not in any group yet? Help me tidy them up",
+    )
+    add(
+        "看一下当前 AI 任务的最大调用轮数，并解释这个值怎么调",
+        "Show the current max AI tool rounds and explain how to tune it",
+    )
+    add(
+        "帮我写一条「拦截 rm -rf /」的命令策略并说明生效范围",
+        "Write a command policy that blocks `rm -rf /` and explain its scope",
+    )
+    return pool
+
+
+def _computer_use_pool(facts: dict) -> list[dict]:
+    """ComputerUse 侧边栏的建议池：围绕「操作这台机器」给。"""
+    pool: list[dict] = []
+
+    def add(zh: str, en: str, when: bool = True) -> None:
+        if when:
+            pool.append({"zh": zh, "en": en})
+
+    add(
+        "把当前屏幕截一张图给我，说明现在停在哪个界面",
+        "Take a screenshot and tell me which screen we are on",
+    )
+    add(
+        "打开记事本，写上「今天的巡检结论：一切正常」并保存到桌面",
+        'Open Notepad, type "Today\'s inspection: all good" and save it to the desktop',
+    )
+    add(
+        "打开任务管理器，看看哪个进程最占内存",
+        "Open Task Manager and find the process using the most memory",
+        facts["cu_ready"] > 0,
+    )
+    add(
+        "这台机器装的是什么版本的 Python？顺便看看 .NET 运行时",
+        "Which Python version is installed here? Also check the .NET runtime",
+    )
+    add(
+        "列一下现在正在运行的程序，把自启项也一并列出来",
+        "List the running programs, including autostart entries",
+    )
+    add(
+        "按 Win+R 打开运行框，执行 msinfo32，把系统摘要读给我",
+        "Press Win+R, run msinfo32 and read the system summary to me",
+        facts["windows"] > 0,
+    )
+    add(
+        "把我刚打开的窗口关掉，回到桌面",
+        "Close the windows I just opened and get back to the desktop",
+    )
+    add(
+        "在开始菜单里找到「设置 → 系统 → 关于」，把设备名称读给我",
+        "Open Settings → System → About and read me the device name",
+    )
+    if facts["cu_failed"] > 0:
+        add(
+            "这台机器的 MCP 上次部署失败过，帮我看看现在恢复没有",
+            "The MCP deployment failed here before — check whether it is healthy now",
+        )
+    return pool
+
+
+@bp.get("/suggestions")
+@permission_required("ai:use")
+def suggestions():
+    """示例建议：同一天内稳定，换一天自动换一轮；`nonce` 递增则立刻换一批。"""
+    scope = (request.args.get("scope") or "chat").strip().lower()
+    nonce = parse_int(request.args.get("nonce"), 0) or 0
+    facts = _state_facts()
+    if scope == "computeruse":
+        pool = _computer_use_pool(facts)
+        size = COMPUTER_USE_SUGGESTION_COUNT
+    else:
+        pool = _chat_pool(facts)
+        size = CHAT_SUGGESTION_COUNT
+    today = datetime.date.today()
+    if pool:
+        start = (today.toordinal() + nonce * 7) % len(pool)
+        items = [pool[(start + i) % len(pool)] for i in range(min(size, len(pool)))]
+    else:  # pragma: no cover - 兜底，正常不会走到
+        items = []
+    return api_ok(
+        {
+            "bucket": today.isoformat(),
+            "nonce": nonce,
+            "scope": scope,
+            "items": items,
+            "facts": facts,
+        }
     )

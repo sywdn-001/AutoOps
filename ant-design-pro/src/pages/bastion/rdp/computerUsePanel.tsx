@@ -59,6 +59,7 @@ import { AiCards, AiCardView, AiCode } from '../ai/cards';
 import '../ai/ai.css';
 
 import { t } from '@/i18n';
+import { useSuggestions } from '@/components/Bastion/useSuggestions';
 
 const { Text } = Typography;
 
@@ -692,6 +693,11 @@ export interface ComputerUsePanelProps {
 }
 
 const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
+  const {
+    items: hints,
+    refresh: refreshHints,
+    loading: hintsLoading,
+  } = useSuggestions('computeruse', WELCOME_HINTS);
   /** undefined = 还在查；null = 查失败或没就绪 */
   const [status, setStatus] = useState<ComputerUseStatus | null | undefined>(
     undefined,
@@ -1194,7 +1200,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                   {t('告诉 AI 在这台机器上做什么，它来操作并给你截图')}
                 </div>
                 <div className="bastion-cu-welcome-hints">
-                  {WELCOME_HINTS.map((hint) => (
+                  {hints.map((hint) => (
                     <Tag
                       key={hint}
                       className="bastion-cu-hint"
@@ -1203,6 +1209,14 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                       {hint}
                     </Tag>
                   ))}
+                  <Button
+                    size="small"
+                    type="link"
+                    loading={hintsLoading}
+                    onClick={refreshHints}
+                  >
+                    {t('换一换')}
+                  </Button>
                 </div>
               </div>
             ) : null}
