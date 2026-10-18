@@ -8,6 +8,7 @@ import { history, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Spin } from 'antd';
 import React, { startTransition } from 'react';
+import { t } from '@/i18n';
 import { clearToken } from '@/services/bastion/client';
 import { authApi } from '@/services/bastion/endpoints';
 import HeaderDropdown from '../HeaderDropdown';
@@ -20,17 +21,17 @@ const menuItems: MenuProps['items'] = [
   {
     key: 'settings',
     icon: <SettingOutlined />,
-    label: '个人设置',
+    label: t('个人设置'),
   },
   {
     key: 'password',
     icon: <KeyOutlined />,
-    label: '修改密码',
+    label: t('修改密码'),
   },
   {
     key: 'theme',
     icon: <SkinOutlined />,
-    label: '主题设置',
+    label: t('主题设置'),
   },
   {
     type: 'divider' as const,
@@ -38,7 +39,7 @@ const menuItems: MenuProps['items'] = [
   {
     key: 'logout',
     icon: <LogoutOutlined />,
-    label: '退出登录',
+    label: t('退出登录'),
   },
 ];
 

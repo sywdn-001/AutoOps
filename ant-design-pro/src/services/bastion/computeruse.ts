@@ -10,6 +10,7 @@ import { request } from '@umijs/max';
 import { getToken, unwrap } from './client';
 import type { ApiData } from './types';
 
+import { t } from '@/i18n';
 /** 接口前缀：与后端蓝图 `bp = Blueprint(..., url_prefix="/api/computer-use")` 对应 */
 export const COMPUTER_USE_BASE = '/api/computer-use';
 
@@ -60,14 +61,14 @@ export type StageEntry = {
  * 目标机放行失败时后端会直接让部署失败，所以这一条必须能在进度条上看出来。
  */
 export const STAGE_SEQUENCE: StageMeta[] = [
-  { key: 'prepare', label: '连接目标机 / 环境体检', progress: 6 },
-  { key: 'upload', label: '上传 Python 安装包到 C:\\Installer', progress: 28 },
-  { key: 'install', label: '静默安装 Python', progress: 48 },
-  { key: 'pip', label: '安装 windows-mcp', progress: 68 },
-  { key: 'vbs', label: '写开机自启 VBS 并启动 MCP', progress: 82 },
-  { key: 'expose', label: '开 portproxy（局域网地址 → 回环）', progress: 92 },
-  { key: 'firewall', label: '放行 MCP 端口（只放行堡垒机 IP）', progress: 96 },
-  { key: 'verify', label: '探活 MCP（tools/list）', progress: 100 },
+  { key: 'prepare', label: t('连接目标机 / 环境体检'), progress: 6 },
+  { key: 'upload', label: t('上传 Python 安装包到 C:\\Installer'), progress: 28 },
+  { key: 'install', label: t('静默安装 Python'), progress: 48 },
+  { key: 'pip', label: t('安装 windows-mcp'), progress: 68 },
+  { key: 'vbs', label: t('写开机自启 VBS 并启动 MCP'), progress: 82 },
+  { key: 'expose', label: t('开 portproxy（局域网地址 → 回环）'), progress: 92 },
+  { key: 'firewall', label: t('放行 MCP 端口（只放行堡垒机 IP）'), progress: 96 },
+  { key: 'verify', label: t('探活 MCP（tools/list）'), progress: 100 },
 ];
 
 /** 镜像清单里的一条 Python 版本（真的存在 amd64 安装包才会出现） */

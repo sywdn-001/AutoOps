@@ -37,6 +37,7 @@ import {
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionTag, MonoCell, RiskTag, TimeCell } from '@/components/Bastion';
+import { t } from '@/i18n';
 import { RISK_OPTIONS } from '@/services/bastion/constants';
 import {
   type FilePolicyPayload,
@@ -61,23 +62,25 @@ const DEFAULT_RULE_PRIORITY = 100;
 type FileNameOption = { value: string; label: string };
 
 const FILE_MATCH_OPTIONS: { label: string; value: FileMatchType }[] = [
-  { label: '通配符（* 可跨目录）', value: 'glob' },
-  { label: '正则表达式', value: 'regex' },
-  { label: '前缀匹配', value: 'prefix' },
-  { label: '包含匹配', value: 'contains' },
+  { label: t('通配符（* 可跨目录）'), value: 'glob' },
+  { label: t('正则表达式'), value: 'regex' },
+  { label: t('前缀匹配'), value: 'prefix' },
+  { label: t('包含匹配'), value: 'contains' },
 ];
 
 const FILE_ACTION_OPTIONS: { label: string; value: FilePolicyAction }[] = [
-  { label: '放行', value: 'allow' },
-  { label: '拦截', value: 'deny' },
+  { label: t('放行'), value: 'allow' },
+  { label: t('拦截'), value: 'deny' },
 ];
 
 /** 匹配方式示例（放在输入框下方，避免写出不起作用的规则） */
 const MATCH_EXAMPLES: Record<string, string> = {
-  glob: '示例：/etc/** 匹配 /etc 下任意层级；/home/*/data 只匹配一层目录；* 可跨 / 匹配。',
-  regex: '示例：^/var/log/.*\\.log$（正则里的特殊字符需要转义）。',
-  prefix: '示例：/srv/app 匹配 /srv/app 与其下所有路径。',
-  contains: '示例：.sql 匹配路径里任何含 .sql 的文件。',
+  glob: t(
+    '示例：/etc/** 匹配 /etc 下任意层级；/home/*/data 只匹配一层目录；* 可跨 / 匹配。',
+  ),
+  regex: t('示例：^/var/log/.*\\.log$（正则里的特殊字符需要转义）。'),
+  prefix: t('示例：/srv/app 匹配 /srv/app 与其下所有路径。'),
+  contains: t('示例：.sql 匹配路径里任何含 .sql 的文件。'),
 };
 
 type RuleFormValues = {
@@ -129,7 +132,7 @@ const FilePoliciesPage: React.FC = () => {
       setOperations(ops ?? []);
       setPolicyOptions(options ?? []);
     } catch (err) {
-      message.error((err as Error)?.message || '加载文件策略选项失败');
+      message.error((err as Error)?.message || t('加载文件策略选项失败'));
     }
   }, [message]);
 
@@ -144,7 +147,7 @@ const FilePoliciesPage: React.FC = () => {
         const data = await fileRuleApi.list(policy.id);
         setRules(data ?? []);
       } catch (err) {
-        message.error((err as Error)?.message || '加载规则失败');
+        message.error((err as Error)?.message || t('加载规则失败'));
         setRules([]);
       } finally {
         setRulesLoading(false);
@@ -185,16 +188,16 @@ const FilePoliciesPage: React.FC = () => {
     try {
       if (policyModal.target) {
         await filePolicyApi.update(policyModal.target.id, values);
-        message.success('策略已更新');
+        message.success(t('策略已更新'));
       } else {
         await filePolicyApi.create(values);
-        message.success('策略已创建');
+        message.success(t('策略已创建'));
       }
       setPolicyModal({ open: false });
       await loadOptions();
       actionRef.current?.reload();
     } catch (err) {
-      message.error((err as Error)?.message || '保存策略失败');
+      message.error((err as Error)?.message || t('保存策略失败'));
     } finally {
       setSaving(false);
     }
@@ -204,14 +207,14 @@ const FilePoliciesPage: React.FC = () => {
     async (policy: FilePolicyItem) => {
       try {
         await filePolicyApi.remove(policy.id);
-        message.success('策略已删除');
+        message.success(t('策略已删除'));
         if (rulesFor?.id === policy.id) {
           setRulesFor(null);
         }
         await loadOptions();
         actionRef.current?.reload();
       } catch (err) {
-        message.error((err as Error)?.message || '删除策略失败');
+        message.error((err as Error)?.message || t('删除策略失败'));
       }
     },
     [actionRef, loadOptions, message, rulesFor?.id],
@@ -249,19 +252,19 @@ const FilePoliciesPage: React.FC = () => {
           ruleModal.target.id,
           values as FileRulePayload,
         );
-        message.success('规则已更新');
+        message.success(t('规则已更新'));
       } else {
         await fileRuleApi.create({
           ...values,
           policyId: rulesFor.id,
         } as FileRulePayload);
-        message.success('规则已添加');
+        message.success(t('规则已添加'));
       }
       setRuleModal({ open: false });
       await loadRules(rulesFor);
       actionRef.current?.reload();
     } catch (err) {
-      message.error((err as Error)?.message || '保存规则失败');
+      message.error((err as Error)?.message || t('保存规则失败'));
     } finally {
       setSaving(false);
     }
@@ -271,13 +274,13 @@ const FilePoliciesPage: React.FC = () => {
     async (rule: FileRuleItem) => {
       try {
         await fileRuleApi.remove(rule.id);
-        message.success('规则已删除');
+        message.success(t('规则已删除'));
         if (rulesFor) {
           await loadRules(rulesFor);
         }
         actionRef.current?.reload();
       } catch (err) {
-        message.error((err as Error)?.message || '删除规则失败');
+        message.error((err as Error)?.message || t('删除规则失败'));
       }
     },
     [actionRef, loadRules, message, rulesFor],
@@ -286,30 +289,30 @@ const FilePoliciesPage: React.FC = () => {
   const ruleColumns = useMemo<TableColumnsType<FileRuleItem>>(
     () => [
       {
-        title: '优先级',
+        title: t('优先级'),
         dataIndex: 'priority',
         width: 88,
         render: (_, row) => <Text strong>{row.priority}</Text>,
       },
       {
-        title: '动作',
+        title: t('动作'),
         dataIndex: 'action',
         width: 90,
         render: (_, row) => <ActionTag action={row.action} />,
       },
       {
-        title: '操作',
+        title: t('操作'),
         dataIndex: 'operation',
         width: 140,
         render: (_, row) =>
           row.operation === '*' ? (
-            <Tag>全部操作</Tag>
+            <Tag>{t('全部操作')}</Tag>
           ) : (
             <span>{operationLabel(row.operation)}</span>
           ),
       },
       {
-        title: '匹配方式',
+        title: t('匹配方式'),
         dataIndex: 'matchType',
         width: 120,
         render: (_, row) =>
@@ -317,26 +320,30 @@ const FilePoliciesPage: React.FC = () => {
             ?.label || row.matchType,
       },
       {
-        title: '路径 / 模式',
+        title: t('路径 / 模式'),
         dataIndex: 'pathPattern',
         render: (_, row) => <MonoCell text={row.pathPattern} />,
       },
       {
-        title: '风险',
+        title: t('风险'),
         dataIndex: 'riskLevel',
         width: 90,
         render: (_, row) => <RiskTag level={row.riskLevel} />,
       },
-      { title: '说明', dataIndex: 'description', ellipsis: true },
+      { title: t('说明'), dataIndex: 'description', ellipsis: true },
       {
-        title: '启用',
+        title: t('启用'),
         dataIndex: 'enabled',
         width: 80,
         render: (_, row) =>
-          row.enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+          row.enabled ? (
+            <Tag color="green">{t('启用')}</Tag>
+          ) : (
+            <Tag>{t('停用')}</Tag>
+          ),
       },
       {
-        title: '操作',
+        title: t('操作'),
         key: 'option',
         width: 130,
         render: (_, row) => [
@@ -347,16 +354,16 @@ const FilePoliciesPage: React.FC = () => {
             disabled={!canManage}
             onClick={() => openRuleModal(row)}
           >
-            编辑
+            {t('编辑')}
           </Button>,
           <Popconfirm
             key="remove"
-            title="删除这条规则？"
+            title={t('删除这条规则？')}
             onConfirm={() => removeRule(row)}
             disabled={!canManage}
           >
             <Button type="link" size="small" danger disabled={!canManage}>
-              删除
+              {t('删除')}
             </Button>
           </Popconfirm>,
         ],
@@ -367,26 +374,26 @@ const FilePoliciesPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="文件策略"
-      subTitle="谁能操作哪些路径上的文件"
+      title={t('文件策略')}
+      subTitle={t('谁能操作哪些路径上的文件')}
       extra={[
         <Popconfirm
           key="reset"
-          title="重置内置文件策略？"
-          description="内置策略的规则会还原为出厂设置，自建策略不受影响。"
+          title={t('重置内置文件策略？')}
+          description={t('内置策略的规则会还原为出厂设置，自建策略不受影响。')}
           disabled={!canManage}
           onConfirm={async () => {
             try {
               await filePolicyApi.resetBuiltin();
-              message.success('内置文件策略已还原');
+              message.success(t('内置文件策略已还原'));
               await loadOptions();
               actionRef.current?.reload();
             } catch (err) {
-              message.error((err as Error)?.message || '重置失败');
+              message.error((err as Error)?.message || t('重置失败'));
             }
           }}
         >
-          <Button disabled={!canManage}>重置内置策略</Button>
+          <Button disabled={!canManage}>{t('重置内置策略')}</Button>
         </Popconfirm>,
         <Button
           key="create"
@@ -394,7 +401,7 @@ const FilePoliciesPage: React.FC = () => {
           disabled={!canManage}
           onClick={() => openPolicyModal()}
         >
-          新建策略
+          {t('新建策略')}
         </Button>,
       ]}
     >
@@ -407,43 +414,43 @@ const FilePoliciesPage: React.FC = () => {
         pagination={{ pageSize: 20, showSizeChanger: true }}
         columns={[
           {
-            title: '策略名称',
+            title: t('策略名称'),
             dataIndex: 'name',
             width: 240,
             render: (_, row) => (
               <Space size={6}>
                 <Text strong>{row.name}</Text>
-                {row.isDefault ? <Tag color="blue">默认</Tag> : null}
+                {row.isDefault ? <Tag color="blue">{t('默认')}</Tag> : null}
               </Space>
             ),
           },
-          { title: '说明', dataIndex: 'description', ellipsis: true },
+          { title: t('说明'), dataIndex: 'description', ellipsis: true },
           {
-            title: '默认动作',
+            title: t('默认动作'),
             dataIndex: 'defaultAction',
             width: 110,
             render: (_, row) => <ActionTag action={row.defaultAction} />,
           },
           {
-            title: '规则数',
+            title: t('规则数'),
             dataIndex: 'ruleCount',
             width: 90,
-            render: (_, row) => `${row.ruleCount} 条`,
+            render: (_, row) => t('{0} 条', { 0: row.ruleCount }),
           },
           {
-            title: '引用授权',
+            title: t('引用授权'),
             dataIndex: 'grantCount',
             width: 100,
-            render: (_, row) => `${row.grantCount} 条`,
+            render: (_, row) => t('{0} 条', { 0: row.grantCount }),
           },
           {
-            title: '更新时间',
+            title: t('更新时间'),
             dataIndex: 'updatedAt',
             width: 180,
             render: (_, row) => <TimeCell value={row.updatedAt} />,
           },
           {
-            title: '操作',
+            title: t('操作'),
             valueType: 'option',
             width: 230,
             render: (_, row) => [
@@ -453,7 +460,7 @@ const FilePoliciesPage: React.FC = () => {
                 size="small"
                 onClick={() => openRules(row)}
               >
-                规则配置
+                {t('规则配置')}
               </Button>,
               <Button
                 key="edit"
@@ -462,16 +469,16 @@ const FilePoliciesPage: React.FC = () => {
                 disabled={!canManage}
                 onClick={() => openPolicyModal(row)}
               >
-                编辑
+                {t('编辑')}
               </Button>,
               <Popconfirm
                 key="remove"
-                title="删除这个策略？"
+                title={t('删除这个策略？')}
                 onConfirm={() => removePolicy(row)}
                 disabled={!canManage}
               >
                 <Button type="link" size="small" danger disabled={!canManage}>
-                  删除
+                  {t('删除')}
                 </Button>
               </Popconfirm>,
             ],
@@ -490,7 +497,7 @@ const FilePoliciesPage: React.FC = () => {
               success: true,
             };
           } catch (err) {
-            message.error((err as Error)?.message || '加载文件策略失败');
+            message.error((err as Error)?.message || t('加载文件策略失败'));
             return { data: [], total: 0, success: false };
           }
         }}
@@ -505,7 +512,9 @@ const FilePoliciesPage: React.FC = () => {
       <Drawer
         open={Boolean(rulesFor)}
         width={1080}
-        title={rulesFor ? `规则管理 · ${rulesFor.name}` : '规则管理'}
+        title={
+          rulesFor ? t('规则管理 · {0}', { 0: rulesFor.name }) : t('规则管理')
+        }
         onClose={() => setRulesFor(null)}
         destroyOnHidden
         extra={
@@ -514,7 +523,7 @@ const FilePoliciesPage: React.FC = () => {
             disabled={!canManage}
             onClick={() => openRuleModal()}
           >
-            新增规则
+            {t('新增规则')}
           </Button>
         }
       >
@@ -530,7 +539,7 @@ const FilePoliciesPage: React.FC = () => {
 
       <Modal
         open={policyModal.open}
-        title={policyModal.target ? '编辑文件策略' : '新建文件策略'}
+        title={policyModal.target ? t('编辑文件策略') : t('新建文件策略')}
         confirmLoading={saving}
         onCancel={() => setPolicyModal({ open: false })}
         onOk={submitPolicy}
@@ -539,23 +548,25 @@ const FilePoliciesPage: React.FC = () => {
         <Form form={policyForm} layout="vertical" preserve={false}>
           <Form.Item
             name="name"
-            label="策略名称"
-            rules={[{ required: true, message: '请输入策略名称' }]}
+            label={t('策略名称')}
+            rules={[{ required: true, message: t('请输入策略名称') }]}
           >
-            <Input placeholder="例如：生产环境只读策略" maxLength={64} />
+            <Input placeholder={t('例如：生产环境只读策略')} maxLength={64} />
           </Form.Item>
-          <Form.Item name="description" label="说明">
+          <Form.Item name="description" label={t('说明')}>
             <Input.TextArea rows={2} maxLength={200} />
           </Form.Item>
           <Form.Item
             name="defaultAction"
-            label="未命中任何规则时"
+            label={t('未命中任何规则时')}
             rules={[{ required: true }]}
-            extra="默认放行适合「只拦敏感路径」，默认拦截适合「只放行白名单路径」。"
+            extra={t(
+              '默认放行适合「只拦敏感路径」，默认拦截适合「只放行白名单路径」。',
+            )}
           >
             <Radio.Group>
-              <Radio.Button value="allow">默认放行</Radio.Button>
-              <Radio.Button value="deny">默认拦截</Radio.Button>
+              <Radio.Button value="allow">{t('默认放行')}</Radio.Button>
+              <Radio.Button value="deny">{t('默认拦截')}</Radio.Button>
             </Radio.Group>
           </Form.Item>
         </Form>
@@ -563,7 +574,7 @@ const FilePoliciesPage: React.FC = () => {
 
       <Modal
         open={ruleModal.open}
-        title={ruleModal.target ? '编辑规则' : '新增规则'}
+        title={ruleModal.target ? t('编辑规则') : t('新增规则')}
         confirmLoading={saving}
         onCancel={() => setRuleModal({ open: false })}
         onOk={submitRule}
@@ -574,27 +585,31 @@ const FilePoliciesPage: React.FC = () => {
           <Space size={12} align="start" wrap>
             <Form.Item
               name="priority"
-              label="优先级"
+              label={t('优先级')}
               rules={[{ required: true }]}
             >
               <InputNumber min={1} max={9999} style={{ width: 110 }} />
             </Form.Item>
             <Form.Item
               name="operation"
-              label="适用操作"
+              label={t('适用操作')}
               rules={[{ required: true }]}
             >
               <Select
                 style={{ width: 200 }}
-                options={[{ value: '*', label: '全部操作' }, ...operations]}
+                options={[{ value: '*', label: t('全部操作') }, ...operations]}
               />
             </Form.Item>
-            <Form.Item name="action" label="动作" rules={[{ required: true }]}>
+            <Form.Item
+              name="action"
+              label={t('动作')}
+              rules={[{ required: true }]}
+            >
               <Select style={{ width: 110 }} options={FILE_ACTION_OPTIONS} />
             </Form.Item>
             <Form.Item
               name="riskLevel"
-              label="风险等级"
+              label={t('风险等级')}
               rules={[{ required: true }]}
             >
               <Select style={{ width: 120 }} options={RISK_OPTIONS} />
@@ -603,17 +618,17 @@ const FilePoliciesPage: React.FC = () => {
           <Space size={12} align="start" wrap>
             <Form.Item
               name="matchType"
-              label="匹配方式"
+              label={t('匹配方式')}
               rules={[{ required: true }]}
             >
               <Select style={{ width: 200 }} options={FILE_MATCH_OPTIONS} />
             </Form.Item>
             <Form.Item
               name="pathPattern"
-              label="路径 / 模式"
-              rules={[{ required: true, message: '请输入路径或匹配模式' }]}
+              label={t('路径 / 模式')}
+              rules={[{ required: true, message: t('请输入路径或匹配模式') }]}
             >
-              <Input style={{ width: 380 }} placeholder="例如：/etc" />
+              <Input style={{ width: 380 }} placeholder={t('例如：/etc')} />
             </Form.Item>
           </Space>
           <Paragraph style={{ marginTop: -8 }}>
@@ -621,13 +636,13 @@ const FilePoliciesPage: React.FC = () => {
               {MATCH_EXAMPLES[matchType || 'glob'] || MATCH_EXAMPLES.glob}
             </Text>
           </Paragraph>
-          <Form.Item name="description" label="说明">
+          <Form.Item name="description" label={t('说明')}>
             <Input
               maxLength={120}
-              placeholder="例如：禁止修改系统目录下的文件"
+              placeholder={t('例如：禁止修改系统目录下的文件')}
             />
           </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked">
+          <Form.Item name="enabled" label={t('启用')} valuePropName="checked">
             <Switch />
           </Form.Item>
         </Form>
@@ -675,43 +690,47 @@ const Evaluator: React.FC<{
       setDecision(data);
     } catch (err) {
       setDecision(null);
-      message.error((err as Error)?.message || '试算失败');
+      message.error((err as Error)?.message || t('试算失败'));
     } finally {
       setLoading(false);
     }
   }, [form, message]);
 
   return (
-    <Card title="操作试算" style={{ marginTop: 16 }}>
+    <Card title={t('操作试算')} style={{ marginTop: 16 }}>
       <Form form={form} layout="inline" initialValues={{ operation: 'delete' }}>
-        <Form.Item name="operation" label="操作" rules={[{ required: true }]}>
+        <Form.Item
+          name="operation"
+          label={t('操作')}
+          rules={[{ required: true }]}
+        >
           <Select
             style={{ width: 200 }}
             options={operations}
-            placeholder="选择文件操作"
+            placeholder={t('选择文件操作')}
           />
         </Form.Item>
         <Form.Item
           name="path"
-          label="路径"
-          rules={[{ required: true, message: '请输入路径' }]}
+          label={t('路径')}
+          rules={[{ required: true, message: t('请输入路径') }]}
         >
           <Input style={{ width: 240 }} placeholder="/etc/passwd" />
         </Form.Item>
         {needsTarget ? (
           <Form.Item
             name="targetPath"
-            label="目标路径"
+            label={t('目标路径')}
             rules={[{ required: true }]}
           >
             <Input style={{ width: 240 }} placeholder="/tmp/backup" />
           </Form.Item>
         ) : null}
-        <Form.Item name="policyId" label="策略">
+        <Form.Item name="policyId" label={t('策略')}>
           <Select
             allowClear
             style={{ width: 200 }}
-            placeholder="默认文件策略"
+            placeholder={t('默认文件策略')}
             options={policies.map((item) => ({
               value: item.value,
               label: item.label,
@@ -720,7 +739,7 @@ const Evaluator: React.FC<{
         </Form.Item>
         <Form.Item>
           <Button type="primary" loading={loading} onClick={submit}>
-            试算
+            {t('试算')}
           </Button>
         </Form.Item>
       </Form>
@@ -732,7 +751,7 @@ const Evaluator: React.FC<{
           showIcon
           message={
             <Space size={8} wrap>
-              <span>{decision.allowed ? '允许执行' : '拒绝执行'}</span>
+              <span>{decision.allowed ? t('允许执行') : t('拒绝执行')}</span>
               <ActionTag action={decision.action} />
               <RiskTag level={decision.riskLevel} />
               <Tag>{decision.policyName}</Tag>
@@ -740,20 +759,22 @@ const Evaluator: React.FC<{
           }
           description={
             <Descriptions size="small" column={1}>
-              <Descriptions.Item label="判定说明">
+              <Descriptions.Item label={t('判定说明')}>
                 {decision.reason}
               </Descriptions.Item>
-              <Descriptions.Item label="命中规则">
+              <Descriptions.Item label={t('命中规则')}>
                 {decision.ruleId ? (
                   <Space size={8} wrap>
                     <Tag color="purple">#{decision.ruleId}</Tag>
                     <MonoCell text={decision.rulePattern} />
                   </Space>
                 ) : (
-                  <Text type="secondary">未命中任何规则，按默认动作处理</Text>
+                  <Text type="secondary">
+                    {t('未命中任何规则，按默认动作处理')}
+                  </Text>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="试算路径">
+              <Descriptions.Item label={t('试算路径')}>
                 <MonoCell text={decision.path} />
               </Descriptions.Item>
             </Descriptions>

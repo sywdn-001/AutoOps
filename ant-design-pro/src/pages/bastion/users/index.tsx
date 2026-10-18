@@ -27,6 +27,7 @@ import {
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { BoolTag, TimeCell } from '@/components/Bastion';
+import { t } from '@/i18n';
 import { formatDateTime, USER_STATUS_META } from '@/services/bastion/constants';
 import {
   roleApi,
@@ -73,11 +74,11 @@ const PASSWORD_PATTERN =
   /^(?:(?=.*[A-Za-z])(?=.*\d)|(?=.*[A-Za-z])(?=.*[^A-Za-z0-9])|(?=.*\d)(?=.*[^A-Za-z0-9]))[\s\S]+$/;
 
 const PASSWORD_RULES = [
-  { required: true, message: '请输入初始密码' },
-  { min: 8, message: '密码至少 8 位' },
+  { required: true, message: t('请输入初始密码') },
+  { min: 8, message: t('密码至少 8 位') },
   {
     pattern: PASSWORD_PATTERN,
-    message: '密码需包含字母、数字、符号中的至少两类',
+    message: t('密码需包含字母、数字、符号中的至少两类'),
   },
 ];
 
@@ -119,7 +120,7 @@ const UsersPage: React.FC = () => {
       try {
         setRoleOptions(await roleApi.options());
       } catch (err) {
-        message.error(fromApiError(err, '加载角色选项失败'));
+        message.error(fromApiError(err, t('加载角色选项失败')));
       }
     })();
   }, [message]);
@@ -162,17 +163,17 @@ const UsersPage: React.FC = () => {
       };
       if (editing) {
         await userApi.update(editing.id, payload);
-        message.success('用户已更新');
+        message.success(t('用户已更新'));
       } else {
         payload.password = values.password;
         await userApi.create(payload);
-        message.success('用户已创建');
+        message.success(t('用户已创建'));
       }
       setFormOpen(false);
       actionRef.current?.reload();
     } catch (err) {
       message.error(
-        fromApiError(err, editing ? '更新用户失败' : '创建用户失败'),
+        fromApiError(err, editing ? t('更新用户失败') : t('创建用户失败')),
       );
     } finally {
       setSubmitting(false);
@@ -186,10 +187,10 @@ const UsersPage: React.FC = () => {
     setSubmitting(true);
     try {
       await userApi.resetPassword(resetTarget.id, values.password);
-      message.success('已重置，用户下次登录必须改密码');
+      message.success(t('已重置，用户下次登录必须改密码'));
       setResetOpen(false);
     } catch (err) {
-      message.error(fromApiError(err, '重置密码失败'));
+      message.error(fromApiError(err, t('重置密码失败')));
     } finally {
       setSubmitting(false);
     }
@@ -198,39 +199,39 @@ const UsersPage: React.FC = () => {
   const unlockUser = async (row: UserItem) => {
     try {
       await userApi.unlock(row.id);
-      message.success(`已解除「${row.username}」的登录锁定`);
+      message.success(t('已解除「{0}」的登录锁定', { 0: row.username }));
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '解锁失败'));
+      message.error(fromApiError(err, t('解锁失败')));
     }
   };
 
   const removeUser = async (row: UserItem) => {
     try {
       await userApi.remove(row.id);
-      message.success('用户已删除');
+      message.success(t('用户已删除'));
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '删除用户失败'));
+      message.error(fromApiError(err, t('删除用户失败')));
     }
   };
 
   const columns: ProColumns<UserItem>[] = [
     {
-      title: '用户名',
+      title: t('用户名'),
       dataIndex: 'username',
       width: 140,
       search: false,
     },
     {
-      title: '姓名',
+      title: t('姓名'),
       dataIndex: 'displayName',
       width: 120,
       search: false,
       render: (_, row) => row.displayName || '-',
     },
     {
-      title: '角色',
+      title: t('角色'),
       dataIndex: 'roleName',
       width: 130,
       search: false,
@@ -238,7 +239,7 @@ const UsersPage: React.FC = () => {
         row.roleName ? <Tag color="blue">{row.roleName}</Tag> : '-',
     },
     {
-      title: '状态',
+      title: t('状态'),
       dataIndex: 'status',
       width: 100,
       search: false,
@@ -251,54 +252,58 @@ const UsersPage: React.FC = () => {
       },
     },
     {
-      title: '网关登录',
+      title: t('网关登录'),
       dataIndex: 'gatewayEnabled',
       width: 100,
       search: false,
       render: (_, row) => <BoolTag value={row.gatewayEnabled} />,
     },
     {
-      title: '网页终端',
+      title: t('网页终端'),
       dataIndex: 'webtermEnabled',
       width: 100,
       search: false,
       render: (_, row) => <BoolTag value={row.webtermEnabled} />,
     },
     {
-      title: '超级管理员',
+      title: t('超级管理员'),
       dataIndex: 'isSuperuser',
       width: 110,
       search: false,
-      render: (_, row) => <BoolTag value={row.isSuperuser} yes="是" no="否" />,
+      render: (_, row) => (
+        <BoolTag value={row.isSuperuser} yes={t('是')} no={t('否')} />
+      ),
     },
     {
-      title: '最后登录',
+      title: t('最后登录'),
       dataIndex: 'lastLoginAt',
       width: 180,
       search: false,
       render: (_, row) => <TimeCell value={row.lastLoginAt} />,
     },
     {
-      title: '最后登录 IP',
+      title: t('最后登录 IP'),
       dataIndex: 'lastLoginIp',
       width: 150,
       search: false,
       render: (_, row) => row.lastLoginIp || '-',
     },
     {
-      title: '锁定状态',
+      title: t('锁定状态'),
       dataIndex: 'lockedUntil',
       width: 220,
       search: false,
       render: (_, row) =>
         row.lockedUntil ? (
-          <Tag color="red">已锁定至 {formatDateTime(row.lockedUntil)}</Tag>
+          <Tag color="red">
+            {t('已锁定至 {0}', { 0: formatDateTime(row.lockedUntil) })}
+          </Tag>
         ) : (
-          <Tag color="default">正常</Tag>
+          <Tag color="default">{t('正常')}</Tag>
         ),
     },
     {
-      title: '操作',
+      title: t('操作'),
       valueType: 'option',
       key: 'option',
       fixed: 'right',
@@ -313,39 +318,39 @@ const UsersPage: React.FC = () => {
         }
         return [
           <a key="edit" onClick={() => void openEdit(row)}>
-            编辑
+            {t('编辑')}
           </a>,
           <a key="reset" onClick={() => void openReset(row)}>
-            重置密码
+            {t('重置密码')}
           </a>,
           row.lockedUntil ? (
             <a key="unlock" onClick={() => void unlockUser(row)}>
-              解锁
+              {t('解锁')}
             </a>
           ) : null,
           <Popconfirm
             key="delete"
-            title="确认删除该用户？"
-            description="删除后该用户将无法再登录，其授权记录也会失效。"
-            okText="删除"
+            title={t('确认删除该用户？')}
+            description={t('删除后该用户将无法再登录，其授权记录也会失效。')}
+            okText={t('删除')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('取消')}
             onConfirm={() => removeUser(row)}
           >
-            <a style={{ color: '#cf1322' }}>删除</a>
+            <a style={{ color: '#cf1322' }}>{t('删除')}</a>
           </Popconfirm>,
         ];
       },
     },
     {
-      title: '关键词',
+      title: t('关键词'),
       dataIndex: 'keyword',
       key: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '用户名 / 姓名 / 邮箱' },
+      fieldProps: { placeholder: t('用户名 / 姓名 / 邮箱') },
     },
     {
-      title: '角色',
+      title: t('角色'),
       dataIndex: 'roleId',
       key: 'searchRoleId',
       valueType: 'select',
@@ -354,18 +359,18 @@ const UsersPage: React.FC = () => {
         showSearch: true,
         optionFilterProp: 'label',
         options: roleOptions,
-        placeholder: '全部角色',
+        placeholder: t('全部角色'),
       },
     },
     {
-      title: '状态',
+      title: t('状态'),
       dataIndex: 'status',
       key: 'searchStatus',
       valueType: 'select',
       hideInTable: true,
       fieldProps: {
         options: STATUS_OPTIONS,
-        placeholder: '全部状态',
+        placeholder: t('全部状态'),
       },
     },
   ];
@@ -373,14 +378,14 @@ const UsersPage: React.FC = () => {
   return (
     <PageContainer
       header={{
-        title: '用户管理',
-        subTitle: '账号、角色、登录入口与锁定状态',
+        title: t('用户管理'),
+        subTitle: t('账号、角色、登录入口与锁定状态'),
       }}
     >
       <ProTable<UserItem>
         rowKey="id"
         actionRef={actionRef}
-        headerTitle="用户列表"
+        headerTitle={t('用户列表')}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 10 }}
         scroll={{ x: 'max-content' }}
@@ -397,7 +402,7 @@ const UsersPage: React.FC = () => {
                   icon={<PlusOutlined />}
                   onClick={openCreate}
                 >
-                  新增用户
+                  {t('新增用户')}
                 </Button>,
               ]
             : []
@@ -406,7 +411,11 @@ const UsersPage: React.FC = () => {
       />
 
       <Modal
-        title={editing ? `编辑用户「${editing.username}」` : '新增用户'}
+        title={
+          editing
+            ? t('编辑用户「{0}」', { 0: editing.username })
+            : t('新增用户')
+        }
         open={formOpen}
         width={640}
         onCancel={() => setFormOpen(false)}
@@ -414,8 +423,8 @@ const UsersPage: React.FC = () => {
         confirmLoading={submitting}
         destroyOnHidden
         mask={{ closable: false }}
-        okText="保存"
-        cancelText="取消"
+        okText={t('保存')}
+        cancelText={t('取消')}
       >
         <Form
           form={form}
@@ -425,94 +434,99 @@ const UsersPage: React.FC = () => {
         >
           <Form.Item
             name="username"
-            label="用户名"
-            rules={[{ required: true, message: '请输入用户名' }]}
+            label={t('用户名')}
+            rules={[{ required: true, message: t('请输入用户名') }]}
           >
-            <Input placeholder="登录名，例如 zhangsan" disabled={!!editing} />
+            <Input
+              placeholder={t('登录名，例如 zhangsan')}
+              disabled={!!editing}
+            />
           </Form.Item>
-          <Form.Item name="displayName" label="姓名">
-            <Input placeholder="真实姓名，选填" />
+          <Form.Item name="displayName" label={t('姓名')}>
+            <Input placeholder={t('真实姓名，选填')} />
           </Form.Item>
           <Form.Item
             name="roleId"
-            label="角色"
-            rules={[{ required: true, message: '请选择角色' }]}
+            label={t('角色')}
+            rules={[{ required: true, message: t('请选择角色') }]}
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择该用户的角色"
+              placeholder={t('选择该用户的角色')}
               options={roleOptions}
             />
           </Form.Item>
           {!editing && (
             <Form.Item
               name="password"
-              label="初始密码"
+              label={t('初始密码')}
               rules={PASSWORD_RULES}
-              extra="至少 8 位，且包含字母、数字、符号中的至少两类"
+              extra={t('至少 8 位，且包含字母、数字、符号中的至少两类')}
             >
               <Input.Password
-                placeholder="请输入初始密码"
+                placeholder={t('请输入初始密码')}
                 autoComplete="new-password"
               />
             </Form.Item>
           )}
           <Form.Item
             name="email"
-            label="邮箱"
-            rules={[{ type: 'email', message: '邮箱格式不正确' }]}
+            label={t('邮箱')}
+            rules={[{ type: 'email', message: t('邮箱格式不正确') }]}
           >
-            <Input placeholder="选填" />
+            <Input placeholder={t('选填')} />
           </Form.Item>
-          <Form.Item name="phone" label="手机号">
-            <Input placeholder="选填" />
+          <Form.Item name="phone" label={t('手机号')}>
+            <Input placeholder={t('选填')} />
           </Form.Item>
           <Form.Item
             name="status"
-            label="状态"
-            rules={[{ required: true, message: '请选择状态' }]}
+            label={t('状态')}
+            rules={[{ required: true, message: t('请选择状态') }]}
           >
             <Select options={STATUS_OPTIONS} />
           </Form.Item>
           <Form.Item
             name="gatewayEnabled"
-            label="网关登录"
+            label={t('网关登录')}
             valuePropName="checked"
           >
-            <Switch checkedChildren="允许" unCheckedChildren="禁止" />
+            <Switch checkedChildren={t('允许')} unCheckedChildren={t('禁止')} />
           </Form.Item>
           <Form.Item
             name="webtermEnabled"
-            label="网页终端"
+            label={t('网页终端')}
             valuePropName="checked"
           >
-            <Switch checkedChildren="允许" unCheckedChildren="禁止" />
+            <Switch checkedChildren={t('允许')} unCheckedChildren={t('禁止')} />
           </Form.Item>
           <Form.Item
             name="mustChangePassword"
-            label="下次登录必须改密码"
+            label={t('下次登录必须改密码')}
             valuePropName="checked"
           >
-            <Switch checkedChildren="是" unCheckedChildren="否" />
+            <Switch checkedChildren={t('是')} unCheckedChildren={t('否')} />
           </Form.Item>
           <Form.Item
             name="isSuperuser"
-            label="超级管理员"
+            label={t('超级管理员')}
             valuePropName="checked"
-            extra="超级管理员拥有全部权限，请谨慎授予"
+            extra={t('超级管理员拥有全部权限，请谨慎授予')}
           >
-            <Switch checkedChildren="是" unCheckedChildren="否" />
+            <Switch checkedChildren={t('是')} unCheckedChildren={t('否')} />
           </Form.Item>
-          <Form.Item name="remark" label="备注">
-            <Input.TextArea rows={3} placeholder="选填" />
+          <Form.Item name="remark" label={t('备注')}>
+            <Input.TextArea rows={3} placeholder={t('选填')} />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
         title={
-          resetTarget ? `重置「${resetTarget.username}」的密码` : '重置密码'
+          resetTarget
+            ? t('重置「{0}」的密码', { 0: resetTarget.username })
+            : t('重置密码')
         }
         open={resetOpen}
         width={440}
@@ -520,8 +534,8 @@ const UsersPage: React.FC = () => {
         onOk={() => resetForm.submit()}
         confirmLoading={submitting}
         destroyOnHidden
-        okText="重置"
-        cancelText="取消"
+        okText={t('重置')}
+        cancelText={t('取消')}
       >
         <Form
           form={resetForm}
@@ -530,19 +544,19 @@ const UsersPage: React.FC = () => {
         >
           <Form.Item
             name="password"
-            label="新密码"
+            label={t('新密码')}
             rules={[
-              { required: true, message: '请输入新密码' },
-              { min: 8, message: '新密码至少 8 位' },
+              { required: true, message: t('请输入新密码') },
+              { min: 8, message: t('新密码至少 8 位') },
               {
                 pattern: PASSWORD_PATTERN,
-                message: '新密码需包含字母、数字、符号中的至少两类',
+                message: t('新密码需包含字母、数字、符号中的至少两类'),
               },
             ]}
-            extra="重置成功后，该用户下次登录必须修改密码"
+            extra={t('重置成功后，该用户下次登录必须修改密码')}
           >
             <Input.Password
-              placeholder="请输入新密码"
+              placeholder={t('请输入新密码')}
               autoComplete="new-password"
             />
           </Form.Item>

@@ -5,6 +5,7 @@
  */
 import { Tag } from 'antd';
 import { useEffect, useState } from 'react';
+import { t } from '@/i18n';
 import { formatDuration, STATUS_META, type TerminalSession } from '../types';
 
 const ConsoleStatusBar = ({
@@ -34,9 +35,9 @@ const ConsoleStatusBar = ({
       <div className="bastion-statusbar-left">
         <span
           className={`bastion-status-dot${channelOnline ? '' : ' bastion-status-dot-offline'}`}
-          title={channelOnline ? '终端通道已连接' : '终端通道未连接'}
+          title={channelOnline ? t('终端通道已连接') : t('终端通道未连接')}
         />
-        <span>{username || '未登录'}</span>
+        <span>{username || t('未登录')}</span>
       </div>
       <div className="bastion-statusbar-right">
         {session ? (
@@ -64,12 +65,12 @@ const ConsoleStatusBar = ({
             {session.closedReason ? (
               <span title={session.closedReason}>{session.closedReason}</span>
             ) : null}
-            <span className="bastion-status-duration" title="连接时长">
+            <span className="bastion-status-duration" title={t('连接时长')}>
               {live ? formatDuration(now - (connectedAt as number)) : '-'}
             </span>
           </>
         ) : (
-          <span>未建立会话</span>
+          <span>{t('未建立会话')}</span>
         )}
       </div>
     </div>

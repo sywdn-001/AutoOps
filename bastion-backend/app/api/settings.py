@@ -154,7 +154,7 @@ def gateway_info():
             "listenHost": host,
             "listenPort": port,
             "suggestedHost": public,
-            "connectCommand": f"ssh -p {port} <堡垒机账号>@{public}",
+            "connectCommand": f"ssh -p {port} <account>@{public}",
             "allowPassword": bool(current_app.config.get("GATEWAY_ALLOW_PASSWORD", True)),
             "allowPublicKey": bool(current_app.config.get("GATEWAY_ALLOW_PUBKEY", True)),
             "hostKeyFingerprint": _host_key_fingerprint(),

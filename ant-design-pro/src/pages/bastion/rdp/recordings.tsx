@@ -37,6 +37,8 @@ import { rdpApi } from '@/services/bastion/endpoints';
 import type { RdpRecording } from '@/services/bastion/types';
 import './rdp.css';
 
+import { t } from '@/i18n';
+
 const { Text } = Typography;
 
 /** 秒 → mm:ss（超过一小时按 hh:mm:ss）。 */
@@ -85,7 +87,7 @@ const RdpRecordingsPage = () => {
   const play = useCallback((recording: RdpRecording) => {
     const url = buildRdpPlayUrl({
       recordingId: recording.id,
-      hostName: recording.hostName || `主机 #${recording.hostId}`,
+      hostName: recording.hostName || t('主机 #{0}', { 0: recording.hostId }),
       username: recording.username,
       accountUsername: recording.accountUsername,
       duration: formatDuration(recording.durationSeconds),
@@ -98,7 +100,7 @@ const RdpRecordingsPage = () => {
       consoleWindowFeatures(),
     );
     if (!opened) {
-      message.warning('浏览器拦截了回放窗口，请允许本页弹出窗口后重试');
+      message.warning(t('浏览器拦截了回放窗口，请允许本页弹出窗口后重试'));
     }
   }, []);
 
@@ -106,10 +108,10 @@ const RdpRecordingsPage = () => {
     setRemoving(recording.id);
     try {
       await rdpApi.removeRecording(recording.id);
-      message.success('录像已删除');
+      message.success(t('录像已删除'));
       actionRef.current?.reload();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败');
+      message.error(err instanceof Error ? err.message : t('删除失败'));
     } finally {
       setRemoving(undefined);
     }
@@ -117,7 +119,7 @@ const RdpRecordingsPage = () => {
 
   const columns: ProColumns<RdpRecording>[] = [
     {
-      title: '录像',
+      title: t('录像'),
       dataIndex: 'id',
       width: 130,
       render: (_, record) => (
@@ -125,51 +127,55 @@ const RdpRecordingsPage = () => {
           <VideoCameraOutlined />
           <span className="bastion-rdp-rec-id">#{record.id}</span>
           {record.recovered ? (
-            <Tooltip title="浏览器窗口被强行关掉（直接关标签页 / 崩溃 / 断网）时，服务端凭边录边传已经收到的分片自动收口的录像 —— 只录到窗口关闭那一刻，不是完整的操作过程">
-              <Tag color="orange">未正常结束</Tag>
+            <Tooltip
+              title={t(
+                '浏览器窗口被强行关掉（直接关标签页 / 崩溃 / 断网）时，服务端凭边录边传已经收到的分片自动收口的录像 —— 只录到窗口关闭那一刻，不是完整的操作过程',
+              )}
+            >
+              <Tag color="orange">{t('未正常结束')}</Tag>
             </Tooltip>
           ) : null}
         </Space>
       ),
     },
     {
-      title: '目标主机',
+      title: t('目标主机'),
       dataIndex: 'hostName',
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <span className="bastion-launcher-host">
-            {record.hostName || `主机 #${record.hostId}`}
+            {record.hostName || t('主机 #{0}', { 0: record.hostId })}
           </span>
           <span className="bastion-launcher-addr">{record.hostAddress}</span>
         </Space>
       ),
     },
     {
-      title: '操作人',
+      title: t('操作人'),
       dataIndex: 'username',
       width: 140,
       render: (_, record) => record.username || '—',
     },
     {
-      title: '资产账号',
+      title: t('资产账号'),
       dataIndex: 'accountUsername',
       width: 140,
       render: (_, record) => record.accountUsername || '—',
     },
     {
-      title: '时长',
+      title: t('时长'),
       dataIndex: 'durationSeconds',
       width: 100,
       render: (_, record) => formatDuration(record.durationSeconds),
     },
     {
-      title: '体积',
+      title: t('体积'),
       dataIndex: 'sizeBytes',
       width: 110,
       render: (_, record) => formatSize(record.sizeBytes),
     },
     {
-      title: '录制时间',
+      title: t('录制时间'),
       dataIndex: 'createdAt',
       width: 180,
       render: (_, record) => (
@@ -177,27 +183,33 @@ const RdpRecordingsPage = () => {
       ),
     },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'action',
       width: 170,
       render: (_, record) => (
         <Space size={4}>
-          <Tooltip title="在独立窗口里回放（会换一张 10 分钟有效的一次性票据，并在审计里记一条查看记录）">
+          <Tooltip
+            title={t(
+              '在独立窗口里回放（会换一张 10 分钟有效的一次性票据，并在审计里记一条查看记录）',
+            )}
+          >
             <Button
               size="small"
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={() => play(record)}
             >
-              回看
+              {t('回看')}
             </Button>
           </Tooltip>
           <Popconfirm
-            title="删除这条录像？"
-            description="录像文件会从堡垒机上删除，审计里只留下「已删除」的记录。"
-            okText="删除"
+            title={t('删除这条录像？')}
+            description={t(
+              '录像文件会从堡垒机上删除，审计里只留下「已删除」的记录。',
+            )}
+            okText={t('删除')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('取消')}
             onConfirm={() => void remove(record)}
           >
             <Button
@@ -206,7 +218,7 @@ const RdpRecordingsPage = () => {
               icon={<DeleteOutlined />}
               loading={removing === record.id}
             >
-              删除
+              {t('删除')}
             </Button>
           </Popconfirm>
         </Space>
@@ -215,7 +227,7 @@ const RdpRecordingsPage = () => {
   ];
 
   return (
-    <PageContainer title="远程桌面录像">
+    <PageContainer title={t('远程桌面录像')}>
       <ProTable<RdpRecording>
         rowKey="id"
         actionRef={actionRef}
@@ -224,14 +236,18 @@ const RdpRecordingsPage = () => {
         cardBordered
         headerTitle={
           <Space size={10} wrap>
-            <span>录像列表</span>
+            <span>{t('录像列表')}</span>
             <Text
               type="secondary"
               style={{ fontSize: 12, fontWeight: 'normal' }}
             >
               {access.canSessionViewAll || access.canAuditView
-                ? '你能看到所有人的录像；每次「回看」都会在审计里记一条查看记录。'
-                : '你只能看到自己上传的录像；每次「回看」都会在审计里记一条查看记录。'}
+                ? t(
+                    '你能看到所有人的录像；每次「回看」都会在审计里记一条查看记录。',
+                  )
+                : t(
+                    '你只能看到自己上传的录像；每次「回看」都会在审计里记一条查看记录。',
+                  )}
             </Text>
           </Space>
         }
@@ -242,16 +258,17 @@ const RdpRecordingsPage = () => {
             icon={<ReloadOutlined />}
             onClick={() => actionRef.current?.reload()}
           >
-            刷新
+            {t('刷新')}
           </Button>,
         ]}
         locale={{
           emptyText: (
             <Space direction="vertical" size={4}>
-              <span>还没有录像</span>
+              <span>{t('还没有录像')}</span>
               <span className="bastion-launcher-addr">
-                在「网页终端」里连接一台 Windows
-                主机并操作，会话结束时录像会自动上传到这里。
+                {t(
+                  '在「网页终端」里连接一台 Windows\n                主机并操作，会话结束时录像会自动上传到这里。',
+                )}
               </span>
             </Space>
           ),

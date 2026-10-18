@@ -58,6 +58,8 @@ import { patchRoundBlock, roundBlocksOf } from '../ai/blocks';
 import { AiCards, AiCardView, AiCode } from '../ai/cards';
 import '../ai/ai.css';
 
+import { t } from '@/i18n';
+
 const { Text } = Typography;
 
 /* ------------------------------------------------------------------ *
@@ -72,10 +74,10 @@ const STATUS_POLL_MS = 30000;
 
 /** 欢迎态里的示例问题：点一下就发出去（与 AI 运维页同一套交互） */
 export const WELCOME_HINTS = [
-  '打开记事本，输入今天的巡检结论',
-  '把当前屏幕截一张给我看',
-  '这台机器装的是什么版本的 Python？',
-  '列一下正在运行的程序',
+  t('打开记事本，输入今天的巡检结论'),
+  t('把当前屏幕截一张给我看'),
+  t('这台机器装的是什么版本的 Python？'),
+  t('列一下正在运行的程序'),
 ];
 
 /** 工具调用状态 → 标签（与 AI 对话页保持同一套说法） */
@@ -83,13 +85,13 @@ export const COMPUTER_USE_STATUS: Record<
   string,
   { color: string; text: string }
 > = {
-  running: { color: 'processing', text: '执行中' },
-  pending: { color: 'warning', text: '待管理员确认' },
-  approved: { color: 'processing', text: '已确认，执行中' },
-  success: { color: 'success', text: '成功' },
-  failure: { color: 'error', text: '失败' },
-  denied: { color: 'error', text: '无权限' },
-  rejected: { color: 'default', text: '已拒绝' },
+  running: { color: 'processing', text: t('执行中') },
+  pending: { color: 'warning', text: t('待管理员确认') },
+  approved: { color: 'processing', text: t('已确认，执行中') },
+  success: { color: 'success', text: t('成功') },
+  failure: { color: 'error', text: t('失败') },
+  denied: { color: 'error', text: t('无权限') },
+  rejected: { color: 'default', text: t('已拒绝') },
 };
 
 export interface ComputerUseTool {
@@ -250,7 +252,7 @@ export const describeToolMeta = (tool: ComputerUseTool) => ({
   name: tool.name,
   description: tool.description ?? '',
   readOnly: isToolReadOnly(tool),
-  label: isToolReadOnly(tool) ? '只读' : '会改机器状态',
+  label: isToolReadOnly(tool) ? t('只读') : t('会改机器状态'),
   color: isToolReadOnly(tool) ? 'green' : 'orange',
 });
 
@@ -305,7 +307,7 @@ export const resolveHostLabel = (
   const name = asText(status?.hostName);
   if (name) return name;
   const address = asText(status?.hostAddress);
-  return address || `主机 #${hostId}`;
+  return address || t('主机 #{0}', { 0: hostId });
 };
 
 /** POST /api/computer-use/mcp/restart（把目标机上的 MCP 重启掉：卡住/截图空白时的自救） */
@@ -322,10 +324,14 @@ export const screenshotHint = (text?: string): string | undefined => {
     lower.includes('screen grab failed') ||
     lower.includes('error capturing screenshot')
   ) {
-    return '目标机当前没有已登录的桌面会话（MCP 跑在会话 0），抓不到桌面像素。在目标机上登录一次桌面，再点上面的「重启 MCP」把服务接管到你的桌面会话。';
+    return t(
+      '目标机当前没有已登录的桌面会话（MCP 跑在会话 0），抓不到桌面像素。在目标机上登录一次桌面，再点上面的「重启 MCP」把服务接管到你的桌面会话。',
+    );
   }
   if (lower.includes('没有返回结果') || lower.includes('卡住')) {
-    return '目标机上的 MCP 没在超时内回话（多半是取 UI 元素树把它卡住了）：点上面的「重启 MCP」就能恢复，之后的调用不会再带会卡死的参数。';
+    return t(
+      '目标机上的 MCP 没在超时内回话（多半是取 UI 元素树把它卡住了）：点上面的「重启 MCP」就能恢复，之后的调用不会再带会卡死的参数。',
+    );
   }
   return undefined;
 };
@@ -360,7 +366,7 @@ export const parseToolList = (payload: unknown): ComputerUseTool[] => {
   return raw.map((item, index) => {
     const record = asRecord(item) ?? {};
     return {
-      name: asText(record.name) ?? `工具 ${index + 1}`,
+      name: asText(record.name) ?? t('工具 {0}', { 0: index + 1 }),
       description: asText(record.description),
       mutating: record.mutating === true,
       observeOnly: record.observeOnly === true,
@@ -382,15 +388,16 @@ export const parseProbeResult = (
     return {
       ok,
       toolCount,
-      text: `MCP 探活成功${
-        latency === undefined ? '' : `（${latency}ms）`
-      } · ${toolCount} 个工具`,
+      text: t('MCP 探活成功{0} · {1} 个工具', {
+        0: latency === undefined ? '' : `（${latency}ms）`,
+        1: toolCount,
+      }),
     };
   }
   return {
     ok,
     toolCount,
-    text: asText(data.error) ?? '探活失败：目标机上的 MCP 没有响应',
+    text: asText(data.error) ?? t('探活失败：目标机上的 MCP 没有响应'),
   };
 };
 
@@ -426,7 +433,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
         round,
         toolCall: {
           callId: asText(record.callId) ?? nextToolCallId(),
-          name: asText(record.name) ?? '未知工具',
+          name: asText(record.name) ?? t('未知工具'),
           args: asRecord(record.args),
           description: asText(record.description),
           status: asText(record.status) ?? 'running',
@@ -463,7 +470,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
     case 'error':
       return {
         kind: 'error',
-        error: asText(record.message) ?? 'AI 执行失败',
+        error: asText(record.message) ?? t('AI 执行失败'),
       };
     case 'confirm_required': {
       const rawList = Array.isArray(record.toolCalls) ? record.toolCalls : [];
@@ -471,7 +478,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
         const call = asRecord(item) ?? {};
         return {
           callId: asText(call.callId) ?? nextToolCallId(),
-          name: asText(call.name) ?? '未知工具',
+          name: asText(call.name) ?? t('未知工具'),
           args: asRecord(call.args),
           description: asText(call.description),
           status: 'pending',
@@ -480,7 +487,7 @@ export const classifyChatEvent = (event: unknown): ChatEvent => {
       return {
         kind: 'confirm_required',
         pendingCalls,
-        reason: asText(record.reason) ?? '该操作需要管理员确认',
+        reason: asText(record.reason) ?? t('该操作需要管理员确认'),
       };
     }
     default:
@@ -575,7 +582,7 @@ export const applyChatEvent = (
         streaming: false,
       };
     case 'error':
-      return { ...turn, error: event.error ?? 'AI 执行失败' };
+      return { ...turn, error: event.error ?? t('AI 执行失败') };
     case 'confirm_required': {
       const mark = (item: ComputerUseToolCall): ComputerUseToolCall =>
         (event.pendingCalls ?? []).some((call) => call.callId === item.callId)
@@ -600,160 +607,9 @@ export const applyChatEvent = (
  * 面板样式：自包含地注入 —— 不改 rdp.css（那是别人维护的文件）
  * ------------------------------------------------------------------ */
 
-const PANEL_CSS = `
-.bastion-cu-strip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  width: 44px;
-  padding: 10px 0;
-  background: #0f172a;
-  border-left: 1px solid #1f2937;
-  color: #94a3b8;
-}
-.bastion-cu-strip-text {
-  writing-mode: vertical-rl;
-  letter-spacing: 2px;
-  font-size: 12px;
-  color: #cbd5e1;
-}
-.bastion-cu-panel {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  width: 400px;
-  height: 100%;
-  min-height: 0;
-  /* 「AI 运维」页那套平面配色的四个变量（ai.css 里定义在 .bastion-ai-page 上，这里要自己带上） */
-  --ai-line: rgba(148, 163, 184, 0.3);
-  --ai-fill: rgba(148, 163, 184, 0.14);
-  --ai-fill-strong: rgba(148, 163, 184, 0.22);
-  --ai-accent: #1677ff;
-  background: #0f172a;
-  border-left: 1px solid #1f2937;
-  color: #cbd5e1;
-  font-size: 12px;
-}
-.bastion-cu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #1f2937;
-  flex: 0 0 auto;
-}
-.bastion-cu-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e6edf3;
-}
-.bastion-cu-meta {
-  padding: 6px 10px;
-  border-bottom: 1px solid #1f2937;
-  color: #94a3b8;
-  line-height: 1.7;
-  flex: 0 0 auto;
-}
-.bastion-cu-meta code {
-  color: #93c5fd;
-  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, monospace;
-}
-.bastion-cu-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.bastion-cu-section-title {
-  font-weight: 600;
-  color: #e6edf3;
-}
-.bastion-cu-note {
-  /* 深色面板上的次要文字：slate-400，别用 slate-500（#64748b 在 #0f172a 上对比度只有 4.6:1，看着发灰） */
-  color: #94a3b8;
-  line-height: 1.6;
-}
-.bastion-cu-welcome {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 4px 0;
-}
-.bastion-cu-welcome-icon {
-  font-size: 20px;
-  color: #60a5fa;
-}
-.bastion-cu-welcome-title {
-  font-weight: 600;
-  color: #e6edf3;
-}
-.bastion-cu-welcome-hints {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.bastion-cu-hint {
-  cursor: pointer;
-}
-/* 对话区：AI 轮次结构与「AI 运维」页共用同一套类名（样式来自 ../ai/ai.css） */
-.bastion-cu-chat {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.bastion-cu-chat .bastion-ai-collar {
-  margin-bottom: 0;
-}
-.bastion-cu-msg-user {
-  align-self: flex-end;
-  max-width: 90%;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: #1d4ed8;
-  color: #eff6ff;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-/* 截图空白/服务卡住时给一句「为什么、怎么办」 */
-.bastion-cu-tip {
-  margin-top: 6px;
-  color: #fbbf24;
-  line-height: 1.6;
-}
-.bastion-cu-input {
-  flex: 0 0 auto;
-  padding: 8px 10px;
-  border-top: 1px solid #1f2937;
-  display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  gap: 6px;
-}
-.bastion-cu-input-box {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.bastion-cu-input .ant-input,
-.bastion-cu-input textarea {
-  background: #020617 !important;
-  border-color: #334155 !important;
-  color: #e6edf3 !important;
-}
-.bastion-cu-foot {
-  flex: 0 0 auto;
-  padding: 6px 10px;
-  border-top: 1px solid #1f2937;
-  /* 页脚保留（用户要求），但颜色提到 slate-400，深色底上看得清 */
-  color: #94a3b8;
-  line-height: 1.6;
-}
-`;
+const PANEL_CSS = t(
+  '\n.bastion-cu-strip {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 10px;\n  flex: 0 0 auto;\n  width: 44px;\n  padding: 10px 0;\n  background: #0f172a;\n  border-left: 1px solid #1f2937;\n  color: #94a3b8;\n}\n.bastion-cu-strip-text {\n  writing-mode: vertical-rl;\n  letter-spacing: 2px;\n  font-size: 12px;\n  color: #cbd5e1;\n}\n.bastion-cu-panel {\n  display: flex;\n  flex-direction: column;\n  flex: 0 0 auto;\n  width: 400px;\n  height: 100%;\n  min-height: 0;\n  /* 「AI 运维」页那套平面配色的四个变量（ai.css 里定义在 .bastion-ai-page 上，这里要自己带上） */\n  --ai-line: rgba(148, 163, 184, 0.3);\n  --ai-fill: rgba(148, 163, 184, 0.14);\n  --ai-fill-strong: rgba(148, 163, 184, 0.22);\n  --ai-accent: #1677ff;\n  background: #0f172a;\n  border-left: 1px solid #1f2937;\n  color: #cbd5e1;\n  font-size: 12px;\n}\n.bastion-cu-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n  padding: 8px 10px;\n  border-bottom: 1px solid #1f2937;\n  flex: 0 0 auto;\n}\n.bastion-cu-title {\n  font-size: 13px;\n  font-weight: 600;\n  color: #e6edf3;\n}\n.bastion-cu-meta {\n  padding: 6px 10px;\n  border-bottom: 1px solid #1f2937;\n  color: #94a3b8;\n  line-height: 1.7;\n  flex: 0 0 auto;\n}\n.bastion-cu-meta code {\n  color: #93c5fd;\n  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, monospace;\n}\n.bastion-cu-body {\n  flex: 1 1 auto;\n  min-height: 0;\n  overflow: auto;\n  padding: 10px;\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n.bastion-cu-section-title {\n  font-weight: 600;\n  color: #e6edf3;\n}\n.bastion-cu-note {\n  /* 深色面板上的次要文字：slate-400，别用 slate-500（#64748b 在 #0f172a 上对比度只有 4.6:1，看着发灰） */\n  color: #94a3b8;\n  line-height: 1.6;\n}\n.bastion-cu-welcome {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding: 4px 0;\n}\n.bastion-cu-welcome-icon {\n  font-size: 20px;\n  color: #60a5fa;\n}\n.bastion-cu-welcome-title {\n  font-weight: 600;\n  color: #e6edf3;\n}\n.bastion-cu-welcome-hints {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px;\n}\n.bastion-cu-hint {\n  cursor: pointer;\n}\n/* 对话区：AI 轮次结构与「AI 运维」页共用同一套类名（样式来自 ../ai/ai.css） */\n.bastion-cu-chat {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n.bastion-cu-chat .bastion-ai-collar {\n  margin-bottom: 0;\n}\n.bastion-cu-msg-user {\n  align-self: flex-end;\n  max-width: 90%;\n  padding: 6px 10px;\n  border-radius: 8px;\n  background: #1d4ed8;\n  color: #eff6ff;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n/* 截图空白/服务卡住时给一句「为什么、怎么办」 */\n.bastion-cu-tip {\n  margin-top: 6px;\n  color: #fbbf24;\n  line-height: 1.6;\n}\n.bastion-cu-input {\n  flex: 0 0 auto;\n  padding: 8px 10px;\n  border-top: 1px solid #1f2937;\n  display: flex;\n  flex-direction: row;\n  align-items: flex-end;\n  gap: 6px;\n}\n.bastion-cu-input-box {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n.bastion-cu-input .ant-input,\n.bastion-cu-input textarea {\n  background: #020617 !important;\n  border-color: #334155 !important;\n  color: #e6edf3 !important;\n}\n.bastion-cu-foot {\n  flex: 0 0 auto;\n  padding: 6px 10px;\n  border-top: 1px solid #1f2937;\n  /* 页脚保留（用户要求），但颜色提到 slate-400，深色底上看得清 */\n  color: #94a3b8;\n  line-height: 1.6;\n}\n',
+);
 
 const PanelStyles = () => (
   // biome-ignore lint/security/noDangerouslySetInnerHtml: 面板样式自包含注入，内容是本文件里的静态字符串
@@ -795,7 +651,9 @@ const ToolCallView = ({ call }: { call: ComputerUseToolCall }) => {
           <Text type="secondary">{call.durationMs}ms</Text>
         ) : null}
         {call.confirmedBy ? (
-          <Text type="secondary">确认人 {call.confirmedBy}</Text>
+          <Text type="secondary">
+            {t('确认人 {0}', { 0: call.confirmedBy })}
+          </Text>
         ) : null}
       </div>
       {call.description ? (
@@ -966,7 +824,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       }
     } catch (error) {
       setProbeOk(false);
-      setProbeText(describeApiError(error, '探活失败'));
+      setProbeText(describeApiError(error, t('探活失败')));
     } finally {
       setRefreshing(false);
     }
@@ -987,19 +845,21 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         }),
       );
       if (data?.ok === false) {
-        setRestartError(asText(data.error) ?? '目标机上的 MCP 没能重新起来');
+        setRestartError(asText(data.error) ?? t('目标机上的 MCP 没能重新起来'));
         return;
       }
       const probe = asRecord(data?.probe);
       const count = asNumber(probe?.toolCount);
       setProbeOk(true);
       setProbeText(
-        count === undefined ? 'MCP 已重启' : `MCP 已重启（${count} 个工具）`,
+        count === undefined
+          ? t('MCP 已重启')
+          : t('MCP 已重启（{0} 个工具）', { 0: count }),
       );
       await loadStatus();
       await loadTools();
     } catch (error) {
-      setRestartError(describeApiError(error, '重启 MCP 失败'));
+      setRestartError(describeApiError(error, t('重启 MCP 失败')));
     } finally {
       setRestarting(false);
     }
@@ -1027,7 +887,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         // 记住是哪条气泡挂起了调用：确认/拒绝后要续回同一条，否则事件全丢
         pendingTurnKeyRef.current = key;
         setConfirmCalls(event.pendingCalls ?? []);
-        setConfirmReason(event.reason ?? '该操作需要管理员确认');
+        setConfirmReason(event.reason ?? t('该操作需要管理员确认'));
         setConfirmError(undefined);
         setConfirmOpen(true);
       }
@@ -1062,7 +922,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         if ((error as Error)?.name !== 'AbortError') {
           patchTurn(key, {
             kind: 'error',
-            error: error instanceof Error ? error.message : 'AI 请求失败',
+            error: error instanceof Error ? error.message : t('AI 请求失败'),
           });
         }
       } finally {
@@ -1129,7 +989,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
     async (conversationId: number) => {
       const key = pendingTurnKeyRef.current ?? lastAssistantKeyRef.current;
       if (!key) {
-        setConfirmError('找不到对应的对话气泡：请重新发送一次请求');
+        setConfirmError(t('找不到对应的对话气泡：请重新发送一次请求'));
         return;
       }
       setTurns((prev) =>
@@ -1154,7 +1014,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
     }
     const conversationId = conversationIdRef.current;
     if (!conversationId) {
-      setConfirmError('缺少对话 id：请重新发送一次请求');
+      setConfirmError(t('缺少对话 id：请重新发送一次请求'));
       return;
     }
     setConfirming(true);
@@ -1169,7 +1029,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       confirmForm.resetFields();
       await resumeAfterConfirm(conversationId);
     } catch (error) {
-      setConfirmError(describeApiError(error, '确认失败'));
+      setConfirmError(describeApiError(error, t('确认失败')));
     } finally {
       setConfirming(false);
     }
@@ -1187,13 +1047,13 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       await confirmAiOperation({
         conversationId,
         approve: false,
-        reason: '操作员在 ComputerUse 面板里拒绝了该操作',
+        reason: t('操作员在 ComputerUse 面板里拒绝了该操作'),
       });
       setConfirmOpen(false);
       confirmForm.resetFields();
       await resumeAfterConfirm(conversationId);
     } catch (error) {
-      setConfirmError(describeApiError(error, '拒绝失败'));
+      setConfirmError(describeApiError(error, t('拒绝失败')));
     } finally {
       setConfirming(false);
     }
@@ -1218,16 +1078,16 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
         <PanelStyles />
         <aside className="bastion-cu-strip" data-testid="computeruse-strip">
-          <Tooltip title="展开 ComputerUse AI 操作台" placement="left">
+          <Tooltip title={t('展开 ComputerUse AI 操作台')} placement="left">
             <Button
               size="small"
               type="text"
-              aria-label="展开 ComputerUse AI 操作台"
+              aria-label={t('展开 ComputerUse AI 操作台')}
               icon={<RightOutlined />}
               onClick={() => togglePanel(true)}
             />
           </Tooltip>
-          <Tooltip title="ComputerUse AI 操作台" placement="left">
+          <Tooltip title={t('ComputerUse AI 操作台')} placement="left">
             <RobotOutlined />
           </Tooltip>
           <span className="bastion-cu-strip-text">ComputerUse</span>
@@ -1242,39 +1102,43 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
       <aside
         className="bastion-cu-panel"
         data-testid="computeruse-panel"
-        aria-label="ComputerUse AI 操作台"
+        aria-label={t('ComputerUse AI 操作台')}
       >
         <div className="bastion-cu-head">
           <Space size={6} align="center">
             <RobotOutlined />
-            <span className="bastion-cu-title">ComputerUse AI 操作台</span>
+            <span className="bastion-cu-title">
+              {t('ComputerUse AI 操作台')}
+            </span>
           </Space>
           <Space size={4}>
-            <Tooltip title="重启目标机上的 MCP 服务（卡住或截图空白时点它）">
+            <Tooltip
+              title={t('重启目标机上的 MCP 服务（卡住或截图空白时点它）')}
+            >
               <Button
                 size="small"
                 type="text"
-                aria-label="重启 MCP"
+                aria-label={t('重启 MCP')}
                 icon={<SyncOutlined />}
                 loading={restarting}
                 onClick={() => void restartMcp()}
               />
             </Tooltip>
-            <Tooltip title="探活并刷新状态">
+            <Tooltip title={t('探活并刷新状态')}>
               <Button
                 size="small"
                 type="text"
-                aria-label="刷新 ComputerUse 状态"
+                aria-label={t('刷新 ComputerUse 状态')}
                 icon={<ReloadOutlined />}
                 loading={refreshing}
                 onClick={() => void refresh()}
               />
             </Tooltip>
-            <Tooltip title="收起面板">
+            <Tooltip title={t('收起面板')}>
               <Button
                 size="small"
                 type="text"
-                aria-label="收起 ComputerUse 面板"
+                aria-label={t('收起 ComputerUse 面板')}
                 icon={<LeftOutlined />}
                 onClick={() => {
                   togglePanel(false);
@@ -1290,19 +1154,21 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
         </div>
 
         <div className="bastion-cu-meta">
-          <MetaLine label="目标主机">
+          <MetaLine label={t('目标主机')}>
             <Text strong style={{ color: '#e6edf3' }}>
               {hostLabel}
             </Text>
           </MetaLine>
           {endpoint ? (
-            <MetaLine label="MCP 地址">
+            <MetaLine label={t('MCP 地址')}>
               <code data-testid="computeruse-mcp-url">{endpoint}</code>
             </MetaLine>
           ) : null}
-          <MetaLine label="可用工具">{toolCount} 个</MetaLine>
+          <MetaLine label={t('可用工具')}>
+            {t('{0} 个', { 0: toolCount })}
+          </MetaLine>
           {probeText ? (
-            <MetaLine label="探活">
+            <MetaLine label={t('探活')}>
               <Text type={probeOk ? 'success' : 'danger'}>{probeText}</Text>
             </MetaLine>
           ) : null}
@@ -1320,12 +1186,12 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
           ) : null}
 
           <div className="bastion-cu-chat" data-testid="computeruse-chat">
-            <div className="bastion-cu-section-title">AI 对话</div>
+            <div className="bastion-cu-section-title">{t('AI 对话')}</div>
             {turns.length === 0 ? (
               <div className="bastion-cu-welcome">
                 <RobotOutlined className="bastion-cu-welcome-icon" />
                 <div className="bastion-cu-welcome-title">
-                  告诉 AI 在这台机器上做什么，它来操作并给你截图
+                  {t('告诉 AI 在这台机器上做什么，它来操作并给你截图')}
                 </div>
                 <div className="bastion-cu-welcome-hints">
                   {WELCOME_HINTS.map((hint) => (
@@ -1374,7 +1240,7 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                         key: 'reasoning',
                         label: (
                           <span className="bastion-ai-collapse-label">
-                            思考过程
+                            {t('思考过程')}
                           </span>
                         ),
                         children: (
@@ -1389,9 +1255,13 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                         key: 'tools',
                         label: (
                           <span className="bastion-ai-collapse-label">
-                            工具调用 {block.toolCalls.length} 次
+                            {t('工具调用 {0} 次', {
+                              0: block.toolCalls.length,
+                            })}
                             {pending > 0 ? (
-                              <Tag color="warning">待确认 {pending}</Tag>
+                              <Tag color="warning">
+                                {t('待确认 {0}', { 0: pending })}
+                              </Tag>
                             ) : null}
                           </span>
                         ),
@@ -1459,15 +1329,18 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
                   })}
                   {turn.streaming && !turn.content && !turn.reasoning ? (
                     <span className="bastion-ai-thinking">
-                      <Spin size="small" /> 正在思考…
+                      <Spin size="small" /> {t('正在思考…')}
                     </span>
                   ) : null}
                   {turn.elapsedMs ? (
                     <div className="bastion-ai-meta">
-                      用时 {(turn.elapsedMs / 1000).toFixed(1)}s
-                      {turn.status === 'max_rounds'
-                        ? ' · 已达单轮工具调用上限'
-                        : ''}
+                      {t('用时 {0}s {1}', {
+                        0: (turn.elapsedMs / 1000).toFixed(1),
+                        1:
+                          turn.status === 'max_rounds'
+                            ? t(' · 已达单轮工具调用上限')
+                            : '',
+                      })}
                     </div>
                   ) : null}
                   {turn.error ? (
@@ -1489,8 +1362,10 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
             <Input.TextArea
               value={input}
               autoSize={{ minRows: 1, maxRows: 4 }}
-              placeholder="告诉 AI 下一步做什么（回车发送，Shift+回车换行）"
-              aria-label="ComputerUse AI 指令"
+              placeholder={t(
+                '告诉 AI 下一步做什么（回车发送，Shift+回车换行）',
+              )}
+              aria-label={t('ComputerUse AI 指令')}
               onChange={(event) => setInput(event.target.value)}
               onPressEnter={(event) => {
                 if (event.shiftKey) {
@@ -1505,35 +1380,36 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
             <Button
               size="small"
               icon={<CloseOutlined />}
-              aria-label="停止生成"
+              aria-label={t('停止生成')}
               onClick={() => {
                 streamRef.current?.abort();
                 setStreaming(false);
               }}
             >
-              停止
+              {t('停止')}
             </Button>
           ) : (
             <Button
               type="primary"
               size="small"
               icon={<SendOutlined />}
-              aria-label="发送"
+              aria-label={t('发送')}
               disabled={!input.trim()}
               onClick={handleSend}
             >
-              发送
+              {t('发送')}
             </Button>
           )}
         </div>
 
         <div className="bastion-cu-foot">
-          AI 操作的是目标机的控制台会话；与当前 RDP
-          会话可能是两个桌面，请以截图为准。
+          {t(
+            'AI 操作的是目标机的控制台会话；与当前 RDP\n          会话可能是两个桌面，请以截图为准。',
+          )}
         </div>
 
         <Modal
-          title="敏感操作需要管理员确认"
+          title={t('敏感操作需要管理员确认')}
           open={confirmOpen}
           onCancel={() => {
             setConfirmOpen(false);
@@ -1559,21 +1435,21 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
           <Form form={confirmForm} layout="vertical">
             <Form.Item
               name="adminUsername"
-              label="管理员账号（留空则用当前账号）"
+              label={t('管理员账号（留空则用当前账号）')}
             >
               <Input
                 allowClear
-                placeholder="留空则用当前登录账号"
+                placeholder={t('留空则用当前登录账号')}
                 autoComplete="off"
               />
             </Form.Item>
             <Form.Item
               name="adminPassword"
-              label="管理员密码"
-              rules={[{ required: true, message: '请输入管理员密码' }]}
+              label={t('管理员密码')}
+              rules={[{ required: true, message: t('请输入管理员密码') }]}
             >
               <Input.Password
-                placeholder="请输入密码以确认执行"
+                placeholder={t('请输入密码以确认执行')}
                 autoComplete="new-password"
               />
             </Form.Item>
@@ -1587,14 +1463,14 @@ const ComputerUsePanel = ({ hostId, onToggle }: ComputerUsePanelProps) => {
               loading={confirming}
               onClick={() => void rejectConfirm()}
             >
-              拒绝执行
+              {t('拒绝执行')}
             </Button>
             <Button
               type="primary"
               loading={confirming}
               onClick={() => void submitConfirm()}
             >
-              确认执行
+              {t('确认执行')}
             </Button>
           </Space>
         </Modal>
@@ -1626,7 +1502,7 @@ export class ComputerUsePanelBoundary extends Component<
   }
 
   componentDidCatch(error: unknown): void {
-    console.error('[computeruse] 侧边栏渲染失败，已折叠为空', error);
+    console.error(t('[computeruse] 侧边栏渲染失败，已折叠为空'), error);
   }
 
   render(): ReactNode {

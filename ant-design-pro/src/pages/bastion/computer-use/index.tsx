@@ -29,6 +29,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { t as i18nT } from '@/i18n';
 import {
   type ComputerUseHost,
   computerUseApi,
@@ -165,7 +166,9 @@ const ComputerUsePage: React.FC = () => {
     try {
       setRecords(await computerUseApi.deployments());
     } catch (error) {
-      message.error(backendMessage(error, '部署记录加载失败，请稍后重试'));
+      message.error(
+        backendMessage(error, i18nT('部署记录加载失败，请稍后重试')),
+      );
     } finally {
       setRecordsLoading(false);
     }
@@ -179,7 +182,7 @@ const ComputerUsePage: React.FC = () => {
   // ---------------------------------------------------------------- 动作
   const startDeploy = async () => {
     if (!host || !accountId || !selectedInstaller) {
-      message.warning('请先选择目标主机与资产账号');
+      message.warning(i18nT('请先选择目标主机与资产账号'));
       return;
     }
     const payload = buildDeployPayload({
@@ -200,7 +203,9 @@ const ComputerUsePage: React.FC = () => {
       enterStep(2);
     } catch (error) {
       setDeploying(false);
-      message.error(backendMessage(error, '部署创建失败，请检查参数后重试'));
+      message.error(
+        backendMessage(error, i18nT('部署创建失败，请检查参数后重试')),
+      );
     }
   };
 
@@ -222,7 +227,8 @@ const ComputerUsePage: React.FC = () => {
     if (!deployment) return;
     const params = new URLSearchParams({
       hostId: String(deployment.hostId),
-      title: deployment.hostName || deployment.hostAddress || 'Windows 主机',
+      title:
+        deployment.hostName || deployment.hostAddress || i18nT('Windows 主机'),
     });
     // 与第 4 步的跳转保持一致，用 umi history
     history.push(`/rdp/console?${params.toString()}`);
@@ -317,8 +323,10 @@ const ComputerUsePage: React.FC = () => {
         <Alert
           type="warning"
           showIcon
-          title="这一步还没有数据"
-          description="请按顺序完成前面的步骤；如果刚刷新过页面，部署记录可以在右上角「查看记录」里找回。"
+          title={i18nT('这一步还没有数据')}
+          description={i18nT(
+            '请按顺序完成前面的步骤；如果刚刷新过页面，部署记录可以在右上角「查看记录」里找回。',
+          )}
         />
       </Card>
     );
@@ -326,16 +334,16 @@ const ComputerUsePage: React.FC = () => {
 
   const recordColumns: ColumnsType<Deployment> = [
     { title: '#', dataIndex: 'id', width: 70 },
-    { title: '主机', dataIndex: 'hostName', width: 160 },
+    { title: i18nT('主机'), dataIndex: 'hostName', width: 160 },
     {
-      title: '状态',
+      title: i18nT('状态'),
       dataIndex: 'status',
       width: 100,
       render: (value: string) => <Tag>{value}</Tag>,
     },
-    { title: '阶段', dataIndex: 'stageLabel', width: 200 },
+    { title: i18nT('阶段'), dataIndex: 'stageLabel', width: 200 },
     {
-      title: '进度',
+      title: i18nT('进度'),
       dataIndex: 'progress',
       width: 80,
       align: 'right',
@@ -343,29 +351,31 @@ const ComputerUsePage: React.FC = () => {
     },
     { title: 'Python', dataIndex: 'pythonVersion', width: 90 },
     {
-      title: 'MCP 地址',
+      title: i18nT('MCP 地址'),
       dataIndex: 'mcpUrl',
       render: (value: string) =>
         value ? <Text code>{value}</Text> : <Text type="secondary">-</Text>,
     },
-    { title: '部署人', dataIndex: 'deployedBy', width: 110 },
-    { title: '创建时间', dataIndex: 'createdAt', width: 180 },
+    { title: i18nT('部署人'), dataIndex: 'deployedBy', width: 110 },
+    { title: i18nT('创建时间'), dataIndex: 'createdAt', width: 180 },
   ];
 
   return (
     <PageContainer
-      title="ComputerUse 部署"
-      subTitle="把 Windows-MCP 部署到纳管的 Windows 主机，供 AI 侧边栏操作目标机控制台"
+      title={i18nT('ComputerUse 部署')}
+      subTitle={i18nT(
+        '把 Windows-MCP 部署到纳管的 Windows 主机，供 AI 侧边栏操作目标机控制台',
+      )}
       extra={
         <Space>
           <Button icon={<HistoryOutlined />} onClick={openRecords}>
-            查看记录
+            {i18nT('查看记录')}
           </Button>
           <Button
             icon={<ReloadOutlined />}
             onClick={() => window.location.reload()}
           >
-            重新开始
+            {i18nT('重新开始')}
           </Button>
         </Space>
       }
@@ -385,7 +395,7 @@ const ComputerUsePage: React.FC = () => {
       {body}
 
       <Drawer
-        title="最近的部署记录"
+        title={i18nT('最近的部署记录')}
         width={880}
         open={recordsOpen}
         onClose={() => setRecordsOpen(false)}
@@ -395,7 +405,7 @@ const ComputerUsePage: React.FC = () => {
             loading={recordsLoading}
             onClick={loadRecords}
           >
-            刷新
+            {i18nT('刷新')}
           </Button>
         }
       >
@@ -407,7 +417,7 @@ const ComputerUsePage: React.FC = () => {
           dataSource={records}
           pagination={false}
           scroll={{ x: 760 }}
-          locale={{ emptyText: '还没有部署记录' }}
+          locale={{ emptyText: i18nT('还没有部署记录') }}
         />
       </Drawer>
 
@@ -417,11 +427,12 @@ const ComputerUsePage: React.FC = () => {
           onClick={openConsole}
           disabled={!stream?.deployment?.mcpUrl}
         >
-          打开 WebRDP 控制台
+          {i18nT('打开 WebRDP 控制台')}
         </Button>
         <Text type="secondary">
-          第 2 步的「开始部署」在第 3
-          步会实时显示进度与日志；控制台要在部署成功后才能打开。
+          {i18nT(
+            '第 2 步的「开始部署」在第 3\n          步会实时显示进度与日志；控制台要在部署成功后才能打开。',
+          )}
         </Text>
       </Space>
     </PageContainer>

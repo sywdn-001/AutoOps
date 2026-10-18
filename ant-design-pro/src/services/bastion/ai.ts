@@ -11,6 +11,7 @@ import { request } from '@umijs/max';
 import { getToken, pageParams } from './client';
 import type { ApiData, ApiList, PageParams } from './types';
 
+import { t } from '@/i18n';
 /** 卡片：与后端提示词里的 ```ai-card 协议一一对应 */
 export interface AiCardTable {
   type: 'table';
@@ -228,7 +229,7 @@ async function describeHttpError(response: Response): Promise<string> {
   } catch {
     // 读不出响应体就只报状态码
   }
-  return detail ? `对话失败：HTTP ${response.status}：${detail}` : `对话失败：HTTP ${response.status}`;
+  return detail ? t('对话失败：HTTP {0}：{1}', { 0: response.status, 1: detail }) : t('对话失败：HTTP {0}', { 0: response.status });
 }
 
 /**
@@ -257,7 +258,7 @@ export async function streamAiChat(
     throw new Error(await describeHttpError(response));
   }
   if (!response.body) {
-    throw new Error('当前浏览器不支持流式响应');
+    throw new Error(t('当前浏览器不支持流式响应'));
   }
 
   const reader = response.body.getReader();

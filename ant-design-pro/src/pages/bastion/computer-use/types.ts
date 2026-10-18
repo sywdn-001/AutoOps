@@ -6,12 +6,13 @@
  * 展示映射（颜色、文案）。放在独立文件里是为了让被拆出去的步骤组件共用同一份定义，
  * 避免各步骤各写一套中文说明。
  */
+
+import { t } from '@/i18n';
 import type {
   DeploymentStatus,
   LogLevel,
   PythonVersionItem,
 } from '@/services/bastion/computeruse';
-
 /** 向导的四个步骤 */
 export type WizardStepKey = 'installer' | 'host' | 'deploy' | 'success';
 
@@ -25,23 +26,23 @@ export type WizardStepMeta = {
 export const WIZARD_STEPS: WizardStepMeta[] = [
   {
     key: 'installer',
-    title: '选择 Python 安装包',
-    description: '从堡垒机镜像里挑一个 ≥3.13 的版本并缓存到堡垒机',
+    title: t('选择 Python 安装包'),
+    description: t('从堡垒机镜像里挑一个 ≥3.13 的版本并缓存到堡垒机'),
   },
   {
     key: 'host',
-    title: '选择目标主机',
-    description: '挑一台启用了 WinRM 的 Windows 主机与资产账号',
+    title: t('选择目标主机'),
+    description: t('挑一台启用了 WinRM 的 Windows 主机与资产账号'),
   },
   {
     key: 'deploy',
-    title: '执行部署',
-    description: '看阶段进度与实时日志，失败可重新部署',
+    title: t('执行部署'),
+    description: t('看阶段进度与实时日志，失败可重新部署'),
   },
   {
     key: 'success',
-    title: '完成',
-    description: '确认 MCP 地址与工具清单，去 WebRDP 控制台验证',
+    title: t('完成'),
+    description: t('确认 MCP 地址与工具清单，去 WebRDP 控制台验证'),
   },
 ];
 
@@ -100,20 +101,20 @@ export const DEPLOY_STATUS_META: Record<
   DeploymentStatus,
   { text: string; color: string }
 > = {
-  pending: { text: '排队中', color: 'default' },
-  running: { text: '部署中', color: 'processing' },
-  success: { text: '部署成功', color: 'success' },
-  failed: { text: '部署失败', color: 'error' },
-  cancelled: { text: '已取消', color: 'warning' },
+  pending: { text: t('排队中'), color: 'default' },
+  running: { text: t('部署中'), color: 'processing' },
+  success: { text: t('部署成功'), color: 'success' },
+  failed: { text: t('部署失败'), color: 'error' },
+  cancelled: { text: t('已取消'), color: 'warning' },
 };
 
 /** 日志级别 → 颜色与中文名（终端配色：浅灰/绿/橙/红） */
 export const LOG_LEVEL_META: Record<LogLevel, { color: string; text: string }> =
   {
-    info: { color: '#c9d1d9', text: '信息' },
-    success: { color: '#52c41a', text: '成功' },
-    warning: { color: '#faad14', text: '警告' },
-    error: { color: '#ff4d4f', text: '错误' },
+    info: { color: '#c9d1d9', text: t('信息') },
+    success: { color: '#52c41a', text: t('成功') },
+    warning: { color: '#faad14', text: t('警告') },
+    error: { color: '#ff4d4f', text: t('错误') },
   };
 
 /** 终端日志台的外观（深色底 + 等宽字体） */

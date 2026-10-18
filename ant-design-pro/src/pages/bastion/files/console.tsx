@@ -60,6 +60,8 @@ import type {
 import { formatRate, uploadPercent } from './uploadProgress';
 import './files.css';
 
+import { t } from '@/i18n';
+
 /** 关闭文件管理器后本窗口自动关闭的倒计时秒数（与终端窗口同一口径）。 */
 const CLOSE_COUNTDOWN_SECONDS = 10;
 
@@ -149,7 +151,7 @@ type UploadTask = {
 /** 一行上传的可读说明：已传/总大小 · 百分比 · 速率（速率还没测出来就不显示） */
 const describeUpload = (item: UploadTask): string => {
   if (item.status === 'error') {
-    return item.message || '上传失败';
+    return item.message || t('上传失败');
   }
   const parts = [
     `${formatSize(item.loaded)} / ${formatSize(item.total || item.size)}`,
@@ -211,7 +213,7 @@ const FileConsolePage = () => {
     }
     openedOnce.current = true;
     if (!hostId) {
-      setError('缺少主机参数，请从资产列表重新打开文件管理器。');
+      setError(t('缺少主机参数，请从资产列表重新打开文件管理器。'));
       setPreparing(false);
       return;
     }
@@ -221,7 +223,7 @@ const FileConsolePage = () => {
         setCaps(data);
         setPath(data.homeDir || '/');
       })
-      .catch((err: Error) => setError(err?.message || '打开文件管理器失败'))
+      .catch((err: Error) => setError(err?.message || t('打开文件管理器失败')))
       .finally(() => setPreparing(false));
   }, [hostId, accountId]);
 
@@ -245,7 +247,7 @@ const FileConsolePage = () => {
         setListing(data);
         setSelected([]);
       } catch (err) {
-        message.error((err as Error)?.message || '读取目录失败');
+        message.error((err as Error)?.message || t('读取目录失败'));
         // 目录读不了（被策略拦或不存在）时退回上一级，避免卡在空页面
         const parent = parentOf(target);
         if (parent !== target) {
@@ -346,7 +348,7 @@ const FileConsolePage = () => {
   const denied = (operation: string, target?: string): string | undefined => {
     const decision = decisionFor(operation, target);
     if (decision && decision.allowed === false) {
-      return decision.reason || '该操作被文件策略拦截';
+      return decision.reason || t('该操作被文件策略拦截');
     }
     return undefined;
   };
@@ -381,7 +383,9 @@ const FileConsolePage = () => {
       try {
         const data = await fileApi.read(sid, entry.path);
         if (data.truncated) {
-          message.warning(`文件较大，仅载入前 ${formatSize(data.readBytes)}`);
+          message.warning(
+            t('文件较大，仅载入前 {0}', { 0: formatSize(data.readBytes) }),
+          );
         }
         setEditor({
           path: data.path,
@@ -389,7 +393,7 @@ const FileConsolePage = () => {
           mtime: data.mtime,
         });
       } catch (err) {
-        message.error((err as Error)?.message || '读取文件失败');
+        message.error((err as Error)?.message || t('读取文件失败'));
       } finally {
         setEditorLoading(false);
       }
@@ -408,11 +412,11 @@ const FileConsolePage = () => {
         content: editor.content,
         expectedMtime: editor.mtime || undefined,
       });
-      message.success('已保存');
+      message.success(t('已保存'));
       setEditor(undefined);
       void loadList(path);
     } catch (err) {
-      message.error((err as Error)?.message || '保存失败');
+      message.error((err as Error)?.message || t('保存失败'));
     } finally {
       setSaving(false);
     }
@@ -426,7 +430,7 @@ const FileConsolePage = () => {
       try {
         await fileApi.download(sid, target);
       } catch (err) {
-        message.error((err as Error)?.message || '下载失败');
+        message.error((err as Error)?.message || t('下载失败'));
       }
     },
     [sid],
@@ -440,7 +444,7 @@ const FileConsolePage = () => {
       try {
         await fileApi.archive(sid, paths);
       } catch (err) {
-        message.error((err as Error)?.message || '打包下载失败');
+        message.error((err as Error)?.message || t('打包下载失败'));
       }
     },
     [sid],
@@ -452,21 +456,23 @@ const FileConsolePage = () => {
         return;
       }
       Modal.confirm({
-        title: `删除 ${targets.length} 项？`,
+        title: t('删除 {0} 项？', { 0: targets.length }),
         content: (
           <div>
-            <div>删除后无法恢复，操作会记入文件审计：</div>
+            <div>{t('删除后无法恢复，操作会记入文件审计：')}</div>
             <ul style={{ paddingInlineStart: 18, marginTop: 8 }}>
               {targets.slice(0, 8).map((entry) => (
                 <li key={entry.path}>{entry.path}</li>
               ))}
             </ul>
-            {targets.length > 8 ? <div>…等 {targets.length} 项</div> : null}
+            {targets.length > 8 ? (
+              <div>{t('…等 {0} 项', { 0: targets.length })}</div>
+            ) : null}
           </div>
         ),
-        okText: '删除',
+        okText: t('删除'),
         okType: 'danger',
-        cancelText: '取消',
+        cancelText: t('取消'),
         onOk: async () => {
           try {
             const result = await fileApi.remove(sid, {
@@ -475,14 +481,18 @@ const FileConsolePage = () => {
             });
             if (result.failed?.length) {
               message.warning(
-                `已删除 ${result.deleted.length} 项，${result.failed.length} 项失败：${result.failed[0]?.message ?? ''}`,
+                t('已删除 {0} 项，{1} 项失败：{2}', {
+                  0: result.deleted.length,
+                  1: result.failed.length,
+                  2: result.failed[0]?.message ?? '',
+                }),
               );
             } else {
-              message.success(`已删除 ${result.deleted.length} 项`);
+              message.success(t('已删除 {0} 项', { 0: result.deleted.length }));
             }
             refresh();
           } catch (err) {
-            message.error((err as Error)?.message || '删除失败');
+            message.error((err as Error)?.message || t('删除失败'));
           }
         },
       });
@@ -519,37 +529,37 @@ const FileConsolePage = () => {
     try {
       if (pendingModal.kind === 'mkdir') {
         await fileApi.mkdir(sid, { path: absolute(raw), parents: true });
-        message.success('目录已创建');
+        message.success(t('目录已创建'));
       } else if (pendingModal.kind === 'newfile') {
         await fileApi.write(sid, { path: absolute(raw), content: '' });
-        message.success('文件已创建');
+        message.success(t('文件已创建'));
       } else if (pendingModal.kind === 'rename' && pendingModal.entry) {
         await fileApi.rename(sid, {
           path: pendingModal.entry.path,
           newName: raw,
         });
-        message.success('已重命名');
+        message.success(t('已重命名'));
       } else if (pendingModal.kind === 'move' && pendingModal.entry) {
         await fileApi.rename(sid, {
           path: pendingModal.entry.path,
           targetPath: raw,
         });
-        message.success('已移动');
+        message.success(t('已移动'));
       } else if (pendingModal.kind === 'copy' && pendingModal.entry) {
         await fileApi.copy(sid, {
           path: pendingModal.entry.path,
           targetPath: raw,
         });
-        message.success('已复制');
+        message.success(t('已复制'));
       } else if (pendingModal.kind === 'chmod' && pendingModal.entry) {
         await fileApi.chmod(sid, { path: pendingModal.entry.path, mode: raw });
-        message.success('权限已更新');
+        message.success(t('权限已更新'));
       }
       setPendingModal(undefined);
       form.resetFields();
       refresh();
     } catch (err) {
-      message.error((err as Error)?.message || '操作失败');
+      message.error((err as Error)?.message || t('操作失败'));
     } finally {
       setSubmitting(false);
     }
@@ -579,7 +589,7 @@ const FileConsolePage = () => {
       showUploadList: false,
       customRequest: (options) => {
         if (!sid) {
-          options.onError?.(new Error('会话未就绪'));
+          options.onError?.(new Error(t('会话未就绪')));
           return;
         }
         const file = options.file as File & { uid?: string };
@@ -621,7 +631,9 @@ const FileConsolePage = () => {
             if (failed.length) {
               message.warning(`${failed[0]?.name}：${failed[0]?.message}`);
             } else {
-              message.success(`已上传 ${result.uploaded.length} 个文件`);
+              message.success(
+                t('已上传 {0} 个文件', { 0: result.uploaded.length }),
+              );
             }
             options.onSuccess?.(result);
             refresh();
@@ -629,15 +641,15 @@ const FileConsolePage = () => {
           })
           .catch((err: Error) => {
             if (controller.signal.aborted) {
-              message.info(`已取消上传 ${file.name}`);
+              message.info(t('已取消上传 {0}', { 0: file.name }));
               dropUpload(uid);
               return;
             }
-            message.error(err?.message || '上传失败');
+            message.error(err?.message || t('上传失败'));
             patchUpload(uid, {
               status: 'error',
               rate: 0,
-              message: err?.message || '上传失败',
+              message: err?.message || t('上传失败'),
             });
             options.onError?.(err);
             dropUpload(uid, 8000);
@@ -684,14 +696,16 @@ const FileConsolePage = () => {
       <div className="bastion-files-page bastion-files-centered">
         <Result
           status="403"
-          title="没有文件管理器权限"
-          subTitle="当前账号缺少 file:use 权限，无法打开文件管理器。请联系管理员在角色里勾选「文件管理器」。"
+          title={t('没有文件管理器权限')}
+          subTitle={t(
+            '当前账号缺少 file:use 权限，无法打开文件管理器。请联系管理员在角色里勾选「文件管理器」。',
+          )}
           extra={
             <Space>
               <Button type="primary" onClick={() => history.push('/dashboard')}>
-                返回主页
+                {t('返回主页')}
               </Button>
-              <Button onClick={() => window.close()}>关闭本窗口</Button>
+              <Button onClick={() => window.close()}>{t('关闭本窗口')}</Button>
             </Space>
           }
         />
@@ -704,7 +718,7 @@ const FileConsolePage = () => {
       <div className="bastion-files-page bastion-files-centered">
         <Space direction="vertical" align="center">
           <Spin size="large" />
-          <span>正在建立 SFTP 会话…</span>
+          <span>{t('正在建立 SFTP 会话…')}</span>
         </Space>
       </div>
     );
@@ -715,14 +729,14 @@ const FileConsolePage = () => {
       <div className="bastion-files-page bastion-files-centered">
         <Result
           status="warning"
-          title="无法打开文件管理器"
-          subTitle={error || '会话信息缺失'}
+          title={t('无法打开文件管理器')}
+          subTitle={error || t('会话信息缺失')}
           extra={
             <Space>
               <Button type="primary" onClick={backToLauncher}>
-                返回资产列表
+                {t('返回资产列表')}
               </Button>
-              <Button onClick={() => window.close()}>关闭本窗口</Button>
+              <Button onClick={() => window.close()}>{t('关闭本窗口')}</Button>
             </Space>
           }
         />
@@ -735,13 +749,18 @@ const FileConsolePage = () => {
       <div className="bastion-files-closing">
         <Result
           status="success"
-          title="文件管理器已关闭"
-          subTitle={`本窗口将在 ${closing} 秒后自动关闭，文件操作记录已进入审计中心。`}
+          title={t('文件管理器已关闭')}
+          subTitle={t(
+            '本窗口将在 {0} 秒后自动关闭，文件操作记录已进入审计中心。',
+            { 0: closing },
+          )}
           extra={
             <Space>
-              <Button onClick={() => setClosing(undefined)}>保留本窗口</Button>
+              <Button onClick={() => setClosing(undefined)}>
+                {t('保留本窗口')}
+              </Button>
               <Button type="primary" onClick={() => window.close()}>
-                立即关闭
+                {t('立即关闭')}
               </Button>
             </Space>
           }
@@ -752,7 +771,7 @@ const FileConsolePage = () => {
 
   const columns = [
     {
-      title: '名称',
+      title: t('名称'),
       dataIndex: 'name',
       key: 'name',
       render: (_: unknown, entry: FileEntry) => (
@@ -771,7 +790,7 @@ const FileConsolePage = () => {
       ),
     },
     {
-      title: '大小',
+      title: t('大小'),
       dataIndex: 'size',
       key: 'size',
       width: 100,
@@ -783,21 +802,21 @@ const FileConsolePage = () => {
         ),
     },
     {
-      title: '修改时间',
+      title: t('修改时间'),
       dataIndex: 'mtime',
       key: 'mtime',
       width: 150,
       render: (_: unknown, entry: FileEntry) => formatDateTime(entry.mtime),
     },
     {
-      title: '权限',
+      title: t('权限'),
       dataIndex: 'modeOctal',
       key: 'mode',
       width: 90,
       render: (_: unknown, entry: FileEntry) => <code>{entry.modeOctal}</code>,
     },
     {
-      title: '属主',
+      title: t('属主'),
       key: 'owner',
       width: 90,
       render: (_: unknown, entry: FileEntry) => (
@@ -807,7 +826,7 @@ const FileConsolePage = () => {
       ),
     },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'action',
       width: 330,
       render: (_: unknown, entry: FileEntry) => {
@@ -816,7 +835,7 @@ const FileConsolePage = () => {
           <Space size={2} wrap>
             {!entry.isDir ? (
               <>
-                <Tooltip title={locked('download') || '下载到本地'}>
+                <Tooltip title={locked('download') || t('下载到本地')}>
                   <Button
                     size="small"
                     type="link"
@@ -824,11 +843,13 @@ const FileConsolePage = () => {
                     disabled={Boolean(locked('download'))}
                     onClick={() => void doDownload(entry.path)}
                   >
-                    下载
+                    {t('下载')}
                   </Button>
                 </Tooltip>
                 <Tooltip
-                  title={locked('read') || locked('write') || '在线编辑并保存'}
+                  title={
+                    locked('read') || locked('write') || t('在线编辑并保存')
+                  }
                 >
                   <Button
                     size="small"
@@ -837,7 +858,7 @@ const FileConsolePage = () => {
                     disabled={Boolean(locked('read') || locked('write'))}
                     onClick={() => void openEditor(entry)}
                   >
-                    编辑
+                    {t('编辑')}
                   </Button>
                 </Tooltip>
               </>
@@ -847,20 +868,20 @@ const FileConsolePage = () => {
                 type="link"
                 onClick={() => setPath(entry.path)}
               >
-                打开
+                {t('打开')}
               </Button>
             )}
-            <Tooltip title={locked('rename') || '重命名'}>
+            <Tooltip title={locked('rename') || t('重命名')}>
               <Button
                 size="small"
                 type="link"
                 disabled={Boolean(locked('rename'))}
                 onClick={() => openModal({ kind: 'rename', entry })}
               >
-                重命名
+                {t('重命名')}
               </Button>
             </Tooltip>
-            <Tooltip title={locked('move') || '移动到其它目录'}>
+            <Tooltip title={locked('move') || t('移动到其它目录')}>
               <Button
                 size="small"
                 type="link"
@@ -868,10 +889,10 @@ const FileConsolePage = () => {
                 disabled={Boolean(locked('move'))}
                 onClick={() => openModal({ kind: 'move', entry })}
               >
-                移动
+                {t('移动')}
               </Button>
             </Tooltip>
-            <Tooltip title={locked('copy') || '复制到其它目录'}>
+            <Tooltip title={locked('copy') || t('复制到其它目录')}>
               <Button
                 size="small"
                 type="link"
@@ -879,10 +900,10 @@ const FileConsolePage = () => {
                 disabled={Boolean(locked('copy'))}
                 onClick={() => openModal({ kind: 'copy', entry })}
               >
-                复制
+                {t('复制')}
               </Button>
             </Tooltip>
-            <Tooltip title={locked('chmod') || '修改权限'}>
+            <Tooltip title={locked('chmod') || t('修改权限')}>
               <Button
                 size="small"
                 type="link"
@@ -890,10 +911,10 @@ const FileConsolePage = () => {
                 disabled={Boolean(locked('chmod'))}
                 onClick={() => openModal({ kind: 'chmod', entry })}
               >
-                权限
+                {t('权限')}
               </Button>
             </Tooltip>
-            <Tooltip title={locked('delete') || '删除'}>
+            <Tooltip title={locked('delete') || t('删除')}>
               <Button
                 size="small"
                 type="link"
@@ -902,17 +923,17 @@ const FileConsolePage = () => {
                 disabled={Boolean(locked('delete'))}
                 onClick={() => doDelete([entry])}
               >
-                删除
+                {t('删除')}
               </Button>
             </Tooltip>
-            <Tooltip title={locked('archive') || '打包为 zip 下载'}>
+            <Tooltip title={locked('archive') || t('打包为 zip 下载')}>
               <Button
                 size="small"
                 type="link"
                 disabled={Boolean(locked('archive'))}
                 onClick={() => void doArchive([entry.path])}
               >
-                打包
+                {t('打包')}
               </Button>
             </Tooltip>
           </Space>
@@ -931,33 +952,33 @@ const FileConsolePage = () => {
       className={`bastion-files-page${fullscreen ? ' bastion-console-fullscreen' : ''}`}
     >
       <div className="bastion-files-toolbar">
-        <Tooltip title="回到资产列表（关闭本窗口）">
+        <Tooltip title={t('回到资产列表（关闭本窗口）')}>
           <Button
             size="small"
             type="text"
             icon={<HomeOutlined />}
             onClick={backToLauncher}
           >
-            资产列表
+            {t('资产列表')}
           </Button>
         </Tooltip>
         <span className="bastion-files-title" title={caps.hostName}>
           {caps.hostName || urlTitle || 'SFTP'}
         </span>
-        <Tag color="success">已连接</Tag>
+        <Tag color="success">{t('已连接')}</Tag>
         {caps.accountUsername ? (
           <span className="bastion-files-chip">
-            账号 {caps.accountUsername}
+            {t('账号 {0}', { 0: caps.accountUsername })}
           </span>
         ) : null}
-        <span className="bastion-files-chip" title="文件策略">
-          策略 {caps.policyName || '默认文件策略'}
+        <span className="bastion-files-chip" title={t('文件策略')}>
+          {t('策略 {0}', { 0: caps.policyName || t('默认文件策略') })}
         </span>
-        <span className="bastion-files-chip" title="会话号">
+        <span className="bastion-files-chip" title={t('会话号')}>
           {caps.sid}
         </span>
         <span className="bastion-files-spacer" />
-        <Tooltip title={uploadDenied || '上传文件到当前目录'}>
+        <Tooltip title={uploadDenied || t('上传文件到当前目录')}>
           <span>
             <Upload {...uploadProps} disabled={Boolean(uploadDenied)}>
               <Button
@@ -966,12 +987,12 @@ const FileConsolePage = () => {
                 icon={<UploadOutlined />}
                 disabled={Boolean(uploadDenied)}
               >
-                上传
+                {t('上传')}
               </Button>
             </Upload>
           </span>
         </Tooltip>
-        <Tooltip title={mkdirDenied || '在当前目录新建文件夹'}>
+        <Tooltip title={mkdirDenied || t('在当前目录新建文件夹')}>
           <Button
             size="small"
             type="text"
@@ -979,10 +1000,10 @@ const FileConsolePage = () => {
             disabled={Boolean(mkdirDenied)}
             onClick={() => openModal({ kind: 'mkdir' })}
           >
-            新建目录
+            {t('新建目录')}
           </Button>
         </Tooltip>
-        <Tooltip title={writeDenied || '在当前目录新建空文件'}>
+        <Tooltip title={writeDenied || t('在当前目录新建空文件')}>
           <Button
             size="small"
             type="text"
@@ -990,10 +1011,10 @@ const FileConsolePage = () => {
             disabled={Boolean(writeDenied)}
             onClick={() => openModal({ kind: 'newfile' })}
           >
-            新建文件
+            {t('新建文件')}
           </Button>
         </Tooltip>
-        <Tooltip title="刷新当前目录">
+        <Tooltip title={t('刷新当前目录')}>
           <Button
             size="small"
             type="text"
@@ -1001,7 +1022,7 @@ const FileConsolePage = () => {
             onClick={refresh}
           />
         </Tooltip>
-        <Tooltip title={fullscreen ? '退出全屏' : '全屏'}>
+        <Tooltip title={fullscreen ? t('退出全屏') : t('全屏')}>
           <Button
             size="small"
             type="text"
@@ -1011,7 +1032,7 @@ const FileConsolePage = () => {
             onClick={toggleFullscreen}
           />
         </Tooltip>
-        <Tooltip title="关闭文件管理器（结束 SFTP 会话）">
+        <Tooltip title={t('关闭文件管理器（结束 SFTP 会话）')}>
           <Button
             size="small"
             type="text"
@@ -1019,7 +1040,7 @@ const FileConsolePage = () => {
             icon={<CloseOutlined />}
             onClick={() => void closeSession()}
           >
-            关闭
+            {t('关闭')}
           </Button>
         </Tooltip>
       </div>
@@ -1044,7 +1065,7 @@ const FileConsolePage = () => {
                 {describeUpload(item)}
               </span>
               <Tooltip
-                title={item.status === 'uploading' ? '取消上传' : '收起'}
+                title={item.status === 'uploading' ? t('取消上传') : t('收起')}
               >
                 <Button
                   size="small"
@@ -1065,7 +1086,7 @@ const FileConsolePage = () => {
       ) : null}
 
       <div className="bastion-files-pathbar">
-        <Tooltip title="上级目录">
+        <Tooltip title={t('上级目录')}>
           <Button
             size="small"
             type="text"
@@ -1098,14 +1119,14 @@ const FileConsolePage = () => {
 
       {selectedEntries.length ? (
         <div className="bastion-files-selection">
-          <span>已选 {selectedEntries.length} 项</span>
+          <span>{t('已选 {0} 项', { 0: selectedEntries.length })}</span>
           {selectedEntries.length === 1 ? (
             <span className="bastion-files-muted">
               {selectedEntries[0]?.path}
             </span>
           ) : null}
           <span className="bastion-files-spacer" />
-          <Tooltip title={denied('download', cursor) || '下载选中文件'}>
+          <Tooltip title={denied('download', cursor) || t('下载选中文件')}>
             <Button
               size="small"
               icon={<DownloadOutlined />}
@@ -1115,10 +1136,10 @@ const FileConsolePage = () => {
               }
               onClick={() => cursor && void doDownload(cursor)}
             >
-              下载
+              {t('下载')}
             </Button>
           </Tooltip>
-          <Tooltip title={denied('archive', cursor) || '打包为 zip 下载'}>
+          <Tooltip title={denied('archive', cursor) || t('打包为 zip 下载')}>
             <Button
               size="small"
               disabled={Boolean(denied('archive', cursor))}
@@ -1126,10 +1147,10 @@ const FileConsolePage = () => {
                 void doArchive(selectedEntries.map((entry) => entry.path))
               }
             >
-              打包下载
+              {t('打包下载')}
             </Button>
           </Tooltip>
-          <Tooltip title={denied('delete', cursor) || '删除选中项'}>
+          <Tooltip title={denied('delete', cursor) || t('删除选中项')}>
             <Button
               size="small"
               danger
@@ -1137,11 +1158,11 @@ const FileConsolePage = () => {
               disabled={Boolean(denied('delete', cursor))}
               onClick={() => doDelete(selectedEntries)}
             >
-              删除
+              {t('删除')}
             </Button>
           </Tooltip>
           <Button size="small" type="text" onClick={() => setSelected([])}>
-            取消选择
+            {t('取消选择')}
           </Button>
         </div>
       ) : null}
@@ -1161,8 +1182,8 @@ const FileConsolePage = () => {
           scroll={{ y: 'calc(100vh - 190px)' }}
           locale={{
             emptyText: listing?.truncated
-              ? '目录内容过多，仅显示前部分'
-              : '空目录',
+              ? t('目录内容过多，仅显示前部分')
+              : t('空目录'),
           }}
         />
       </div>
@@ -1170,15 +1191,16 @@ const FileConsolePage = () => {
       <div className="bastion-files-statusbar">
         <span>
           <span className="bastion-files-dot" />
-          已连接 {caps.hostAddress}
+          {t('已连接 {0}', { 0: caps.hostAddress })}
         </span>
-        <span>共 {listing?.count ?? 0} 项</span>
+        <span>{t('共 {0} 项', { 0: listing?.count ?? 0 })}</span>
         {listing?.truncated ? (
-          <span className="bastion-files-denied">列表已截断</span>
+          <span className="bastion-files-denied">{t('列表已截断')}</span>
         ) : null}
         <span className="bastion-files-statusbar-right">
-          文件策略 {caps.policyName || '默认文件策略'} ·
-          每个操作都会记入文件审计
+          {t('文件策略 {0} · 每个操作都会记入文件审计', {
+            0: caps.policyName || t('默认文件策略'),
+          })}
         </span>
       </div>
 
@@ -1186,16 +1208,16 @@ const FileConsolePage = () => {
         open={Boolean(pendingModal)}
         title={
           {
-            mkdir: '新建目录',
-            newfile: '新建文件',
-            rename: '重命名',
-            move: '移动到',
-            copy: '复制到',
-            chmod: '修改权限',
+            mkdir: t('新建目录'),
+            newfile: t('新建文件'),
+            rename: t('重命名'),
+            move: t('移动到'),
+            copy: t('复制到'),
+            chmod: t('修改权限'),
           }[pendingModal?.kind ?? 'mkdir']
         }
-        okText="确定"
-        cancelText="取消"
+        okText={t('确定')}
+        cancelText={t('取消')}
         confirmLoading={submitting}
         onOk={() => void submitModal()}
         onCancel={() => {
@@ -1209,16 +1231,16 @@ const FileConsolePage = () => {
             name="value"
             label={
               pendingModal?.kind === 'mkdir'
-                ? '目录名或完整路径'
+                ? t('目录名或完整路径')
                 : pendingModal?.kind === 'newfile'
-                  ? '文件名或完整路径'
+                  ? t('文件名或完整路径')
                   : pendingModal?.kind === 'rename'
-                    ? '新名称'
+                    ? t('新名称')
                     : pendingModal?.kind === 'chmod'
-                      ? '八进制权限（例如 644 / 0755）'
-                      : '目标完整路径'
+                      ? t('八进制权限（例如 644 / 0755）')
+                      : t('目标完整路径')
             }
-            rules={[{ required: true, message: '请填写内容' }]}
+            rules={[{ required: true, message: t('请填写内容') }]}
           >
             <Input
               placeholder={
@@ -1231,7 +1253,7 @@ const FileConsolePage = () => {
 
       <Drawer
         open={Boolean(editor) || editorLoading}
-        title={editor ? `编辑 ${editor.path}` : '读取文件…'}
+        title={editor ? t('编辑 {0}', { 0: editor.path }) : t('读取文件…')}
         width={760}
         onClose={() => setEditor(undefined)}
         extra={
@@ -1242,9 +1264,9 @@ const FileConsolePage = () => {
               disabled={Boolean(denied('write', editor?.path))}
               onClick={() => void saveEditor()}
             >
-              保存
+              {t('保存')}
             </Button>
-            <Button onClick={() => setEditor(undefined)}>取消</Button>
+            <Button onClick={() => setEditor(undefined)}>{t('取消')}</Button>
           </Space>
         }
       >

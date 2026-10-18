@@ -23,6 +23,7 @@ import { App, Button, Popconfirm, Space } from 'antd';
 import type React from 'react';
 import { useRef, useState } from 'react';
 import { TimeCell } from '@/components/Bastion';
+import { t } from '@/i18n';
 import {
   type HostGroupPayload,
   hostGroupApi,
@@ -64,15 +65,15 @@ const HostGroups: React.FC = () => {
     try {
       if (editing) {
         await hostGroupApi.update(editing.id, payload);
-        message.success('分组已更新');
+        message.success(t('分组已更新'));
       } else {
         await hostGroupApi.create(payload);
-        message.success('分组已创建');
+        message.success(t('分组已创建'));
       }
       actionRef.current?.reload();
       return true;
     } catch (error) {
-      message.error(fromApiError(error, '保存分组失败'));
+      message.error(fromApiError(error, t('保存分组失败')));
       return false;
     }
   };
@@ -80,39 +81,39 @@ const HostGroups: React.FC = () => {
   const removeGroup = async (row: HostGroupItem) => {
     try {
       await hostGroupApi.remove(row.id);
-      message.success('分组已删除');
+      message.success(t('分组已删除'));
       actionRef.current?.reload();
     } catch (error) {
       // 分组下仍有主机时后端返回 409，message 里带待迁移的主机数量
-      message.error(fromApiError(error, '删除分组失败'));
+      message.error(fromApiError(error, t('删除分组失败')));
     }
   };
 
   const columns: ProColumns<HostGroupItem>[] = [
     {
-      title: '关键字',
+      title: t('关键字'),
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '分组名称' },
+      fieldProps: { placeholder: t('分组名称') },
     },
-    { title: '分组名', dataIndex: 'name' },
+    { title: t('分组名'), dataIndex: 'name' },
     {
-      title: '描述',
+      title: t('描述'),
       dataIndex: 'description',
       search: false,
       ellipsis: true,
       render: (_, row) => row.description || '-',
     },
-    { title: '主机数', dataIndex: 'hostCount', search: false, width: 100 },
+    { title: t('主机数'), dataIndex: 'hostCount', search: false, width: 100 },
     {
-      title: '创建时间',
+      title: t('创建时间'),
       dataIndex: 'createdAt',
       search: false,
       width: 170,
       render: (_, row) => <TimeCell value={row.createdAt} />,
     },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'option',
       valueType: 'option',
       width: 140,
@@ -120,18 +121,18 @@ const HostGroups: React.FC = () => {
         canManage ? (
           <Space size={0}>
             <Button type="link" size="small" onClick={() => openForm(row)}>
-              编辑
+              {t('编辑')}
             </Button>
             <Popconfirm
-              title={`确认删除分组「${row.name}」？`}
-              description="分组下仍有主机时后端会拒绝删除。"
-              okText="删除"
-              cancelText="取消"
+              title={t('确认删除分组「{0}」？', { 0: row.name })}
+              description={t('分组下仍有主机时后端会拒绝删除。')}
+              okText={t('删除')}
+              cancelText={t('取消')}
               okButtonProps={{ danger: true }}
               onConfirm={() => removeGroup(row)}
             >
               <Button type="link" size="small" danger>
-                删除
+                {t('删除')}
               </Button>
             </Popconfirm>
           </Space>
@@ -144,14 +145,14 @@ const HostGroups: React.FC = () => {
   return (
     <PageContainer
       header={{
-        title: '主机分组',
-        subTitle: '按业务或环境组织主机，用于授权与批量运维',
+        title: t('主机分组'),
+        subTitle: t('按业务或环境组织主机，用于授权与批量运维'),
       }}
     >
       <ProTable<HostGroupItem, { keyword?: string }>
         rowKey="id"
         actionRef={actionRef}
-        headerTitle="分组"
+        headerTitle={t('分组')}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 10 }}
         request={async (params) => {
@@ -166,7 +167,7 @@ const HostGroups: React.FC = () => {
               icon={<PlusOutlined />}
               onClick={() => openForm()}
             >
-              新增分组
+              {t('新增分组')}
             </Button>
           ),
           <Button
@@ -174,7 +175,7 @@ const HostGroups: React.FC = () => {
             icon={<ReloadOutlined />}
             onClick={() => actionRef.current?.reload()}
           >
-            刷新
+            {t('刷新')}
           </Button>,
         ]}
         columns={columns}
@@ -182,7 +183,9 @@ const HostGroups: React.FC = () => {
 
       <ModalForm<GroupFormValues>
         key={formKey}
-        title={editing ? `编辑分组：${editing.name}` : '新增分组'}
+        title={
+          editing ? t('编辑分组：{0}', { 0: editing.name }) : t('新增分组')
+        }
         width={520}
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -191,19 +194,19 @@ const HostGroups: React.FC = () => {
           description: editing?.description,
         }}
         modalProps={{ destroyOnHidden: true, maskClosable: false }}
-        submitter={{ searchConfig: { submitText: '保存' } }}
+        submitter={{ searchConfig: { submitText: t('保存') } }}
         onFinish={submitGroup}
       >
         <ProFormText
           name="name"
-          label="分组名称"
-          rules={[{ required: true, message: '请输入分组名称' }]}
+          label={t('分组名称')}
+          rules={[{ required: true, message: t('请输入分组名称') }]}
         />
         <ProFormTextArea
           name="description"
-          label="描述"
+          label={t('描述')}
           fieldProps={{ rows: 3 }}
-          placeholder="例如：生产环境 / 办公网 / 数据库"
+          placeholder={t('例如：生产环境 / 办公网 / 数据库')}
         />
       </ModalForm>
     </PageContainer>

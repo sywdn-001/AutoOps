@@ -26,6 +26,7 @@ import {
 } from 'antd';
 import React, { useEffect, useRef, useState } from 'react';
 import { CopyText } from '@/components/Bastion';
+import { t } from '@/i18n';
 import type { DeployStreamState } from './helpers';
 import {
   buildStages,
@@ -84,19 +85,20 @@ const DeployStep: React.FC<DeployStepProps> = ({
 
   const confirmCancel = () => {
     Modal.confirm({
-      title: '确认取消这次部署？',
-      content:
+      title: t('确认取消这次部署？'),
+      content: t(
         '已经做过的步骤不会回滚（Python 可能已经装好），只是停止后续阶段。要重来请再点「重新部署」。',
-      okText: '取消部署',
+      ),
+      okText: t('取消部署'),
       okButtonProps: { danger: true },
-      cancelText: '继续部署',
+      cancelText: t('继续部署'),
       onOk: async () => {
         setCancelling(true);
         try {
           await onCancel();
-          message.success('已提交取消请求');
+          message.success(t('已提交取消请求'));
         } catch (error) {
-          message.error('取消失败，可能这次部署已经结束了');
+          message.error(t('取消失败，可能这次部署已经结束了'));
           throw error;
         } finally {
           setCancelling(false);
@@ -110,15 +112,21 @@ const DeployStep: React.FC<DeployStepProps> = ({
       <Card
         title={
           <Space size={8} wrap>
-            <Text strong>正在向 {hostName || '目标主机'} 部署 ComputerUse</Text>
+            <Text strong>
+              {t('正在向 {0} 部署 ComputerUse', {
+                0: hostName || t('目标主机'),
+              })}
+            </Text>
             <Tag color={meta.color}>{meta.text}</Tag>
-            {state.live ? <Tag color="processing">日志流已连接</Tag> : null}
+            {state.live ? (
+              <Tag color="processing">{t('日志流已连接')}</Tag>
+            ) : null}
           </Space>
         }
         extra={
           <Space>
             <Button icon={<FileSearchOutlined />} onClick={onOpenRecords}>
-              查看记录
+              {t('查看记录')}
             </Button>
             <Button
               danger
@@ -127,7 +135,7 @@ const DeployStep: React.FC<DeployStepProps> = ({
               disabled={state.ended || !state.live}
               onClick={confirmCancel}
             >
-              取消部署
+              {t('取消部署')}
             </Button>
           </Space>
         }
@@ -138,8 +146,10 @@ const DeployStep: React.FC<DeployStepProps> = ({
           strokeColor={failed ? undefined : '#2E7BFF'}
         />
         <Paragraph type="secondary" style={{ marginTop: 8 }}>
-          当前阶段：{state.stageLabel || '等待开始'}
-          {state.lastSeq ? ` · 日志事件 ${state.lastSeq}` : ''}
+          {t('当前阶段：{0} {1}', {
+            0: state.stageLabel || t('等待开始'),
+            1: state.lastSeq ? t(' · 日志事件 {0}', { 0: state.lastSeq }) : '',
+          })}
         </Paragraph>
         <Steps
           direction="vertical"
@@ -151,22 +161,22 @@ const DeployStep: React.FC<DeployStepProps> = ({
             status: item.state,
             description:
               item.state === 'finish'
-                ? `已完成（${item.progress}%）`
+                ? t('已完成（{0}%）', { 0: item.progress })
                 : item.state === 'process'
-                  ? `进行中（目标 ${item.progress}%）`
+                  ? t('进行中（目标 {0}%）', { 0: item.progress })
                   : item.state === 'error'
-                    ? '这一步失败了'
-                    : `等待（${item.progress}%）`,
+                    ? t('这一步失败了')
+                    : t('等待（{0}%）', { 0: item.progress }),
           }))}
         />
       </Card>
 
       <Card
-        title="实时日志"
+        title={t('实时日志')}
         size="small"
         extra={
           <Text type="secondary">
-            级别配色：浅灰=信息 / 绿=成功 / 橙=警告 / 红=错误
+            {t('级别配色：浅灰=信息 / 绿=成功 / 橙=警告 / 红=错误')}
           </Text>
         }
       >
@@ -183,7 +193,7 @@ const DeployStep: React.FC<DeployStepProps> = ({
             ))
           ) : (
             <Text style={{ color: '#6b7a99' }}>
-              等待目标机第一条日志…（连接目标机可能要几秒）
+              {t('等待目标机第一条日志…（连接目标机可能要几秒）')}
             </Text>
           )}
         </div>
@@ -193,14 +203,16 @@ const DeployStep: React.FC<DeployStepProps> = ({
         <Alert
           type={failed ? 'error' : 'warning'}
           showIcon
-          title={failed ? '部署失败' : '部署已取消'}
+          title={failed ? t('部署失败') : t('部署已取消')}
           description={
             <Space orientation="vertical" size={8} style={{ width: '100%' }}>
               <Text>
                 {state.error ||
                   (failed
-                    ? '后端没有给出具体原因，请看上面的日志定位失败的那一步。'
-                    : '部署被取消了，目标机上可能只完成了一部分步骤。')}
+                    ? t(
+                        '后端没有给出具体原因，请看上面的日志定位失败的那一步。',
+                      )
+                    : t('部署被取消了，目标机上可能只完成了一部分步骤。'))}
               </Text>
               <Space>
                 <Button
@@ -208,9 +220,9 @@ const DeployStep: React.FC<DeployStepProps> = ({
                   icon={<ReloadOutlined />}
                   onClick={onRedeploy}
                 >
-                  重新部署
+                  {t('重新部署')}
                 </Button>
-                <Button onClick={onOpenRecords}>查看记录</Button>
+                <Button onClick={onOpenRecords}>{t('查看记录')}</Button>
               </Space>
             </Space>
           }
@@ -221,34 +233,34 @@ const DeployStep: React.FC<DeployStepProps> = ({
         <Alert
           type="success"
           showIcon
-          title="部署成功，MCP 探活通过"
+          title={t('部署成功，MCP 探活通过')}
           action={
             <Button type="primary" onClick={onFinish}>
-              下一步：查看结果
+              {t('下一步：查看结果')}
             </Button>
           }
         />
       ) : null}
 
       {state.deployment ? (
-        <Card title="这次部署的参数" size="small">
+        <Card title={t('这次部署的参数')} size="small">
           <Descriptions
             column={{ xs: 1, sm: 1, lg: 2 }}
             size="small"
             items={[
               {
                 key: 'host',
-                label: '目标主机',
+                label: t('目标主机'),
                 children: `${hostName}（${hostAddress}）`,
               },
               {
                 key: 'account',
-                label: '资产账号',
+                label: t('资产账号'),
                 children: accountUsername || '-',
               },
               {
                 key: 'installer',
-                label: '安装包',
+                label: t('安装包'),
                 children: (
                   <Text code style={{ fontSize: 12 }}>
                     {state.deployment.installerName || '-'}
@@ -257,21 +269,21 @@ const DeployStep: React.FC<DeployStepProps> = ({
               },
               {
                 key: 'options',
-                label: '部署选项',
+                label: t('部署选项'),
                 children: optionsSummary(state.deployment),
               },
               {
                 key: 'by',
-                label: '部署人',
+                label: t('部署人'),
                 children: state.deployment.deployedBy || '-',
               },
               {
                 key: 'mcp',
-                label: 'MCP 地址',
+                label: t('MCP 地址'),
                 children: state.deployment.mcpUrl ? (
                   <CopyText text={state.deployment.mcpUrl} />
                 ) : (
-                  <Text type="secondary">尚未探活</Text>
+                  <Text type="secondary">{t('尚未探活')}</Text>
                 ),
               },
             ]}

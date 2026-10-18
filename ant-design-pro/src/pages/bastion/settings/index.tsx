@@ -26,6 +26,7 @@ import {
   Typography,
 } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
+import { t } from '@/i18n';
 import { settingApi } from '@/services/bastion/endpoints';
 import type { SettingItem, SettingsPayload } from '@/services/bastion/types';
 
@@ -81,7 +82,7 @@ const Settings: React.FC = () => {
       }
       form.setFieldsValue(initial);
     } catch (error) {
-      message.error(backendMessage(error, '设置加载失败，请稍后重试'));
+      message.error(backendMessage(error, t('设置加载失败，请稍后重试')));
     } finally {
       setLoading(false);
     }
@@ -102,12 +103,12 @@ const Settings: React.FC = () => {
       }
       setSaving(true);
       await settingApi.update(values);
-      message.success('设置已保存并立即生效');
+      message.success(t('设置已保存并立即生效'));
       await load();
     } catch (error) {
       // 校验失败时 antd 已在字段上标红，这里只提示接口错误
       if ((error as { errorFields?: unknown })?.errorFields) return;
-      message.error(backendMessage(error, '保存失败，请稍后重试'));
+      message.error(backendMessage(error, t('保存失败，请稍后重试')));
     } finally {
       setSaving(false);
     }
@@ -117,10 +118,10 @@ const Settings: React.FC = () => {
     setResetting(true);
     try {
       await settingApi.reset();
-      message.success('已恢复内置默认设置');
+      message.success(t('已恢复内置默认设置'));
       await load();
     } catch (error) {
-      message.error(backendMessage(error, '恢复默认失败，请稍后重试'));
+      message.error(backendMessage(error, t('恢复默认失败，请稍后重试')));
     } finally {
       setResetting(false);
     }
@@ -131,11 +132,13 @@ const Settings: React.FC = () => {
     try {
       const result = await settingApi.reconcile();
       modal.info({
-        title: '残留会话清理完成',
-        content: `已把 ${result?.reconciled ?? 0} 条仍标记为「在线」的会话记录更新为「已中断」。`,
+        title: t('残留会话清理完成'),
+        content: t('已把 {0} 条仍标记为「在线」的会话记录更新为「已中断」。', {
+          0: result?.reconciled ?? 0,
+        }),
       });
     } catch (error) {
-      message.error(backendMessage(error, '清理失败，请稍后重试'));
+      message.error(backendMessage(error, t('清理失败，请稍后重试')));
     } finally {
       setReconciling(false);
     }
@@ -149,11 +152,11 @@ const Settings: React.FC = () => {
         .map(([key, value]) => `${key}：${String(value)}`)
         .join('，');
       modal.success({
-        title: '内置数据已重建',
-        content: detail || '内置角色、命令策略与参数设置已重新写入。',
+        title: t('内置数据已重建'),
+        content: detail || t('内置角色、命令策略与参数设置已重新写入。'),
       });
     } catch (error) {
-      message.error(backendMessage(error, '重建失败，请稍后重试'));
+      message.error(backendMessage(error, t('重建失败，请稍后重试')));
     } finally {
       setSeeding(false);
     }
@@ -177,12 +180,12 @@ const Settings: React.FC = () => {
 
   const manageTip = canManage
     ? undefined
-    : '当前账号没有「设置管理」权限，仅可查看';
+    : t('当前账号没有「设置管理」权限，仅可查看');
 
   return (
     <PageContainer
-      title="参数设置"
-      subTitle="命令超时、单用户最大会话数、登录失败锁定阈值等全局参数"
+      title={t('参数设置')}
+      subTitle={t('命令超时、单用户最大会话数、登录失败锁定阈值等全局参数')}
       extra={
         <Space wrap>
           <Tooltip title={manageTip}>
@@ -193,35 +196,37 @@ const Settings: React.FC = () => {
               loading={saving}
               onClick={handleSave}
             >
-              保存
+              {t('保存')}
             </Button>
           </Tooltip>
           {canManage ? (
             <Popconfirm
-              title="恢复默认设置"
-              description="所有参数将回到内置默认值，当前修改会丢失，确定继续？"
-              okText="恢复默认"
-              cancelText="取消"
+              title={t('恢复默认设置')}
+              description={t(
+                '所有参数将回到内置默认值，当前修改会丢失，确定继续？',
+              )}
+              okText={t('恢复默认')}
+              cancelText={t('取消')}
               onConfirm={handleReset}
             >
               <Button icon={<UndoOutlined />} loading={resetting}>
-                恢复默认
+                {t('恢复默认')}
               </Button>
             </Popconfirm>
           ) : (
             <Tooltip title={manageTip}>
               <Button icon={<UndoOutlined />} disabled>
-                恢复默认
+                {t('恢复默认')}
               </Button>
             </Tooltip>
           )}
           <Button icon={<ReloadOutlined />} loading={loading} onClick={load}>
-            刷新
+            {t('刷新')}
           </Button>
         </Space>
       }
     >
-      <Card title="全局参数" style={{ marginBottom: 16 }}>
+      <Card title={t('全局参数')} style={{ marginBottom: 16 }}>
         <Spin spinning={loading && items.length === 0}>
           {items.length ? (
             <Form form={form} layout="vertical">
@@ -230,16 +235,20 @@ const Settings: React.FC = () => {
                   <Col key={item.key} xs={24} lg={12}>
                     <Form.Item
                       name={item.key}
-                      label={item.label || item.key}
+                      label={t(item.label || item.key)}
                       valuePropName={item.type === 'bool' ? 'checked' : 'value'}
                       extra={
                         <Space size={12} wrap>
                           <Text type="secondary">
-                            配置项 <Text code>{item.key}</Text>
+                            {t('配置项')} <Text code>{item.key}</Text>
                           </Text>
                           <Text type="secondary">
-                            默认：
-                            {item.default === '' ? '（空）' : item.default}
+                            {t('默认： {0}', {
+                              0:
+                                item.default === ''
+                                  ? t('（空）')
+                                  : item.default,
+                            })}
                           </Text>
                         </Space>
                       }
@@ -253,14 +262,14 @@ const Settings: React.FC = () => {
           ) : (
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
               {loading
-                ? '正在加载设置项…'
-                : '后端未下发任何设置项，请点击「刷新」重试。'}
+                ? t('正在加载设置项…')
+                : t('后端未下发任何设置项，请点击「刷新」重试。')}
             </Paragraph>
           )}
         </Spin>
       </Card>
 
-      <Card title="维护操作">
+      <Card title={t('维护操作')}>
         <Space orientation="vertical" size={16} style={{ width: '100%' }}>
           <Space align="start" size={12} wrap>
             <Tooltip title={manageTip}>
@@ -269,31 +278,37 @@ const Settings: React.FC = () => {
                 loading={reconciling}
                 onClick={handleReconcile}
               >
-                清理残留在线会话
+                {t('清理残留在线会话')}
               </Button>
             </Tooltip>
             <Text type="secondary" style={{ maxWidth: 640 }}>
-              服务异常退出后可能残留仍为「在线」状态的会话记录，这里把它们标记为已中断，避免审计中心长期显示假在线。
+              {t(
+                '服务异常退出后可能残留仍为「在线」状态的会话记录，这里把它们标记为已中断，避免审计中心长期显示假在线。',
+              )}
             </Text>
           </Space>
           <Space align="start" size={12} wrap>
             {canManage ? (
               <Popconfirm
-                title="重建内置数据"
-                description="将按内置模板重新写入角色、命令策略与参数设置，确定继续？"
-                okText="重建"
-                cancelText="取消"
+                title={t('重建内置数据')}
+                description={t(
+                  '将按内置模板重新写入角色、命令策略与参数设置，确定继续？',
+                )}
+                okText={t('重建')}
+                cancelText={t('取消')}
                 onConfirm={handleSeed}
               >
-                <Button loading={seeding}>重建内置数据</Button>
+                <Button loading={seeding}>{t('重建内置数据')}</Button>
               </Popconfirm>
             ) : (
               <Tooltip title={manageTip}>
-                <Button disabled>重建内置数据</Button>
+                <Button disabled>{t('重建内置数据')}</Button>
               </Tooltip>
             )}
             <Text type="secondary" style={{ maxWidth: 640 }}>
-              按内置模板重新写入内置角色、命令策略与默认参数，用于初始化或修复被误删的内置数据。
+              {t(
+                '按内置模板重新写入内置角色、命令策略与默认参数，用于初始化或修复被误删的内置数据。',
+              )}
             </Text>
           </Space>
         </Space>

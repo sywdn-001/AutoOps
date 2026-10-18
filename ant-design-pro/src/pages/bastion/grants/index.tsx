@@ -36,6 +36,7 @@ import dayjs from 'dayjs';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoolTag, CopyText, TimeCell, WindowText } from '@/components/Bastion';
+import { t } from '@/i18n';
 import { WEEKDAY_OPTIONS } from '@/services/bastion/constants';
 import {
   filePolicyApi,
@@ -153,13 +154,13 @@ const fromApiError = (err: unknown, fallback: string): string =>
 /** 七个权限开关的紧凑展示 */
 const PermissionTags: React.FC<{ row: GrantItem }> = ({ row }) => (
   <Space size={2} wrap={false}>
-    <BoolTag value={row.canLogin} yes="登录" no="禁登录" />
-    <BoolTag value={row.canSftp} yes="SFTP" no="禁SFTP" />
-    <BoolTag value={row.canUpload} yes="上传" no="禁上传" />
-    <BoolTag value={row.canDownload} yes="下载" no="禁下载" />
-    <BoolTag value={row.canFileWrite} yes="改文件" no="只读文件" />
-    <BoolTag value={row.canPortForward} yes="转发" no="禁转发" />
-    <BoolTag value={row.canWebterm} yes="网页" no="禁网页" />
+    <BoolTag value={row.canLogin} yes={t('登录')} no={t('禁登录')} />
+    <BoolTag value={row.canSftp} yes="SFTP" no={t('禁SFTP')} />
+    <BoolTag value={row.canUpload} yes={t('上传')} no={t('禁上传')} />
+    <BoolTag value={row.canDownload} yes={t('下载')} no={t('禁下载')} />
+    <BoolTag value={row.canFileWrite} yes={t('改文件')} no={t('只读文件')} />
+    <BoolTag value={row.canPortForward} yes={t('转发')} no={t('禁转发')} />
+    <BoolTag value={row.canWebterm} yes={t('网页')} no={t('禁网页')} />
   </Space>
 );
 
@@ -181,14 +182,14 @@ const GrantFormFields: React.FC<{
     {showAccount && (
       <Form.Item
         name="hostAccountId"
-        label="主机账号"
-        extra="留空表示该主机的所有账号都可使用"
+        label={t('主机账号')}
+        extra={t('留空表示该主机的所有账号都可使用')}
       >
         <Select
           allowClear
           showSearch
           optionFilterProp="label"
-          placeholder="留空 = 整机所有账号"
+          placeholder={t('留空 = 整机所有账号')}
           options={accountOptions.map((account) => ({
             label: `${account.name}（${account.username}）`,
             value: account.id,
@@ -198,27 +199,29 @@ const GrantFormFields: React.FC<{
     )}
     <Form.Item
       name="policyId"
-      label="命令策略"
-      extra="留空表示使用系统默认策略"
+      label={t('命令策略')}
+      extra={t('留空表示使用系统默认策略')}
     >
       <Select
         allowClear
         showSearch
         optionFilterProp="label"
-        placeholder="默认策略"
+        placeholder={t('默认策略')}
         options={policyOptions}
       />
     </Form.Item>
     <Form.Item
       name="filePolicyId"
-      label="文件策略"
-      extra="留空表示使用系统默认文件策略；权限开关决定能不能用，文件策略决定能碰哪些路径"
+      label={t('文件策略')}
+      extra={t(
+        '留空表示使用系统默认文件策略；权限开关决定能不能用，文件策略决定能碰哪些路径',
+      )}
     >
       <Select
         allowClear
         showSearch
         optionFilterProp="label"
-        placeholder="默认文件策略"
+        placeholder={t('默认文件策略')}
         options={filePolicyOptions}
       />
     </Form.Item>
@@ -229,56 +232,80 @@ const GrantFormFields: React.FC<{
         columnGap: 12,
       }}
     >
-      <Form.Item name="canLogin" label="允许登录" valuePropName="checked">
+      <Form.Item name="canLogin" label={t('允许登录')} valuePropName="checked">
         <Switch />
       </Form.Item>
-      <Form.Item name="canSftp" label="SFTP 传输" valuePropName="checked">
+      <Form.Item name="canSftp" label={t('SFTP 传输')} valuePropName="checked">
         <Switch />
       </Form.Item>
-      <Form.Item name="canUpload" label="允许上传" valuePropName="checked">
+      <Form.Item name="canUpload" label={t('允许上传')} valuePropName="checked">
         <Switch />
       </Form.Item>
-      <Form.Item name="canDownload" label="允许下载" valuePropName="checked">
+      <Form.Item
+        name="canDownload"
+        label={t('允许下载')}
+        valuePropName="checked"
+      >
         <Switch />
       </Form.Item>
       <Form.Item
         name="canFileWrite"
-        label="允许改文件"
+        label={t('允许改文件')}
         valuePropName="checked"
-        extra="上传 / 编辑 / 新建 / 改名 / 移动 / 复制 / 删除 / 改权限"
+        extra={t('上传 / 编辑 / 新建 / 改名 / 移动 / 复制 / 删除 / 改权限')}
       >
         <Switch />
       </Form.Item>
-      <Form.Item name="canPortForward" label="端口转发" valuePropName="checked">
+      <Form.Item
+        name="canPortForward"
+        label={t('端口转发')}
+        valuePropName="checked"
+      >
         <Switch />
       </Form.Item>
       <Form.Item
         name="canWebterm"
-        label="网页终端"
+        label={t('网页终端')}
         valuePropName="checked"
-        extra="开启后可直接在浏览器里打开该主机终端"
+        extra={t('开启后可直接在浏览器里打开该主机终端')}
       >
         <Switch />
       </Form.Item>
     </div>
-    <Form.Item name="timeRange" label="每日时段" extra="留空表示全天可用">
+    <Form.Item
+      name="timeRange"
+      label={t('每日时段')}
+      extra={t('留空表示全天可用')}
+    >
       <TimePicker.RangePicker format={TIME_FORMAT} style={{ width: '100%' }} />
     </Form.Item>
-    <Form.Item name="weekdays" label="生效星期" extra="不选表示每天生效">
+    <Form.Item
+      name="weekdays"
+      label={t('生效星期')}
+      extra={t('不选表示每天生效')}
+    >
       <Checkbox.Group options={WEEKDAY_OPTIONS} />
     </Form.Item>
-    <Form.Item name="expireAt" label="到期日期" extra="留空表示长期有效">
+    <Form.Item
+      name="expireAt"
+      label={t('到期日期')}
+      extra={t('留空表示长期有效')}
+    >
       <DatePicker style={{ width: '100%' }} format={DATE_FORMAT} />
     </Form.Item>
-    <Form.Item name="maxSessions" label="最大并发会话" extra="0 表示不限制">
+    <Form.Item
+      name="maxSessions"
+      label={t('最大并发会话')}
+      extra={t('0 表示不限制')}
+    >
       <InputNumber min={0} max={999} style={{ width: '100%' }} />
     </Form.Item>
     {showEnabled && (
-      <Form.Item name="enabled" label="启用" valuePropName="checked">
+      <Form.Item name="enabled" label={t('启用')} valuePropName="checked">
         <Switch />
       </Form.Item>
     )}
-    <Form.Item name="remark" label="备注">
+    <Form.Item name="remark" label={t('备注')}>
       <Input.TextArea rows={2} maxLength={200} showCount />
     </Form.Item>
   </>
@@ -314,7 +341,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         setHostOptions(hosts);
         setPolicyOptions(policies);
       } catch (err) {
-        message.error(fromApiError(err, '加载下拉选项失败'));
+        message.error(fromApiError(err, t('加载下拉选项失败')));
       }
     })();
   }, [message]);
@@ -342,7 +369,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         setAccountOptions(await hostApi.accounts(hostId));
       } catch (err) {
         setAccountOptions([]);
-        message.error(fromApiError(err, '加载主机账号失败'));
+        message.error(fromApiError(err, t('加载主机账号失败')));
       }
     },
     [message],
@@ -367,7 +394,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const submitForm = async (values: GrantFormValues) => {
     const [timeStart, timeEnd] = values.timeRange ?? [];
     if (timeStart && timeEnd && !timeEnd.isAfter(timeStart)) {
-      message.error('结束时间必须晚于开始时间');
+      message.error(t('结束时间必须晚于开始时间'));
       return;
     }
     setSubmitting(true);
@@ -378,16 +405,16 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       };
       if (editing) {
         await grantApi.update(editing.id, payload);
-        message.success('授权已更新');
+        message.success(t('授权已更新'));
       } else {
         await grantApi.create(payload);
-        message.success('授权已创建');
+        message.success(t('授权已创建'));
       }
       setFormOpen(false);
       actionRef.current?.reload();
     } catch (err) {
       message.error(
-        fromApiError(err, editing ? '更新授权失败' : '创建授权失败'),
+        fromApiError(err, editing ? t('更新授权失败') : t('创建授权失败')),
       );
     } finally {
       setSubmitting(false);
@@ -397,7 +424,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const submitBatch = async (values: GrantFormValues) => {
     const hostIds = values.hostIds ?? [];
     if (hostIds.length === 0) {
-      message.error('请至少选择一台主机');
+      message.error(t('请至少选择一台主机'));
       return;
     }
     setSubmitting(true);
@@ -405,20 +432,21 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       const result = await grantApi.batch({ ...toPayload(values), hostIds });
       const skipped = result.skipped ?? [];
       modal.info({
-        title: '批量授权完成',
+        title: t('批量授权完成'),
         width: 560,
         content: (
           <Space orientation="vertical" size={8} style={{ width: '100%' }}>
             <Text>
-              成功 <Text strong>{result.created.length}</Text> 台，跳过{' '}
-              <Text strong>{skipped.length}</Text> 台。
+              {t('成功')} <Text strong>{result.created.length}</Text>{' '}
+              {t('台，跳过{0}', { 0: ' ' })}
+              <Text strong>{skipped.length}</Text> {t('台。')}
             </Text>
             {skipped.length > 0 && (
               <div style={{ maxHeight: 260, overflow: 'auto' }}>
                 {skipped.map((item) => (
                   <div key={item.hostId}>
                     <Text type="secondary">
-                      主机 #{item.hostId}：{item.reason}
+                      {t('主机 #{0}：{1}', { 0: item.hostId, 1: item.reason })}
                     </Text>
                   </div>
                 ))}
@@ -430,7 +458,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       setBatchOpen(false);
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '批量授权失败'));
+      message.error(fromApiError(err, t('批量授权失败')));
     } finally {
       setSubmitting(false);
     }
@@ -439,16 +467,16 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const removeGrant = async (row: GrantItem) => {
     try {
       await grantApi.remove(row.id);
-      message.success('授权已删除');
+      message.success(t('授权已删除'));
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '删除授权失败'));
+      message.error(fromApiError(err, t('删除授权失败')));
     }
   };
 
   const columns: ProColumns<GrantItem>[] = [
     {
-      title: '用户',
+      title: t('用户'),
       dataIndex: 'username',
       width: 160,
       render: (_, row) => (
@@ -458,16 +486,16 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         </Space>
       ),
     },
-    { title: '主机', dataIndex: 'hostName', width: 150 },
+    { title: t('主机'), dataIndex: 'hostName', width: 150 },
     {
-      title: '主机地址',
+      title: t('主机地址'),
       dataIndex: 'hostAddress',
       width: 200,
       search: false,
       render: (_, row) => <CopyText text={row.hostAddress} />,
     },
     {
-      title: '账号',
+      title: t('账号'),
       dataIndex: 'accountName',
       width: 180,
       search: false,
@@ -477,7 +505,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         if (wholeMachine) {
           return (
             <Space size={4}>
-              <Tag color="blue">全部账号</Tag>
+              <Tag color="blue">{t('全部账号')}</Tag>
               {row.accountUsername ? (
                 <Text type="secondary">{row.accountUsername}</Text>
               ) : null}
@@ -493,7 +521,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       },
     },
     {
-      title: '策略',
+      title: t('策略'),
       dataIndex: 'policyName',
       width: 140,
       search: false,
@@ -501,18 +529,18 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         row.policyName ? (
           <Tag>{row.policyName}</Tag>
         ) : (
-          <Text type="secondary">默认策略</Text>
+          <Text type="secondary">{t('默认策略')}</Text>
         ),
     },
     {
-      title: '权限开关',
+      title: t('权限开关'),
       dataIndex: 'canLogin',
       width: 320,
       search: false,
       render: (_, row) => <PermissionTags row={row} />,
     },
     {
-      title: '时段',
+      title: t('时段'),
       dataIndex: 'timeStart',
       width: 180,
       search: false,
@@ -525,53 +553,53 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       ),
     },
     {
-      title: '有效期',
+      title: t('有效期'),
       dataIndex: 'expireAt',
       width: 170,
       search: false,
       render: (_, row) => <TimeCell value={row.expireAt} />,
     },
     {
-      title: '最大会话',
+      title: t('最大会话'),
       dataIndex: 'maxSessions',
       width: 100,
       search: false,
       render: (_, row) =>
         row.maxSessions > 0 ? (
-          <Text>{row.maxSessions} 个</Text>
+          <Text>{t('{0} 个', { 0: row.maxSessions })}</Text>
         ) : (
-          <Text type="secondary">不限</Text>
+          <Text type="secondary">{t('不限')}</Text>
         ),
     },
     {
-      title: '是否在窗口内',
+      title: t('是否在窗口内'),
       dataIndex: 'inWindow',
       width: 130,
       search: false,
       render: (_, row) => {
-        if (!row.enabled) return <Tag color="default">已停用</Tag>;
-        if (row.inWindow) return <Tag color="success">生效中</Tag>;
+        if (!row.enabled) return <Tag color="default">{t('已停用')}</Tag>;
+        if (row.inWindow) return <Tag color="success">{t('生效中')}</Tag>;
         return (
-          <Tooltip title={row.windowReason || '不在授权时段内'}>
-            <Tag color="warning">窗口外</Tag>
+          <Tooltip title={row.windowReason || t('不在授权时段内')}>
+            <Tag color="warning">{t('窗口外')}</Tag>
           </Tooltip>
         );
       },
     },
     {
-      title: '在线会话',
+      title: t('在线会话'),
       dataIndex: 'activeSessions',
       width: 100,
       search: false,
       render: (_, row) =>
         row.activeSessions > 0 ? (
-          <Tag color="processing">{row.activeSessions} 个</Tag>
+          <Tag color="processing">{t('{0} 个', { 0: row.activeSessions })}</Tag>
         ) : (
           <Text type="secondary">0</Text>
         ),
     },
     {
-      title: '操作',
+      title: t('操作'),
       valueType: 'option',
       key: 'option',
       fixed: 'right',
@@ -585,24 +613,24 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
           ];
         return [
           <a key="edit" onClick={() => void openEdit(row)}>
-            编辑
+            {t('编辑')}
           </a>,
           <Popconfirm
             key="delete"
-            title="确认删除该授权？"
-            description="删除后该用户将立即失去这台机器的访问权限。"
-            okText="删除"
+            title={t('确认删除该授权？')}
+            description={t('删除后该用户将立即失去这台机器的访问权限。')}
+            okText={t('删除')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('取消')}
             onConfirm={() => removeGrant(row)}
           >
-            <a style={{ color: '#cf1322' }}>删除</a>
+            <a style={{ color: '#cf1322' }}>{t('删除')}</a>
           </Popconfirm>,
         ];
       },
     },
     {
-      title: '用户',
+      title: t('用户'),
       dataIndex: 'userId',
       valueType: 'select',
       hideInTable: true,
@@ -610,11 +638,11 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         showSearch: true,
         optionFilterProp: 'label',
         options: userOptions,
-        placeholder: '按用户筛选',
+        placeholder: t('按用户筛选'),
       },
     },
     {
-      title: '主机',
+      title: t('主机'),
       dataIndex: 'hostId',
       valueType: 'select',
       hideInTable: true,
@@ -622,17 +650,17 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         showSearch: true,
         optionFilterProp: 'label',
         options: hostOptions,
-        placeholder: '按主机筛选',
+        placeholder: t('按主机筛选'),
       },
     },
     {
-      title: '启用状态',
+      title: t('启用状态'),
       dataIndex: 'enabled',
       valueType: 'select',
       hideInTable: true,
       valueEnum: {
-        true: { text: '已启用' },
-        false: { text: '已停用' },
+        true: { text: t('已启用') },
+        false: { text: t('已停用') },
       },
     },
   ];
@@ -642,7 +670,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       <ProTable<GrantItem>
         rowKey="id"
         actionRef={actionRef}
-        headerTitle="授权记录"
+        headerTitle={t('授权记录')}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 10 }}
         scroll={{ x: 'max-content' }}
@@ -654,7 +682,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
           canManage
             ? [
                 <Button key="batch" onClick={() => setBatchOpen(true)}>
-                  批量授权
+                  {t('批量授权')}
                 </Button>,
                 <Button
                   key="create"
@@ -662,7 +690,7 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                   icon={<PlusOutlined />}
                   onClick={openCreate}
                 >
-                  新增授权
+                  {t('新增授权')}
                 </Button>,
               ]
             : []
@@ -671,15 +699,15 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       />
 
       <Modal
-        title={editing ? `编辑授权 #${editing.id}` : '新增授权'}
+        title={editing ? t('编辑授权 #{0}', { 0: editing.id }) : t('新增授权')}
         open={formOpen}
         width={720}
         onCancel={() => setFormOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={submitting}
         destroyOnHidden
-        okText="保存"
-        cancelText="取消"
+        okText={t('保存')}
+        cancelText={t('取消')}
       >
         <Form
           form={form}
@@ -689,25 +717,25 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         >
           <Form.Item
             name="userId"
-            label="用户"
-            rules={[{ required: true, message: '请选择用户' }]}
+            label={t('用户')}
+            rules={[{ required: true, message: t('请选择用户') }]}
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择被授权的用户"
+              placeholder={t('选择被授权的用户')}
               options={userOptions}
             />
           </Form.Item>
           <Form.Item
             name="hostId"
-            label="主机"
-            rules={[{ required: true, message: '请选择主机' }]}
+            label={t('主机')}
+            rules={[{ required: true, message: t('请选择主机') }]}
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择目标主机"
+              placeholder={t('选择目标主机')}
               options={hostOptions}
               onChange={(value) => void loadAccounts(value)}
             />
@@ -721,15 +749,15 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       </Modal>
 
       <Modal
-        title="批量授权"
+        title={t('批量授权')}
         open={batchOpen}
         width={720}
         onCancel={() => setBatchOpen(false)}
         onOk={() => batchForm.submit()}
         confirmLoading={submitting}
         destroyOnHidden
-        okText="提交授权"
-        cancelText="取消"
+        okText={t('提交授权')}
+        cancelText={t('取消')}
       >
         <Form
           form={batchForm}
@@ -739,27 +767,29 @@ const GrantListTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
         >
           <Form.Item
             name="userId"
-            label="用户"
-            rules={[{ required: true, message: '请选择用户' }]}
+            label={t('用户')}
+            rules={[{ required: true, message: t('请选择用户') }]}
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择被授权的用户"
+              placeholder={t('选择被授权的用户')}
               options={userOptions}
             />
           </Form.Item>
           <Form.Item
             name="hostIds"
-            label="主机（可多选）"
-            rules={[{ required: true, message: '请至少选择一台主机' }]}
-            extra="同一套权限/时段逐台下发；已存在相同授权的机器会被跳过并给出原因"
+            label={t('主机（可多选）')}
+            rules={[{ required: true, message: t('请至少选择一台主机') }]}
+            extra={t(
+              '同一套权限/时段逐台下发；已存在相同授权的机器会被跳过并给出原因',
+            )}
           >
             <Select
               mode="multiple"
               showSearch
               optionFilterProp="label"
-              placeholder="选择一台或多台主机"
+              placeholder={t('选择一台或多台主机')}
               options={hostOptions}
             />
           </Form.Item>
@@ -793,16 +823,16 @@ const GrantMatrixTab: React.FC = () => {
           const cell = row.cells.find((item) => item.hostId === host.id);
           if (!cell?.granted) {
             return (
-              <Tooltip title="未授权">
+              <Tooltip title={t('未授权')}>
                 <Text type="secondary">—</Text>
               </Tooltip>
             );
           }
           const tooltipText = [
-            `策略：${cell.policyName || '默认策略'}`,
-            `网页终端：${cell.canWebterm ? '允许' : '禁止'}`,
-            `状态：${cell.enabled ? '已启用' : '已停用'}`,
-          ].join('；');
+            t('策略：{0}', { 0: cell.policyName || t('默认策略') }),
+            t('网页终端：{0}', { 0: cell.canWebterm ? t('允许') : t('禁止') }),
+            t('状态：{0}', { 0: cell.enabled ? t('已启用') : t('已停用') }),
+          ].join(t('；'));
           return (
             <Tooltip title={tooltipText}>
               <Tag color={cell.enabled ? 'success' : 'default'}>✓</Tag>
@@ -816,13 +846,13 @@ const GrantMatrixTab: React.FC = () => {
   const columns = useMemo<ProColumns<GrantMatrixRow>[]>(
     () => [
       {
-        title: '用户',
+        title: t('用户'),
         dataIndex: 'keyword',
         hideInTable: true,
-        fieldProps: { placeholder: '按用户名 / 姓名过滤' },
+        fieldProps: { placeholder: t('按用户名 / 姓名过滤') },
       },
       {
-        title: '用户',
+        title: t('用户'),
         dataIndex: 'username',
         fixed: 'left',
         width: 240,
@@ -833,7 +863,10 @@ const GrantMatrixTab: React.FC = () => {
               {row.roleCode ? <Tag color="blue">{row.roleCode}</Tag> : null}
             </Space>
             <Text type="secondary">
-              {row.displayName || '-'} · 已授权 {row.grantCount} 台
+              {t('{0} · 已授权 {1} 台', {
+                0: row.displayName || '-',
+                1: row.grantCount,
+              })}
             </Text>
           </Space>
         ),
@@ -846,15 +879,19 @@ const GrantMatrixTab: React.FC = () => {
   return (
     <ProTable<GrantMatrixRow>
       rowKey="userId"
-      headerTitle="授权矩阵"
+      headerTitle={t('授权矩阵')}
       search={{ labelWidth: 'auto' }}
       pagination={{ defaultPageSize: 10 }}
       scroll={{ x: 'max-content' }}
       options={{ density: false }}
       toolBarRender={() => [
         <Text key="stat" type="secondary">
-          共 {matrixStat.total} 个用户 / {hosts.length} 台主机，已授权{' '}
-          {matrixStat.granted} 格
+          {t('共 {0} 个用户 / {1} 台主机，已授权{2} {3} 格', {
+            0: matrixStat.total,
+            1: hosts.length,
+            2: ' ',
+            3: matrixStat.granted,
+          })}
         </Text>,
       ]}
       request={async (params) => {
@@ -872,7 +909,7 @@ const GrantMatrixTab: React.FC = () => {
           });
           return { data: rows, total: res.total, success: res.success };
         } catch (err) {
-          message.error(fromApiError(err, '加载授权矩阵失败'));
+          message.error(fromApiError(err, t('加载授权矩阵失败')));
           return { data: [], total: 0, success: false };
         }
       }}
@@ -887,22 +924,22 @@ const GrantsPage: React.FC = () => {
   return (
     <PageContainer
       header={{
-        title: '访问授权',
-        subTitle: '谁能登录哪台机器、能用哪些账号、在什么时间窗内',
+        title: t('访问授权'),
+        subTitle: t('谁能登录哪台机器、能用哪些账号、在什么时间窗内'),
       }}
     >
       <Tabs
         items={[
           {
             key: 'list',
-            label: '授权列表',
+            label: t('授权列表'),
             children: (
               <GrantListTab canManage={Boolean(access.canGrantManage)} />
             ),
           },
           {
             key: 'matrix',
-            label: '授权矩阵',
+            label: t('授权矩阵'),
             children: <GrantMatrixTab />,
           },
         ]}

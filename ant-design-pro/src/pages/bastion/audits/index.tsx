@@ -43,6 +43,7 @@ import {
   MonoCell,
   TimeCell,
 } from '@/components/Bastion';
+import { t as i18nT } from '@/i18n';
 import { humanAuditMessage } from '@/services/bastion/constants';
 import type { PurgePayload } from '@/services/bastion/endpoints';
 import { auditApi } from '@/services/bastion/endpoints';
@@ -57,8 +58,8 @@ const { Text, Paragraph, Title } = Typography;
 type AuditOptionPayload = Awaited<ReturnType<typeof auditApi.options>>;
 
 const RESULT_OPTIONS = [
-  { label: '成功', value: 'success' },
-  { label: '失败', value: 'failure' },
+  { label: i18nT('成功'), value: 'success' },
+  { label: i18nT('失败'), value: 'failure' },
 ];
 
 const PURGE_FILTER_KEYS = [
@@ -73,65 +74,65 @@ const PURGE_FILTER_KEYS = [
 // --------------------------------------------------------------------- 中文映射
 
 const CATEGORY_META: Record<string, { text: string; color: string }> = {
-  auth: { text: '认证', color: 'geekblue' },
-  user: { text: '用户', color: 'purple' },
-  role: { text: '角色', color: 'magenta' },
-  host: { text: '资产', color: 'cyan' },
-  hostgroup: { text: '资产组', color: 'cyan' },
-  host_group: { text: '资产组', color: 'cyan' },
-  account: { text: '账号', color: 'blue' },
-  grant: { text: '授权', color: 'gold' },
-  policy: { text: '策略', color: 'volcano' },
-  file_policy: { text: '文件策略', color: 'volcano' },
-  session: { text: '会话', color: 'green' },
-  command: { text: '命令', color: 'lime' },
-  file: { text: '文件', color: 'orange' },
-  audit: { text: '审计', color: 'red' },
-  gateway: { text: '网关', color: 'geekblue' },
+  auth: { text: i18nT('认证'), color: 'geekblue' },
+  user: { text: i18nT('用户'), color: 'purple' },
+  role: { text: i18nT('角色'), color: 'magenta' },
+  host: { text: i18nT('资产'), color: 'cyan' },
+  hostgroup: { text: i18nT('资产组'), color: 'cyan' },
+  host_group: { text: i18nT('资产组'), color: 'cyan' },
+  account: { text: i18nT('账号'), color: 'blue' },
+  grant: { text: i18nT('授权'), color: 'gold' },
+  policy: { text: i18nT('策略'), color: 'volcano' },
+  file_policy: { text: i18nT('文件策略'), color: 'volcano' },
+  session: { text: i18nT('会话'), color: 'green' },
+  command: { text: i18nT('命令'), color: 'lime' },
+  file: { text: i18nT('文件'), color: 'orange' },
+  audit: { text: i18nT('审计'), color: 'red' },
+  gateway: { text: i18nT('网关'), color: 'geekblue' },
   ai: { text: 'AI', color: 'purple' },
-  settings: { text: '设置', color: 'default' },
-  system: { text: '系统', color: 'default' },
-  purge: { text: '清理', color: 'red' },
-  delete: { text: '删除', color: 'red' },
+  settings: { text: i18nT('设置'), color: 'default' },
+  system: { text: i18nT('系统'), color: 'default' },
+  purge: { text: i18nT('清理'), color: 'red' },
+  delete: { text: i18nT('删除'), color: 'red' },
 };
 
 const ACTION_META: Record<string, { text: string; color: string }> = {
-  login: { text: '登录', color: 'geekblue' },
-  logout: { text: '登出', color: 'default' },
-  create: { text: '创建', color: 'green' },
-  update: { text: '更新', color: 'blue' },
-  delete: { text: '删除', color: 'red' },
-  remove: { text: '移除', color: 'red' },
-  add: { text: '添加', color: 'green' },
-  grant: { text: '授权', color: 'gold' },
-  revoke: { text: '撤回', color: 'orange' },
-  change: { text: '变更', color: 'blue' },
-  enable: { text: '启用', color: 'green' },
-  disable: { text: '禁用', color: 'default' },
-  connect: { text: '连接', color: 'cyan' },
-  disconnect: { text: '断开', color: 'default' },
-  start: { text: '开始', color: 'green' },
-  stop: { text: '停止', color: 'default' },
-  exec: { text: '执行', color: 'blue' },
-  upload: { text: '上传', color: 'cyan' },
-  download: { text: '下载', color: 'cyan' },
-  read: { text: '读取', color: 'geekblue' },
-  write: { text: '写入', color: 'geekblue' },
-  purge: { text: '清理', color: 'red' },
-  verify: { text: '校验', color: 'green' },
-  refresh: { text: '刷新', color: 'blue' },
-  sync: { text: '同步', color: 'purple' },
-  request: { text: '请求', color: 'geekblue' },
-  response: { text: '响应', color: 'default' },
-  success: { text: '成功', color: 'success' },
-  failure: { text: '失败', color: 'error' },
+  login: { text: i18nT('登录'), color: 'geekblue' },
+  logout: { text: i18nT('登出'), color: 'default' },
+  create: { text: i18nT('创建'), color: 'green' },
+  update: { text: i18nT('更新'), color: 'blue' },
+  delete: { text: i18nT('删除'), color: 'red' },
+  remove: { text: i18nT('移除'), color: 'red' },
+  add: { text: i18nT('添加'), color: 'green' },
+  grant: { text: i18nT('授权'), color: 'gold' },
+  revoke: { text: i18nT('撤回'), color: 'orange' },
+  change: { text: i18nT('变更'), color: 'blue' },
+  enable: { text: i18nT('启用'), color: 'green' },
+  disable: { text: i18nT('禁用'), color: 'default' },
+  connect: { text: i18nT('连接'), color: 'cyan' },
+  disconnect: { text: i18nT('断开'), color: 'default' },
+  start: { text: i18nT('开始'), color: 'green' },
+  stop: { text: i18nT('停止'), color: 'default' },
+  exec: { text: i18nT('执行'), color: 'blue' },
+  upload: { text: i18nT('上传'), color: 'cyan' },
+  download: { text: i18nT('下载'), color: 'cyan' },
+  read: { text: i18nT('读取'), color: 'geekblue' },
+  write: { text: i18nT('写入'), color: 'geekblue' },
+  purge: { text: i18nT('清理'), color: 'red' },
+  verify: { text: i18nT('校验'), color: 'green' },
+  refresh: { text: i18nT('刷新'), color: 'blue' },
+  sync: { text: i18nT('同步'), color: 'purple' },
+  request: { text: i18nT('请求'), color: 'geekblue' },
+  response: { text: i18nT('响应'), color: 'default' },
+  success: { text: i18nT('成功'), color: 'success' },
+  failure: { text: i18nT('失败'), color: 'error' },
 };
 
 const TABLE_LABEL: Record<'audit_logs' | 'command_logs' | 'file_logs', string> =
   {
-    audit_logs: '操作日志',
-    command_logs: '命令流水',
-    file_logs: '文件流水',
+    audit_logs: i18nT('操作日志'),
+    command_logs: i18nT('命令流水'),
+    file_logs: i18nT('文件流水'),
   };
 
 const tagFromMeta = (
@@ -152,8 +153,8 @@ const tagFromMeta = (
 };
 
 const renderResult = (result: string) => {
-  if (result === 'success') return <Tag color="success">成功</Tag>;
-  if (result === 'failure') return <Tag color="error">失败</Tag>;
+  if (result === 'success') return <Tag color="success">{i18nT('成功')}</Tag>;
+  if (result === 'failure') return <Tag color="error">{i18nT('失败')}</Tag>;
   return <Tag>{result || '-'}</Tag>;
 };
 
@@ -304,10 +305,12 @@ const ChainBadge: React.FC<{
                   fontWeight: 700,
                 }}
               >
-                {healthy ? '链式哈希 · 完整可信' : '链式哈希 · 存在异常'}
+                {healthy
+                  ? i18nT('链式哈希 · 完整可信')
+                  : i18nT('链式哈希 · 存在异常')}
               </Title>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                HMAC-SHA256 · 每表独立挂链 · 可随时校验
+                {i18nT('HMAC-SHA256 · 每表独立挂链 · 可随时校验')}
               </Text>
             </div>
           </Space>
@@ -369,7 +372,7 @@ const ChainBadge: React.FC<{
                             style={{ fontSize: 12, lineHeight: 1.8 }}
                           >
                             <Text type="secondary">
-                              总数 <Text strong>{c.total}</Text>
+                              {i18nT('总数')} <Text strong>{c.total}</Text>
                             </Text>
                             <Text
                               style={{
@@ -381,7 +384,7 @@ const ChainBadge: React.FC<{
                                       : '#d48806',
                               }}
                             >
-                              已哈希{' '}
+                              {i18nT('已哈希{0}', { 0: ' ' })}
                               <Text strong>
                                 {c.hashed}
                                 {c.pending > 0 ? ` / ${c.total}` : ''}
@@ -389,14 +392,17 @@ const ChainBadge: React.FC<{
                             </Text>
                             {pendingPrefix > 0 ? (
                               <Text type="secondary">
-                                升级前遗留 <Text strong>{pendingPrefix}</Text>{' '}
-                                行（无哈希 · 不影响完整性）
+                                {i18nT('升级前遗留')}{' '}
+                                <Text strong>{pendingPrefix}</Text>
+                                {i18nT('{0} 行（无哈希 · 不影响完整性）', {
+                                  0: ' ',
+                                })}
                               </Text>
                             ) : null}
                           </Space>
                           <div style={{ marginTop: 6 }}>
                             <Text type="secondary" style={{ fontSize: 11 }}>
-                              链尾 id {h.lastId ?? '-'}
+                              {i18nT('链尾 id {0}', { 0: h.lastId ?? '-' })}
                             </Text>
                             <div style={{ marginTop: 2 }}>
                               <HashCell
@@ -420,7 +426,7 @@ const ChainBadge: React.FC<{
             <Alert
               showIcon
               type="warning"
-              message="链状态读取失败"
+              message={i18nT('链状态读取失败')}
               description={error}
             />
           ) : null}
@@ -428,11 +434,13 @@ const ChainBadge: React.FC<{
             <Alert
               showIcon
               type="error"
-              message={`${TABLE_LABEL[verifyErrors.table]} 检出哈希异常`}
+              message={i18nT('{0} 检出哈希异常', {
+                0: TABLE_LABEL[verifyErrors.table],
+              })}
               description={
                 <Space direction="vertical" size={4}>
                   <Text>
-                    首条坏记录 id ={' '}
+                    {i18nT('首条坏记录 id ={0}', { 0: ' ' })}
                     <Text code>{verifyErrors.firstBad ?? '-'}</Text>
                   </Text>
                   {verifyErrors.sample.length > 0 ? (
@@ -446,7 +454,8 @@ const ChainBadge: React.FC<{
                     >
                       {verifyErrors.sample.map((e) => (
                         <li key={`${e.id ?? 'anchor'}-${e.reason}`}>
-                          <Text code>#{e.id ?? '锚点'}</Text> — {e.reason}
+                          <Text code>#{e.id ?? i18nT('锚点')}</Text> —{' '}
+                          {e.reason}
                         </li>
                       ))}
                     </ul>
@@ -459,15 +468,17 @@ const ChainBadge: React.FC<{
             <Alert
               showIcon
               type="info"
-              message="全表校验通过"
-              description="三张流水表的链式哈希重算全部自洽，未发现字段篡改、哈希清空或链内断裂。注意链的固有边界：整段删尾行在库内是自洽的，要抓它得比对库外锚点（CLI --print-head / --expect-head）。"
+              message={i18nT('全表校验通过')}
+              description={i18nT(
+                '三张流水表的链式哈希重算全部自洽，未发现字段篡改、哈希清空或链内断裂。注意链的固有边界：整段删尾行在库内是自洽的，要抓它得比对库外锚点（CLI --print-head / --expect-head）。',
+              )}
             />
           ) : null}
         </Col>
         <Col xs={24} md={6} style={{ textAlign: xs ? 'left' : 'right' }}>
           <Space size={8} wrap>
             <Button onClick={onRefresh} loading={loading}>
-              刷新状态
+              {i18nT('刷新状态')}
             </Button>
             <Button
               type="primary"
@@ -478,7 +489,7 @@ const ChainBadge: React.FC<{
                 boxShadow: '0 6px 14px rgba(22, 119, 255, 0.22)',
               }}
             >
-              逐行校验哈希
+              {i18nT('逐行校验哈希')}
             </Button>
           </Space>
         </Col>
@@ -519,7 +530,7 @@ const AuditsPage: React.FC = () => {
       setChain((s) => ({
         ...s,
         loading: false,
-        error: (e as Error)?.message ?? '读取链状态失败',
+        error: (e as Error)?.message ?? i18nT('读取链状态失败'),
       }));
     }
   }, []);
@@ -529,11 +540,15 @@ const AuditsPage: React.FC = () => {
     try {
       const data = await auditApi.chainVerify();
       setChain((s) => ({ ...s, verify: data, verifying: false }));
-      if (data.ok) message.success('三张流水表哈希校验全部通过');
-      else message.warning('检出哈希异常，详情见上方卡片');
+      if (data.ok) message.success(i18nT('三张流水表哈希校验全部通过'));
+      else message.warning(i18nT('检出哈希异常，详情见上方卡片'));
     } catch (e) {
       setChain((s) => ({ ...s, verifying: false }));
-      message.error(`哈希校验失败：${(e as Error)?.message ?? '未知错误'}`);
+      message.error(
+        i18nT('哈希校验失败：{0}', {
+          0: (e as Error)?.message ?? i18nT('未知错误'),
+        }),
+      );
     }
   }, []);
 
@@ -557,7 +572,7 @@ const AuditsPage: React.FC = () => {
       setPurging(true);
       try {
         const result = await auditApi.purge(payload);
-        message.success(`已清除 ${result.deleted} 条审计日志`);
+        message.success(i18nT('已清除 {0} 条审计日志', { 0: result.deleted }));
         setSelectedKeys([]);
         actionRef.current?.reload();
         void loadChainStatus();
@@ -615,7 +630,7 @@ const AuditsPage: React.FC = () => {
 
   const columns: ProColumns<AuditItem>[] = [
     {
-      title: '时间',
+      title: i18nT('时间'),
       dataIndex: 'ts',
       width: 180,
       search: false,
@@ -623,58 +638,58 @@ const AuditsPage: React.FC = () => {
     },
     categoryOptions.length > 0
       ? {
-          title: '类别',
+          title: i18nT('类别'),
           dataIndex: 'category',
           width: 140,
           valueType: 'select',
           fieldProps: {
             options: categoryOptions,
-            placeholder: '全部类别',
+            placeholder: i18nT('全部类别'),
             showSearch: true,
             optionFilterProp: 'label',
           },
           render: (_, record) => tagFromMeta(record.category, CATEGORY_META),
         }
       : {
-          title: '类别',
+          title: i18nT('类别'),
           dataIndex: 'category',
           width: 140,
-          fieldProps: { placeholder: '类别' },
+          fieldProps: { placeholder: i18nT('类别') },
           render: (_, record) => tagFromMeta(record.category, CATEGORY_META),
         },
     actionOptions.length > 0
       ? {
-          title: '动作',
+          title: i18nT('动作'),
           dataIndex: 'action',
           width: 130,
           valueType: 'select',
           fieldProps: {
             options: actionOptions,
-            placeholder: '全部动作',
+            placeholder: i18nT('全部动作'),
             showSearch: true,
             optionFilterProp: 'label',
           },
           render: (_, record) => tagFromMeta(record.action, ACTION_META),
         }
       : {
-          title: '动作',
+          title: i18nT('动作'),
           dataIndex: 'action',
           width: 130,
-          fieldProps: { placeholder: '动作' },
+          fieldProps: { placeholder: i18nT('动作') },
           render: (_, record) => tagFromMeta(record.action, ACTION_META),
         },
     {
-      title: '操作人',
+      title: i18nT('操作人'),
       dataIndex: 'actorUsername',
       width: 170,
-      fieldProps: { placeholder: '操作人' },
+      fieldProps: { placeholder: i18nT('操作人') },
       render: (_, record) =>
         record.actorRole
           ? `${record.actorUsername}（${record.actorRole}）`
           : record.actorUsername,
     },
     {
-      title: '目标',
+      title: i18nT('目标'),
       key: 'target',
       width: 220,
       search: false,
@@ -688,21 +703,21 @@ const AuditsPage: React.FC = () => {
       ),
     },
     {
-      title: '目标类型',
+      title: i18nT('目标类型'),
       dataIndex: 'targetType',
       hideInTable: true,
-      fieldProps: { placeholder: '目标类型' },
+      fieldProps: { placeholder: i18nT('目标类型') },
     },
     {
-      title: '结果',
+      title: i18nT('结果'),
       dataIndex: 'result',
       width: 100,
       valueType: 'select',
-      fieldProps: { options: RESULT_OPTIONS, placeholder: '全部结果' },
+      fieldProps: { options: RESULT_OPTIONS, placeholder: i18nT('全部结果') },
       render: (_, record) => renderResult(record.result),
     },
     {
-      title: '消息',
+      title: i18nT('消息'),
       dataIndex: 'message',
       width: 320,
       search: false,
@@ -712,13 +727,13 @@ const AuditsPage: React.FC = () => {
     },
     { title: 'IP', dataIndex: 'ip', width: 150, search: false },
     {
-      title: '关键字',
+      title: i18nT('关键字'),
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '消息 / 目标 / 操作人' },
+      fieldProps: { placeholder: i18nT('消息 / 目标 / 操作人') },
     },
     {
-      title: '操作',
+      title: i18nT('操作'),
       valueType: 'option',
       width: 90,
       fixed: 'right',
@@ -729,7 +744,7 @@ const AuditsPage: React.FC = () => {
           size="small"
           onClick={() => void openDetail(record.id)}
         >
-          详情
+          {i18nT('详情')}
         </Button>,
       ],
     },
@@ -740,10 +755,12 @@ const AuditsPage: React.FC = () => {
       <div style={{ marginBottom: 8 }}>
         <Space direction="vertical" size={0} style={{ width: '100%' }}>
           <Title level={3} style={{ margin: 0, color: '#0f172a' }}>
-            审计中心 · 操作日志
+            {i18nT('审计中心 · 操作日志')}
           </Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            全量流水已启用 HMAC-SHA256 链式哈希，可随时校验记录是否被篡改。
+            {i18nT(
+              '全量流水已启用 HMAC-SHA256 链式哈希，可随时校验记录是否被篡改。',
+            )}
           </Text>
         </Space>
       </div>
@@ -773,7 +790,11 @@ const AuditsPage: React.FC = () => {
             defaultPageSize: 10,
             showSizeChanger: true,
             showTotal: (t, range) =>
-              `第 ${range[0]}-${range[1]} 条，共 ${t} 条`,
+              i18nT('第 {0}-{1} 条，共 {2} 条', {
+                0: range[0],
+                1: range[1],
+                2: t,
+              }),
           }}
           scroll={{ x: 'max-content' }}
           rowSelection={
@@ -798,14 +819,16 @@ const AuditsPage: React.FC = () => {
           }}
           toolBarRender={() => [
             <Button key="refresh" onClick={() => actionRef.current?.reload()}>
-              刷新
+              {i18nT('刷新')}
             </Button>,
             access.canAdmin ? (
               <Popconfirm
                 key="purge-selected"
-                title="删除选中的审计日志？"
-                description={`将永久删除 ${selectedKeys.length} 条记录，无法恢复。`}
-                okText="删除"
+                title={i18nT('删除选中的审计日志？')}
+                description={i18nT('将永久删除 {0} 条记录，无法恢复。', {
+                  0: selectedKeys.length,
+                })}
+                okText={i18nT('删除')}
                 okButtonProps={{ danger: true }}
                 disabled={selectedKeys.length === 0}
                 onConfirm={() =>
@@ -817,29 +840,35 @@ const AuditsPage: React.FC = () => {
                   disabled={selectedKeys.length === 0}
                   loading={purging}
                 >
-                  删除选中
-                  {selectedKeys.length > 0 ? `（${selectedKeys.length}）` : ''}
+                  {i18nT('删除选中 {0}', {
+                    0:
+                      selectedKeys.length > 0
+                        ? `（${selectedKeys.length}）`
+                        : '',
+                  })}
                 </Button>
               </Popconfirm>
             ) : null,
             access.canAdmin ? (
               <Popconfirm
                 key="purge-filtered"
-                title="清除当前筛选结果？"
+                title={i18nT('清除当前筛选结果？')}
                 description={
                   <>
-                    将按当前搜索条件永久删除匹配的全部审计日志（当前共 {total}{' '}
-                    条），无法恢复。未设置筛选条件时等同于清空全部。
+                    {i18nT(
+                      '将按当前搜索条件永久删除匹配的全部审计日志（当前共 {0}{1} 条），无法恢复。未设置筛选条件时等同于清空全部。',
+                      { 0: total, 1: ' ' },
+                    )}
                     <br />
-                    清除动作本身会写入一条审计留痕。
+                    {i18nT('清除动作本身会写入一条审计留痕。')}
                   </>
                 }
-                okText="清除"
+                okText={i18nT('清除')}
                 okButtonProps={{ danger: true }}
                 onConfirm={() => runPurge({ all: true, ...currentFilters() })}
               >
                 <Button danger type="primary" ghost loading={purging}>
-                  清除筛选结果
+                  {i18nT('清除筛选结果')}
                 </Button>
               </Popconfirm>
             ) : null,
@@ -853,7 +882,7 @@ const AuditsPage: React.FC = () => {
         title={
           <Space size={10} align="center">
             <Title level={5} style={{ margin: 0 }}>
-              审计详情
+              {i18nT('审计详情')}
             </Title>
             {detail ? (
               <Tag color="geekblue" style={{ borderRadius: 4 }}>
@@ -875,61 +904,65 @@ const AuditsPage: React.FC = () => {
               bordered
               size="small"
               items={[
-                { key: 'id', label: '日志 ID', children: detail.id },
+                { key: 'id', label: i18nT('日志 ID'), children: detail.id },
                 {
                   key: 'ts',
-                  label: '时间',
+                  label: i18nT('时间'),
                   children: <TimeCell value={detail.ts} />,
                 },
                 {
                   key: 'category',
-                  label: '类别',
+                  label: i18nT('类别'),
                   children: tagFromMeta(detail.category, CATEGORY_META),
                 },
                 {
                   key: 'action',
-                  label: '动作',
+                  label: i18nT('动作'),
                   children: tagFromMeta(detail.action, ACTION_META),
                 },
                 {
                   key: 'actorUsername',
-                  label: '操作人',
+                  label: i18nT('操作人'),
                   children: detail.actorUsername || '-',
                 },
                 {
                   key: 'actorRole',
-                  label: '操作人角色',
+                  label: i18nT('操作人角色'),
                   children: detail.actorRole || '-',
                 },
                 {
                   key: 'actorId',
-                  label: '操作人 ID',
+                  label: i18nT('操作人 ID'),
                   children: detail.actorId ?? '-',
                 },
                 {
                   key: 'targetType',
-                  label: '目标类型',
+                  label: i18nT('目标类型'),
                   children: detail.targetType || '-',
                 },
                 {
                   key: 'targetId',
-                  label: '目标 ID',
+                  label: i18nT('目标 ID'),
                   children: detail.targetId ?? '-',
                 },
                 {
                   key: 'targetName',
-                  label: '目标名称',
+                  label: i18nT('目标名称'),
                   children: detail.targetName || '-',
                 },
                 {
                   key: 'result',
-                  label: '结果',
+                  label: i18nT('结果'),
                   children: renderResult(detail.result),
                 },
-                { key: 'ip', label: '来源 IP', children: detail.ip || '-' },
+                {
+                  key: 'ip',
+                  label: i18nT('来源 IP'),
+                  children: detail.ip || '-',
+                },
                 {
                   key: 'message',
-                  label: '消息',
+                  label: i18nT('消息'),
                   span: 2,
                   children: (
                     <DescParagraph value={humanAuditMessage(detail.message)} />
@@ -950,7 +983,7 @@ const AuditsPage: React.FC = () => {
               orientationMargin={0}
             >
               <Text strong style={{ fontSize: 13 }}>
-                链式哈希
+                {i18nT('链式哈希')}
               </Text>
             </Divider>
 
@@ -972,7 +1005,7 @@ const AuditsPage: React.FC = () => {
                 <Row gutter={[12, 8]}>
                   <Col xs={24} sm={6}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      前块哈希
+                      {i18nT('前块哈希')}
                     </Text>
                   </Col>
                   <Col xs={24} sm={18}>
@@ -985,7 +1018,7 @@ const AuditsPage: React.FC = () => {
                         color="default"
                         style={{ marginLeft: 8, borderRadius: 4 }}
                       >
-                        链起点 / 历史遗留
+                        {i18nT('链起点 / 历史遗留')}
                       </Tag>
                     ) : null}
                   </Col>
@@ -993,7 +1026,7 @@ const AuditsPage: React.FC = () => {
                 <Row gutter={[12, 8]}>
                   <Col xs={24} sm={6}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      本块哈希
+                      {i18nT('本块哈希')}
                     </Text>
                   </Col>
                   <Col xs={24} sm={18}>
@@ -1006,7 +1039,7 @@ const AuditsPage: React.FC = () => {
                         color="warning"
                         style={{ marginLeft: 8, borderRadius: 4 }}
                       >
-                        未哈希（升级前数据）
+                        {i18nT('未哈希（升级前数据）')}
                       </Tag>
                     ) : (
                       <Tag
@@ -1022,11 +1055,9 @@ const AuditsPage: React.FC = () => {
                   type="secondary"
                   style={{ marginBottom: 0, fontSize: 12 }}
                 >
-                  哈希由服务器 SECRET_KEY 派生出的专用 HMAC 密钥计算：本块哈希 =
-                  HMAC(chain_key, 表名 + 前块哈希 + 规范化字段序列)。
-                  改字段、清空哈希、动连接关系，逐行校验都会点名到具体行；但链只能证明
-                  「手上这串是连续的」——整段删尾行要拿库外锚点（CLI --print-head
-                  / --expect-head）比对才抓得住。
+                  {i18nT(
+                    '哈希由服务器 SECRET_KEY 派生出的专用 HMAC 密钥计算：本块哈希 =\n                  HMAC(chain_key, 表名 + 前块哈希 + 规范化字段序列)。\n                  改字段、清空哈希、动连接关系，逐行校验都会点名到具体行；但链只能证明\n                  「手上这串是连续的」——整段删尾行要拿库外锚点（CLI --print-head\n                  / --expect-head）比对才抓得住。',
+                  )}
                 </Paragraph>
               </Space>
             </Card>
@@ -1037,7 +1068,7 @@ const AuditsPage: React.FC = () => {
               orientationMargin={0}
             >
               <Text strong style={{ fontSize: 13 }}>
-                原始详情数据
+                {i18nT('原始详情数据')}
               </Text>
             </Divider>
             <JsonBlock value={detail.detail} />

@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import React from 'react';
 import { CopyText } from '@/components/Bastion';
+import { t } from '@/i18n';
 import type { DeployResult } from './types';
 
 const { Text, Paragraph, Title } = Typography;
@@ -36,7 +37,7 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
   const openConsole = () => {
     const params = new URLSearchParams({
       hostId: String(result.hostId),
-      title: result.hostName || result.hostAddress || 'Windows 主机',
+      title: result.hostName || result.hostAddress || t('Windows 主机'),
     });
     // 用 umi 的 history（项目里其它页面都这么跳），别用 window.location 整页刷新
     history.push(`/rdp/console?${params.toString()}`);
@@ -48,16 +49,18 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
         <Space orientation="vertical" size={12} style={{ width: '100%' }}>
           <Title level={4} style={{ margin: 0 }}>
             <CheckCircleFilled style={{ color: '#52c41a', marginRight: 8 }} />
-            ComputerUse 部署成功
+            {t('ComputerUse 部署成功')}
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            {result.hostName}（{result.hostAddress}） 上的 windows-mcp
-            已经跑起来并通过探活，开机自启也已经写好。
+            {t(
+              '{0}（{1}） 上的 windows-mcp 已经跑起来并通过探活，开机自启也已经写好。',
+              { 0: result.hostName, 1: result.hostAddress },
+            )}
           </Paragraph>
         </Space>
       </Card>
 
-      <Card title="部署结果">
+      <Card title={t('部署结果')}>
         <Descriptions
           column={{ xs: 1, sm: 1, lg: 2 }}
           bordered
@@ -65,21 +68,21 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
           items={[
             {
               key: 'host',
-              label: '目标主机',
+              label: t('目标主机'),
               children: `${result.hostName}（${result.hostAddress}）`,
             },
             {
               key: 'mcpUrl',
-              label: 'MCP 地址',
+              label: t('MCP 地址'),
               children: result.mcpUrl ? (
                 <CopyText text={result.mcpUrl} />
               ) : (
-                <Text type="secondary">未返回</Text>
+                <Text type="secondary">{t('未返回')}</Text>
               ),
             },
             {
               key: 'python',
-              label: 'Python 路径',
+              label: t('Python 路径'),
               children: result.pythonPath ? (
                 <Text code style={{ fontSize: 12 }}>
                   {result.pythonPath}
@@ -90,24 +93,24 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
             },
             {
               key: 'pythonVersion',
-              label: 'Python 版本',
+              label: t('Python 版本'),
               children: result.pythonVersion || '-',
             },
             {
               key: 'mcpVersion',
-              label: 'windows-mcp 版本',
+              label: t('windows-mcp 版本'),
               children: result.mcpVersion || '-',
             },
             {
               key: 'mcpPort',
-              label: 'MCP 端口',
+              label: t('MCP 端口'),
               children: `${result.mcpPort}（${
-                result.portproxy ? '经 portproxy 转发' : '未开 portproxy'
-              }${result.firewall ? '，防火墙已放行' : '，防火墙未确认'}）`,
+                result.portproxy ? t('经 portproxy 转发') : t('未开 portproxy')
+              }${result.firewall ? t('，防火墙已放行') : t('，防火墙未确认')}）`,
             },
             {
               key: 'vbs',
-              label: '开机自启 VBS',
+              label: t('开机自启 VBS'),
               children: result.vbsPath ? (
                 <Text code style={{ fontSize: 12 }}>
                   {result.vbsPath}
@@ -118,7 +121,7 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
             },
             {
               key: 'startup',
-              label: '自启快捷方式',
+              label: t('自启快捷方式'),
               children: result.startupPath ? (
                 <Text code style={{ fontSize: 12 }}>
                   {result.startupPath}
@@ -129,7 +132,7 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
             },
             {
               key: 'tools',
-              label: `MCP 工具（${result.mcpToolCount} 个）`,
+              label: t('MCP 工具（{0} 个）', { 0: result.mcpToolCount }),
               span: 'filled',
               children: result.toolNames.length ? (
                 <Space size={[6, 6]} wrap>
@@ -141,7 +144,9 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
                 </Space>
               ) : (
                 <Text type="secondary">
-                  后端没有返回工具名清单，可进 WebRDP 控制台让 AI 列一次工具。
+                  {t(
+                    '后端没有返回工具名清单，可进 WebRDP 控制台让 AI 列一次工具。',
+                  )}
                 </Text>
               ),
             },
@@ -153,16 +158,18 @@ const SuccessStep: React.FC<SuccessStepProps> = ({ result, onAgain }) => {
         type="info"
         showIcon
         icon={<DesktopOutlined />}
-        title="ComputerUse 侧边栏已出现在 WebRDP 窗口右侧"
-        description="AI 操作的是目标机的控制台会话，可通过侧边栏截图查看画面。打开下面这个入口就能看到侧边栏与实时画面。"
+        title={t('ComputerUse 侧边栏已出现在 WebRDP 窗口右侧')}
+        description={t(
+          'AI 操作的是目标机的控制台会话，可通过侧边栏截图查看画面。打开下面这个入口就能看到侧边栏与实时画面。',
+        )}
       />
 
       <Space wrap>
         <Button type="primary" icon={<DesktopOutlined />} onClick={openConsole}>
-          打开 WebRDP 控制台
+          {t('打开 WebRDP 控制台')}
         </Button>
         <Button icon={<PlusOutlined />} onClick={onAgain}>
-          再部署一台
+          {t('再部署一台')}
         </Button>
       </Space>
     </Space>

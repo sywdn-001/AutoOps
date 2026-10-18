@@ -24,6 +24,7 @@ import {
   LangDropdown,
   OfflineBanner,
 } from '@/components';
+import { t, translateMenuData } from '@/i18n';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
@@ -82,6 +83,9 @@ export const layout: RunTimeLayoutConfig = ({
   setInitialState,
 }) => {
   return {
+    // 菜单/面包屑的中文名在路由里是字面量（见 config/routes.ts 的说明），
+    // 这里统一过一遍 t()，切到英文时整棵菜单一起变。
+    menuDataRender: (menuData) => translateMenuData(menuData),
     menuItemRender: (item, dom) => {
       if (item.path) {
         return (
@@ -101,7 +105,7 @@ export const layout: RunTimeLayoutConfig = ({
     },
     avatarProps: {
       src: initialState?.currentUser?.avatar || undefined,
-      title: initialState?.currentUser?.name || '未登录',
+      title: initialState?.currentUser?.name || t('未登录'),
       render: (_, avatarChildren) => (
         <AvatarDropdown>{avatarChildren}</AvatarDropdown>
       ),
@@ -134,10 +138,10 @@ export const layout: RunTimeLayoutConfig = ({
       <Result
         status="403"
         title="403"
-        subTitle="抱歉，当前账号没有访问该页面的权限，请联系管理员开通。"
+        subTitle={t('抱歉，当前账号没有访问该页面的权限，请联系管理员开通。')}
         extra={
           <Button type="primary" onClick={() => history.push('/')}>
-            返回首页
+            {t('返回首页')}
           </Button>
         }
       />
@@ -170,6 +174,9 @@ export const layout: RunTimeLayoutConfig = ({
       );
     },
     ...initialState?.settings,
+    // 品牌名跟着语言走（Chinese: AutoOps 堡垒机 / English: AutoOps Bastion）。
+    // 必须放在 spread 之后，否则会被 initialState.settings 里的原值盖回去。
+    title: t(String(initialState?.settings?.title ?? 'AutoOps 堡垒机')),
   };
 };
 

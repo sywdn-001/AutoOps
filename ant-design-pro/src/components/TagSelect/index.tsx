@@ -2,6 +2,7 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { Button, Tag } from 'antd';
 import { clsx } from 'clsx';
 import React, { type FC, useMemo, useState } from 'react';
+import { t } from '@/i18n';
 import useStyles from './index.style';
 
 const { CheckableTag } = Tag;
@@ -104,9 +105,9 @@ const TagSelect: FC<TagSelectProps> & {
   };
   const checkedAll = allTags.length === value?.length && allTags.length > 0;
   const {
-    expandText = '展开',
-    collapseText = '收起',
-    selectAllText = '全部',
+    expandText = t('展开'),
+    collapseText = t('收起'),
+    selectAllText = t('全部'),
   } = actionsText;
   const cls = clsx(styles.tagSelect, className, {
     [styles.hasExpandTag]: expandable,

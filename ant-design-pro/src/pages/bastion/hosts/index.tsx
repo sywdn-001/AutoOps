@@ -57,6 +57,7 @@ import {
   ProtocolTag,
   TimeCell,
 } from '@/components/Bastion';
+import { t } from '@/i18n';
 import {
   AUTH_TYPE_OPTIONS,
   HOST_STATUS_META,
@@ -117,14 +118,14 @@ type AccountFormValues = {
  * 底层数据模型仍是一个协议一条端点，通道还能单独勾。
  */
 const PROTOCOL_OPTIONS = [
-  { label: 'Linux / Unix（SSH 命令行）', value: 'ssh' },
-  { label: 'Windows（命令行 + 远程桌面）', value: 'windows' },
+  { label: t('Linux / Unix（SSH 命令行）'), value: 'ssh' },
+  { label: t('Windows（命令行 + 远程桌面）'), value: 'windows' },
 ];
 
 /** 选了「Windows」之后再勾这台机器实际开了哪些通道（默认两个都开） */
 const WINDOWS_CHANNEL_OPTIONS = [
-  { label: '命令行（WinRM / PowerShell）', value: 'winrm' },
-  { label: '远程桌面（RDP）', value: 'rdp' },
+  { label: t('命令行（WinRM / PowerShell）'), value: 'winrm' },
+  { label: t('远程桌面（RDP）'), value: 'rdp' },
 ];
 const WINDOWS_CHANNELS_DEFAULT = ['winrm', 'rdp'];
 
@@ -189,8 +190,8 @@ const OS_TYPE_OPTIONS = [
  * 这时改成「强制 SSL」让它退回标准 RDP 安全层（只对协议为 rdp 的主机生效）。
  */
 const RDP_SECURITY_OPTIONS = [
-  { label: '自动（默认，按客户端协商，含 NLA）', value: 'auto' },
-  { label: '强制 SSL（不使用 NLA，兼容老系统）', value: 'ssl' },
+  { label: t('自动（默认，按客户端协商，含 NLA）'), value: 'auto' },
+  { label: t('强制 SSL（不使用 NLA，兼容老系统）'), value: 'ssl' },
 ];
 
 /**
@@ -199,8 +200,8 @@ const RDP_SECURITY_OPTIONS = [
  * 目标机开了 HTTPS 时把端口填 5986 即可自动用 TLS。
  */
 const WINRM_TRANSPORT_OPTIONS = [
-  { label: 'NTLM（默认，域 / 本地账号）', value: 'ntlm' },
-  { label: 'Basic（明文，需目标机 AllowUnencrypted）', value: 'basic' },
+  { label: t('NTLM（默认，域 / 本地账号）'), value: 'ntlm' },
+  { label: t('Basic（明文，需目标机 AllowUnencrypted）'), value: 'basic' },
 ];
 
 /** 各协议在后台的默认端口（与后端 `api/hosts.py` 的 DEFAULT_PORTS 保持一致） */
@@ -268,7 +269,7 @@ const Hosts: React.FC = () => {
         res.data.map((group) => ({ label: group.name, value: group.id })),
       );
     } catch (error) {
-      message.error(fromApiError(error, '主机分组选项加载失败'));
+      message.error(fromApiError(error, t('主机分组选项加载失败')));
     }
   }, [message]);
 
@@ -278,7 +279,7 @@ const Hosts: React.FC = () => {
       try {
         setAccounts(await hostApi.accounts(hostId));
       } catch (error) {
-        message.error(fromApiError(error, '账号列表加载失败'));
+        message.error(fromApiError(error, t('账号列表加载失败')));
       } finally {
         setAccountsLoading(false);
       }
@@ -329,7 +330,7 @@ const Hosts: React.FC = () => {
             })),
         );
       } catch (error) {
-        message.error(fromApiError(error, '同地址主机列表加载失败'));
+        message.error(fromApiError(error, t('同地址主机列表加载失败')));
       } finally {
         setMergeLoading(false);
       }
@@ -343,12 +344,12 @@ const Hosts: React.FC = () => {
     }
     try {
       await hostApi.merge(mergeTarget.id, values.sourceId);
-      message.success('已把选中的主机合并进本机');
+      message.success(t('已把选中的主机合并进本机'));
       setMergeTarget(undefined);
       refreshAll();
       return true;
     } catch (error) {
-      message.error(fromApiError(error, '合并主机失败'));
+      message.error(fromApiError(error, t('合并主机失败')));
       return false;
     }
   };
@@ -396,15 +397,15 @@ const Hosts: React.FC = () => {
     try {
       if (editing) {
         await hostApi.update(editing.id, payload);
-        message.success('主机已更新');
+        message.success(t('主机已更新'));
       } else {
         await hostApi.create(payload);
-        message.success('主机已创建');
+        message.success(t('主机已创建'));
       }
       actionRef.current?.reload();
       return true;
     } catch (error) {
-      message.error(fromApiError(error, '保存主机失败'));
+      message.error(fromApiError(error, t('保存主机失败')));
       return false;
     }
   };
@@ -412,11 +413,11 @@ const Hosts: React.FC = () => {
   const removeHost = async (row: HostItem) => {
     try {
       await hostApi.remove(row.id);
-      message.success('主机已删除');
+      message.success(t('主机已删除'));
       actionRef.current?.reload();
     } catch (error) {
       // 后端在有在线会话时返回 409 SESSION_ACTIVE，这里把它的 message 原样展示
-      message.error(fromApiError(error, '删除主机失败'));
+      message.error(fromApiError(error, t('删除主机失败')));
     }
   };
 
@@ -451,16 +452,16 @@ const Hosts: React.FC = () => {
     try {
       if (editingAccount) {
         await accountApi.update(accountHost.id, editingAccount.id, payload);
-        message.success('账号已更新');
+        message.success(t('账号已更新'));
       } else {
         await accountApi.create(accountHost.id, payload);
-        message.success('账号已创建');
+        message.success(t('账号已创建'));
       }
       await loadAccounts(accountHost.id);
       actionRef.current?.reload();
       return true;
     } catch (error) {
-      message.error(fromApiError(error, '保存账号失败'));
+      message.error(fromApiError(error, t('保存账号失败')));
       return false;
     }
   };
@@ -471,7 +472,7 @@ const Hosts: React.FC = () => {
     try {
       const result = await accountApi.test(accountHost.id, row.id);
       modal.info({
-        title: `连接测试通过：${row.name}`,
+        title: t('连接测试通过：{0}', { 0: row.name }),
         width: 720,
         content: (
           <div>
@@ -479,16 +480,16 @@ const Hosts: React.FC = () => {
               <CloudServerOutlined
                 style={{ color: '#2E7BFF', marginRight: 6 }}
               />
-              服务器版本：{result.serverVersion || '-'}
+              {t('服务器版本：{0}', { 0: result.serverVersion || '-' })}
             </p>
             <p>
               <LaptopOutlined style={{ color: '#12B8C8', marginRight: 6 }} />
-              客户端版本：{result.clientVersion || '-'}
+              {t('客户端版本：{0}', { 0: result.clientVersion || '-' })}
             </p>
-            <p>主机密钥指纹：{result.fingerprint || '-'}</p>
-            <p>退出码：{result.exitStatus ?? '-'}</p>
+            <p>{t('主机密钥指纹：{0}', { 0: result.fingerprint || '-' })}</p>
+            <p>{t('退出码：{0}', { 0: result.exitStatus ?? '-' })}</p>
             <pre style={{ margin: 0, maxHeight: 320, overflow: 'auto' }}>
-              {result.output || '(无输出)'}
+              {result.output || t('(无输出)')}
             </pre>
           </div>
         ),
@@ -496,8 +497,8 @@ const Hosts: React.FC = () => {
     } catch (error) {
       // 后端 SSH 失败返回 400 SSH_CONNECT_FAILED，message 里带具体原因
       modal.error({
-        title: '连接测试失败',
-        content: fromApiError(error, '连接测试失败'),
+        title: t('连接测试失败'),
+        content: fromApiError(error, t('连接测试失败')),
       });
     } finally {
       setTestingId(undefined);
@@ -508,11 +509,11 @@ const Hosts: React.FC = () => {
     if (!accountHost) return;
     try {
       await accountApi.remove(accountHost.id, row.id);
-      message.success('账号已删除');
+      message.success(t('账号已删除'));
       await loadAccounts(accountHost.id);
       actionRef.current?.reload();
     } catch (error) {
-      message.error(fromApiError(error, '删除账号失败'));
+      message.error(fromApiError(error, t('删除账号失败')));
     }
   };
 
@@ -586,18 +587,18 @@ const Hosts: React.FC = () => {
 
   const hostColumns: ProColumns<HostItem>[] = [
     {
-      title: '关键字',
+      title: t('关键字'),
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '主机名 / 地址 / 描述' },
+      fieldProps: { placeholder: t('主机名 / 地址 / 描述') },
     },
     {
-      title: '主机名',
+      title: t('主机名'),
       dataIndex: 'name',
       render: (_, row) => <Text strong>{row.name}</Text>,
     },
     {
-      title: '地址',
+      title: t('地址'),
       dataIndex: 'address',
       search: false,
       render: (_, row) => {
@@ -617,7 +618,7 @@ const Hosts: React.FC = () => {
       },
     },
     {
-      title: '协议/系统',
+      title: t('协议/系统'),
       dataIndex: 'protocol',
       search: false,
       render: (_, row) => {
@@ -637,9 +638,12 @@ const Hosts: React.FC = () => {
             {endpoints.map((item) => (
               <Tooltip
                 key={item.protocol}
-                title={`${item.protocol.toUpperCase()} 端点：${row.address}:${item.port}${
-                  item.status === 'disabled' ? '（已停用）' : ''
-                }`}
+                title={t('{0} 端点：{1}:{2}{3}', {
+                  0: item.protocol.toUpperCase(),
+                  1: row.address,
+                  2: item.port,
+                  3: item.status === 'disabled' ? t('（已停用）') : '',
+                })}
               >
                 <span>
                   <ProtocolTag protocol={item.protocol} />
@@ -649,16 +653,24 @@ const Hosts: React.FC = () => {
             <OsTag osType={row.osType} />
             {endpoints.some((item) => item.protocol === 'rdp') &&
             row.rdpSecurity === 'ssl' ? (
-              <Tooltip title="这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）">
-                <Tag color="orange">强制 SSL</Tag>
+              <Tooltip
+                title={t(
+                  '这台主机的 RDP 安全层被设成「强制 SSL」：连接时不走 NLA/CredSSP，改用标准 RDP 安全层（用于 Windows Server 2003 / XP 一类老系统）',
+                )}
+              >
+                <Tag color="orange">{t('强制 SSL')}</Tag>
               </Tooltip>
             ) : null}
             {endpoints.some(
               (item) =>
                 item.protocol === 'winrm' && item.winrmTransport === 'basic',
             ) ? (
-              <Tooltip title="这台主机的 WinRM 认证方式是 Basic（口令明文过网，只在目标机开了 AllowUnencrypted 时才用得上的兜底选项）">
-                <Tag color="orange">Basic 明文</Tag>
+              <Tooltip
+                title={t(
+                  '这台主机的 WinRM 认证方式是 Basic（口令明文过网，只在目标机开了 AllowUnencrypted 时才用得上的兜底选项）',
+                )}
+              >
+                <Tag color="orange">{t('Basic 明文')}</Tag>
               </Tooltip>
             ) : null}
           </Space>
@@ -666,18 +678,18 @@ const Hosts: React.FC = () => {
       },
     },
     {
-      title: '分组',
+      title: t('分组'),
       dataIndex: 'groupId',
       valueType: 'select',
       fieldProps: {
         options: groupOptions,
         allowClear: true,
-        placeholder: '全部分组',
+        placeholder: t('全部分组'),
       },
       render: (_, row) => row.groupName || '-',
     },
     {
-      title: '状态',
+      title: t('状态'),
       dataIndex: 'status',
       valueType: 'select',
       valueEnum: STATUS_VALUE_ENUM,
@@ -687,28 +699,28 @@ const Hosts: React.FC = () => {
       },
     },
     {
-      title: '账号数',
+      title: t('账号数'),
       dataIndex: 'accountCount',
       search: false,
       width: 90,
     },
-    { title: '授权数', dataIndex: 'grantCount', search: false, width: 90 },
+    { title: t('授权数'), dataIndex: 'grantCount', search: false, width: 90 },
     {
-      title: '描述',
+      title: t('描述'),
       dataIndex: 'description',
       search: false,
       ellipsis: true,
       render: (_, row) => row.description || '-',
     },
     {
-      title: '创建时间',
+      title: t('创建时间'),
       dataIndex: 'createdAt',
       search: false,
       width: 170,
       render: (_, row) => <TimeCell value={row.createdAt} />,
     },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'option',
       valueType: 'option',
       fixed: 'right',
@@ -723,7 +735,7 @@ const Hosts: React.FC = () => {
               size="small"
               onClick={() => openAccounts(row)}
             >
-              账号管理
+              {t('账号管理')}
             </Button>,
           );
         }
@@ -735,31 +747,33 @@ const Hosts: React.FC = () => {
               size="small"
               onClick={() => openHostForm(row)}
             >
-              编辑
+              {t('编辑')}
             </Button>,
             <Tooltip
               key="merge"
-              title="把同一台机器的另一条主机记录（同地址、另一个协议）并进本机：账号、授权与协议端点都会搬过来"
+              title={t(
+                '把同一台机器的另一条主机记录（同地址、另一个协议）并进本机：账号、授权与协议端点都会搬过来',
+              )}
             >
               <Button
                 type="link"
                 size="small"
                 onClick={() => void openMerge(row)}
               >
-                合并
+                {t('合并')}
               </Button>
             </Tooltip>,
             <Popconfirm
               key="delete"
-              title={`确认删除主机「${row.name}」？`}
-              description="该主机下的账号与授权记录会被一并删除。"
-              okText="删除"
-              cancelText="取消"
+              title={t('确认删除主机「{0}」？', { 0: row.name })}
+              description={t('该主机下的账号与授权记录会被一并删除。')}
+              okText={t('删除')}
+              cancelText={t('取消')}
               okButtonProps={{ danger: true }}
               onConfirm={() => removeHost(row)}
             >
               <Button type="link" size="small" danger>
-                删除
+                {t('删除')}
               </Button>
             </Popconfirm>,
           );
@@ -771,17 +785,17 @@ const Hosts: React.FC = () => {
 
   const accountColumns: TableColumnsType<HostAccountItem> = [
     {
-      title: '名称',
+      title: t('名称'),
       dataIndex: 'name',
       render: (_, row) => <Text strong>{row.name}</Text>,
     },
     {
-      title: '登录用户名',
+      title: t('登录用户名'),
       dataIndex: 'username',
       render: (_, row) => <MonoCell text={row.username} max={32} />,
     },
     {
-      title: '认证方式',
+      title: t('认证方式'),
       dataIndex: 'authType',
       width: 110,
       render: (_, row) => (
@@ -791,21 +805,21 @@ const Hosts: React.FC = () => {
       ),
     },
     {
-      title: '是否有口令',
+      title: t('是否有口令'),
       dataIndex: 'hasSecret',
       width: 110,
       render: (_, row) => (
-        <BoolTag value={row.hasSecret} yes="已配置" no="未配置" />
+        <BoolTag value={row.hasSecret} yes={t('已配置')} no={t('未配置')} />
       ),
     },
     {
-      title: 'sudo 命令',
+      title: t('sudo 命令'),
       dataIndex: 'sudoCommand',
       render: (_, row) => <MonoCell text={row.sudoCommand} max={40} />,
     },
-    { title: '授权数', dataIndex: 'grantCount', width: 80 },
+    { title: t('授权数'), dataIndex: 'grantCount', width: 80 },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'option',
       width: 200,
       render: (_, row) =>
@@ -816,7 +830,7 @@ const Hosts: React.FC = () => {
               size="small"
               onClick={() => openAccountForm(row)}
             >
-              编辑
+              {t('编辑')}
             </Button>
             <Button
               type="link"
@@ -824,17 +838,17 @@ const Hosts: React.FC = () => {
               loading={testingId === row.id}
               onClick={() => testAccount(row)}
             >
-              测试连接
+              {t('测试连接')}
             </Button>
             <Popconfirm
-              title={`确认删除账号「${row.name}」？`}
-              okText="删除"
-              cancelText="取消"
+              title={t('确认删除账号「{0}」？', { 0: row.name })}
+              okText={t('删除')}
+              cancelText={t('取消')}
               okButtonProps={{ danger: true }}
               onConfirm={() => removeAccount(row)}
             >
               <Button type="link" size="small" danger>
-                删除
+                {t('删除')}
               </Button>
             </Popconfirm>
           </Space>
@@ -847,14 +861,14 @@ const Hosts: React.FC = () => {
   return (
     <PageContainer
       header={{
-        title: '主机列表',
-        subTitle: '被纳管的服务器资产：地址、协议、分组、账号与授权',
+        title: t('主机列表'),
+        subTitle: t('被纳管的服务器资产：地址、协议、分组、账号与授权'),
       }}
     >
       <ProTable<HostItem, HostQuery>
         rowKey="id"
         actionRef={actionRef}
-        headerTitle="主机"
+        headerTitle={t('主机')}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 10 }}
         scroll={{ x: 'max-content' }}
@@ -870,11 +884,11 @@ const Hosts: React.FC = () => {
               icon={<PlusOutlined />}
               onClick={() => openHostForm()}
             >
-              新增主机
+              {t('新增主机')}
             </Button>
           ),
           <Button key="reload" icon={<ReloadOutlined />} onClick={refreshAll}>
-            刷新
+            {t('刷新')}
           </Button>,
         ]}
         columns={hostColumns}
@@ -882,33 +896,37 @@ const Hosts: React.FC = () => {
 
       <DrawerForm<HostFormValues>
         key={hostFormKey}
-        title={editing ? `编辑主机：${editing.name}` : '新增主机'}
+        title={
+          editing ? t('编辑主机：{0}', { 0: editing.name }) : t('新增主机')
+        }
         width={560}
         open={hostFormOpen}
         onOpenChange={setHostFormOpen}
         initialValues={hostInitialValues}
         drawerProps={{ destroyOnHidden: true }}
-        submitter={{ searchConfig: { submitText: '保存' } }}
+        submitter={{ searchConfig: { submitText: t('保存') } }}
         onFinish={submitHost}
       >
         <ProFormText
           name="name"
-          label="主机别名"
-          rules={[{ required: true, message: '请输入主机别名' }]}
+          label={t('主机别名')}
+          rules={[{ required: true, message: t('请输入主机别名') }]}
         />
         <ProFormText
           name="address"
-          label="主机地址"
-          fieldProps={{ placeholder: '192.168.1.10 或 host.example.com' }}
-          rules={[{ required: true, message: '请输入主机地址' }]}
+          label={t('主机地址')}
+          fieldProps={{ placeholder: t('192.168.1.10 或 host.example.com') }}
+          rules={[{ required: true, message: t('请输入主机地址') }]}
         />
         <ProFormSelect
           name="protocols"
-          label="协议入口"
+          label={t('协议入口')}
           mode="multiple"
           options={PROTOCOL_OPTIONS}
-          rules={[{ required: true, message: '至少选一个协议入口' }]}
-          extra="Linux / Unix 走 SSH；Windows 走「Windows」这一个选项，里面再勾命令行（WinRM）与远程桌面（RDP）—— 同一台机器两个通道可以同时开。端口与认证方式按每个通道各自生效。"
+          rules={[{ required: true, message: t('至少选一个协议入口') }]}
+          extra={t(
+            'Linux / Unix 走 SSH；Windows 走「Windows」这一个选项，里面再勾命令行（WinRM）与远程桌面（RDP）—— 同一台机器两个通道可以同时开。端口与认证方式按每个通道各自生效。',
+          )}
         />
         <ProFormDependency name={['protocols', 'windowsChannels']}>
           {(values) => {
@@ -923,11 +941,13 @@ const Hosts: React.FC = () => {
                 {showWindows ? (
                   <Form.Item
                     name="windowsChannels"
-                    label="Windows 通道"
+                    label={t('Windows 通道')}
                     rules={[
-                      { required: true, message: '至少选一个 Windows 通道' },
+                      { required: true, message: t('至少选一个 Windows 通道') },
                     ]}
-                    extra="这台机器实际开了哪些：WinRM 走网页终端里的 PowerShell；远程桌面走浏览器里的 WebRDP。只想开一个就取消另一个。"
+                    extra={t(
+                      '这台机器实际开了哪些：WinRM 走网页终端里的 PowerShell；远程桌面走浏览器里的 WebRDP。只想开一个就取消另一个。',
+                    )}
                   >
                     <Checkbox.Group options={WINDOWS_CHANNEL_OPTIONS} />
                   </Form.Item>
@@ -938,36 +958,42 @@ const Hosts: React.FC = () => {
                     // 端口跟着协议走默认值（ssh 22 / winrm 5985 / rdp 3389）。
                     key={`port-${protocol}`}
                     name={['protocolPorts', protocol]}
-                    label={`${protocol.toUpperCase()} 端口`}
+                    label={t('{0} 端口', { 0: protocol.toUpperCase() })}
                     min={1}
                     max={65535}
                     initialValue={PROTOCOL_DEFAULT_PORTS[protocol] ?? 22}
-                    rules={[{ required: true, message: '请输入端口' }]}
+                    rules={[{ required: true, message: t('请输入端口') }]}
                     extra={
                       protocol === 'winrm'
-                        ? '默认 5985（HTTP）；目标机开了 HTTPS 就填 5986，会自动走 TLS'
+                        ? t(
+                            '默认 5985（HTTP）；目标机开了 HTTPS 就填 5986，会自动走 TLS',
+                          )
                         : protocol === 'rdp'
-                          ? '默认 3389'
-                          : '默认 22'
+                          ? t('默认 3389')
+                          : t('默认 22')
                     }
                   />
                 ))}
                 {channels.includes('rdp') ? (
                   <ProFormSelect
                     name="rdpSecurity"
-                    label="RDP 安全层"
+                    label={t('RDP 安全层')}
                     options={RDP_SECURITY_OPTIONS}
                     initialValue="auto"
-                    extra="默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层"
+                    extra={t(
+                      '默认「自动」按客户端协议协商（含 NLA）；老系统（Windows Server 2003 / XP 一类）在 NLA 阶段被直接断开时，改成「强制 SSL」退回标准 RDP 安全层',
+                    )}
                   />
                 ) : null}
                 {channels.includes('winrm') ? (
                   <ProFormSelect
                     name="winrmTransport"
-                    label="WinRM 认证方式"
+                    label={t('WinRM 认证方式')}
                     options={WINRM_TRANSPORT_OPTIONS}
                     initialValue="ntlm"
-                    extra="ntlm 是默认；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force"
+                    extra={t(
+                      'ntlm 是默认；目标机没开 WinRM 时先在它上面执行 Enable-PSRemoting -Force',
+                    )}
                   />
                 ) : null}
               </>
@@ -976,56 +1002,67 @@ const Hosts: React.FC = () => {
         </ProFormDependency>
         <ProFormSelect
           name="osType"
-          label="操作系统"
+          label={t('操作系统')}
           options={OS_TYPE_OPTIONS}
-          rules={[{ required: true, message: '请选择操作系统' }]}
+          rules={[{ required: true, message: t('请选择操作系统') }]}
         />
         <ProFormSelect
           name="groupId"
-          label="所属分组"
+          label={t('所属分组')}
           options={groupOptions}
-          fieldProps={{ allowClear: true, placeholder: '不选则不属于任何分组' }}
+          fieldProps={{
+            allowClear: true,
+            placeholder: t('不选则不属于任何分组'),
+          }}
         />
         <ProFormSelect
           name="status"
-          label="状态"
+          label={t('状态')}
           options={STATUS_OPTIONS}
-          rules={[{ required: true, message: '请选择状态' }]}
+          rules={[{ required: true, message: t('请选择状态') }]}
         />
         <ProFormSelect
           name="tags"
-          label="标签"
+          label={t('标签')}
           fieldProps={{ mode: 'tags', tokenSeparators: [','] }}
-          placeholder="输入后回车添加标签"
+          placeholder={t('输入后回车添加标签')}
         />
         <ProFormTextArea
           name="description"
-          label="描述"
+          label={t('描述')}
           fieldProps={{ rows: 3 }}
         />
       </DrawerForm>
 
       <Drawer
-        title={accountHost ? `账号管理：${accountHost.name}` : '账号管理'}
+        title={
+          accountHost
+            ? t('账号管理：{0}', { 0: accountHost.name })
+            : t('账号管理')
+        }
         size={900}
         open={Boolean(accountHost)}
         onClose={() => setAccountHost(undefined)}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Text type="secondary">
-            {accountHost
-              ? `${
-                  (accountHost.protocols ?? []).length
-                    ? (accountHost.protocols ?? [])
-                        .map(
-                          (endpoint) =>
-                            `${endpoint.protocol}://${accountHost.address}:${endpoint.port}`,
-                        )
-                        .join(' · ')
-                    : `${accountHost.address}:${accountHost.port}`
-                } · ${accountHost.osType} · ${accountHost.groupName || '未分组'}`
-              : ''}
-            。口令与私钥会用 Fernet 加密落库，只在具备 host:manage 权限时回显。
+            {t(
+              '{0} 。口令与私钥会用 Fernet 加密落库，只在具备 host:manage 权限时回显。',
+              {
+                0: accountHost
+                  ? `${
+                      (accountHost.protocols ?? []).length
+                        ? (accountHost.protocols ?? [])
+                            .map(
+                              (endpoint) =>
+                                `${endpoint.protocol}://${accountHost.address}:${endpoint.port}`,
+                            )
+                            .join(' · ')
+                        : `${accountHost.address}:${accountHost.port}`
+                    } · ${accountHost.osType} · ${accountHost.groupName || t('未分组')}`
+                  : '',
+              },
+            )}
           </Text>
           {canManageAccount ? (
             <div>
@@ -1034,7 +1071,7 @@ const Hosts: React.FC = () => {
                 icon={<PlusOutlined />}
                 onClick={() => openAccountForm()}
               >
-                新增账号
+                {t('新增账号')}
               </Button>
             </div>
           ) : null}
@@ -1052,7 +1089,11 @@ const Hosts: React.FC = () => {
 
       {/* 一台主机多协议之后，同一台机器的两条记录（同地址、不同协议）可以并成一条 */}
       <ModalForm<{ sourceId: number }>
-        title={mergeTarget ? `合并到「${mergeTarget.name}」` : '合并主机'}
+        title={
+          mergeTarget
+            ? t('合并到「{0}」', { 0: mergeTarget.name })
+            : t('合并主机')
+        }
         open={Boolean(mergeTarget)}
         onOpenChange={(open) => {
           if (!open) {
@@ -1060,26 +1101,29 @@ const Hosts: React.FC = () => {
           }
         }}
         modalProps={{ destroyOnClose: true }}
-        submitter={{ searchConfig: { submitText: '合并' } }}
+        submitter={{ searchConfig: { submitText: t('合并') } }}
         onFinish={submitMerge}
       >
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="只允许同一地址的主机互相合并"
-          description={`要合并进来的主机的账号、授权与协议端点都会搬到本机，来源主机记录随后删除（会话历史是审计数据，不会被改写）。本机地址：${mergeTarget?.address ?? ''}`}
+          message={t('只允许同一地址的主机互相合并')}
+          description={t(
+            '要合并进来的主机的账号、授权与协议端点都会搬到本机，来源主机记录随后删除（会话历史是审计数据，不会被改写）。本机地址：{0}',
+            { 0: mergeTarget?.address ?? '' },
+          )}
         />
         <ProFormSelect
           name="sourceId"
-          label="要合并进来的主机"
-          rules={[{ required: true, message: '请选择要合并的主机' }]}
+          label={t('要合并进来的主机')}
+          rules={[{ required: true, message: t('请选择要合并的主机') }]}
           placeholder={
             mergeLoading
-              ? '加载中…'
+              ? t('加载中…')
               : mergeSources.length
-                ? '同地址的主机（一般是另一个协议）'
-                : '没有找到同一地址的其它主机'
+                ? t('同地址的主机（一般是另一个协议）')
+                : t('没有找到同一地址的其它主机')
           }
           options={mergeSources}
           fieldProps={{
@@ -1092,31 +1136,37 @@ const Hosts: React.FC = () => {
 
       <ModalForm<AccountFormValues>
         key={accountFormKey}
-        title={editingAccount ? `编辑账号：${editingAccount.name}` : '新增账号'}
+        title={
+          editingAccount
+            ? t('编辑账号：{0}', { 0: editingAccount.name })
+            : t('新增账号')
+        }
         width={560}
         open={accountFormOpen}
         onOpenChange={setAccountFormOpen}
         initialValues={accountInitialValues}
         modalProps={{ destroyOnHidden: true, maskClosable: false }}
-        submitter={{ searchConfig: { submitText: '保存' } }}
+        submitter={{ searchConfig: { submitText: t('保存') } }}
         onFinish={submitAccount}
       >
         <ProFormText
           name="name"
-          label="账号别名"
-          rules={[{ required: true, message: '请输入账号别名' }]}
+          label={t('账号别名')}
+          rules={[{ required: true, message: t('请输入账号别名') }]}
         />
         <ProFormText
           name="username"
-          label="登录用户名"
-          rules={[{ required: true, message: '请输入登录用户名' }]}
+          label={t('登录用户名')}
+          rules={[{ required: true, message: t('请输入登录用户名') }]}
         />
         <ProFormSelect
           name="authType"
-          label="认证方式"
+          label={t('认证方式')}
           options={AUTH_TYPE_OPTIONS}
-          rules={[{ required: true, message: '请选择认证方式' }]}
-          extra="口令与私钥会用 Fernet 加密落库，只在具备 host:manage 权限时回显"
+          rules={[{ required: true, message: t('请选择认证方式') }]}
+          extra={t(
+            '口令与私钥会用 Fernet 加密落库，只在具备 host:manage 权限时回显',
+          )}
         />
         <ProFormDependency name={['authType']}>
           {({ authType }: { authType?: 'password' | 'key' }) =>
@@ -1124,44 +1174,44 @@ const Hosts: React.FC = () => {
               <>
                 <ProFormTextArea
                   name="privateKey"
-                  label="私钥内容"
+                  label={t('私钥内容')}
                   fieldProps={{ rows: 6 }}
                   rules={
                     editingAccount
                       ? []
-                      : [{ required: true, message: '请粘贴私钥内容' }]
+                      : [{ required: true, message: t('请粘贴私钥内容') }]
                   }
-                  extra="编辑时留空表示不修改已保存的私钥"
+                  extra={t('编辑时留空表示不修改已保存的私钥')}
                 />
                 <ProFormText
                   name="passphrase"
-                  label="私钥口令"
-                  extra="私钥没有口令时留空即可"
+                  label={t('私钥口令')}
+                  extra={t('私钥没有口令时留空即可')}
                 />
               </>
             ) : (
               <ProFormText.Password
                 name="password"
-                label="登录密码"
+                label={t('登录密码')}
                 rules={
                   editingAccount
                     ? []
-                    : [{ required: true, message: '请输入登录密码' }]
+                    : [{ required: true, message: t('请输入登录密码') }]
                 }
-                extra="编辑时留空表示不修改已保存的口令"
+                extra={t('编辑时留空表示不修改已保存的口令')}
               />
             )
           }
         </ProFormDependency>
         <ProFormText
           name="sudoCommand"
-          label="sudo 命令"
+          label={t('sudo 命令')}
           fieldProps={{ placeholder: 'sudo su -' }}
-          extra="登录后自动执行的提权命令，不需要时留空"
+          extra={t('登录后自动执行的提权命令，不需要时留空')}
         />
         <ProFormTextArea
           name="description"
-          label="描述"
+          label={t('描述')}
           fieldProps={{ rows: 2 }}
         />
       </ModalForm>

@@ -24,6 +24,7 @@ import {
   Typography,
 } from 'antd';
 import React from 'react';
+import { t } from '@/i18n';
 import { parseMaybeJson } from './jsonText';
 
 export {
@@ -47,7 +48,7 @@ const isScalar = (value: unknown): boolean =>
 
 const scalarText = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
-  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'boolean') return value ? t('是') : t('否');
   return String(value);
 };
 
@@ -119,20 +120,22 @@ export const JsonCell: React.FC<{ value: unknown }> = ({ value }) => {
     return <Text type="secondary">-</Text>;
   if (typeof value === 'boolean')
     return (
-      <Tag color={value ? 'success' : 'default'}>{value ? '是' : '否'}</Tag>
+      <Tag color={value ? 'success' : 'default'}>
+        {value ? t('是') : t('否')}
+      </Tag>
     );
   if (isScalar(value)) return <LongText value={String(value)} />;
   const size = Array.isArray(value)
     ? value.length
     : Object.keys(value as object).length;
   const label = Array.isArray(value)
-    ? `数组 · ${size} 项`
-    : `对象 · ${size} 个字段`;
+    ? t('数组 · {0} 项', { 0: size })
+    : t('对象 · {0} 个字段', { 0: size });
   return (
     <Popover
       trigger="click"
       placement="right"
-      title="嵌套内容"
+      title={t('嵌套内容')}
       content={
         <div style={{ maxWidth: 560, maxHeight: 420, overflow: 'auto' }}>
           <JsonCards value={value} compact />
@@ -148,14 +151,14 @@ const RawToggle: React.FC<{ value: unknown }> = ({ value }) => (
   <Popover
     trigger="click"
     placement="bottom"
-    title="原始 JSON（未经渲染改写）"
+    title={t('原始 JSON（未经渲染改写）')}
     content={
       <div style={{ maxWidth: 640, maxHeight: 480, overflow: 'auto' }}>
         <RawJson value={value} maxHeight={460} />
       </div>
     }
   >
-    <a style={{ fontSize: 12 }}>原始 JSON</a>
+    <a style={{ fontSize: 12 }}>{t('原始 JSON')}</a>
   </Popover>
 );
 
@@ -190,7 +193,7 @@ export const JsonCards: React.FC<{
   empty?: string;
   compact?: boolean;
   depth?: number;
-}> = ({ value, title, empty = '（空）', compact = false, depth = 0 }) => {
+}> = ({ value, title, empty = t('（空）'), compact = false, depth = 0 }) => {
   const { data, json, truncated } = parseMaybeJson(value);
 
   if (data === null || data === undefined || data === '') {
@@ -212,7 +215,7 @@ export const JsonCards: React.FC<{
     return (
       <Space direction="vertical" size={4} style={{ width: '100%' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          层级过深，改为原样展示
+          {t('层级过深，改为原样展示')}
         </Text>
         <RawJson value={data} maxHeight={240} />
       </Space>
@@ -223,7 +226,7 @@ export const JsonCards: React.FC<{
     <Space size={8} wrap>
       {title ? <Text strong>{title}</Text> : null}
       {truncated ? (
-        <Tag color="warning">后端已截断，这里按完整条目渲染</Tag>
+        <Tag color="warning">{t('后端已截断，这里按完整条目渲染')}</Tag>
       ) : null}
       {compact ? null : <RawToggle value={data} />}
     </Space>

@@ -46,6 +46,8 @@ import { rdpApi } from '@/services/bastion/endpoints';
 import type { RdpSessionInfo } from '@/services/bastion/types';
 import { attachInput } from './input';
 import './rdp.css';
+
+import { t } from '@/i18n';
 // ComputerUse AI 侧边栏：只有目标机部署成功（ready === true）时它自己才会渲染出来
 import ComputerUsePanel, { ComputerUsePanelBoundary } from './computerUsePanel';
 import { ChunkQueue, newUploadId } from './recordingUpload';
@@ -218,7 +220,7 @@ const RdpConsolePage = () => {
       session.resize(width, height, null);
     } catch (err) {
       // 目标机可能不支持动态分辨率（老系统/被策略关掉），此时画面仍是可用的，只是不跟随窗口
-      console.error('[rdp] 通知远端调整分辨率失败', err);
+      console.error(t('[rdp] 通知远端调整分辨率失败'), err);
     }
     verifyAttemptsRef.current = 0;
     window.clearTimeout(verifyTimerRef.current);
@@ -235,7 +237,7 @@ const RdpConsolePage = () => {
       try {
         live.resize(width, height, null);
       } catch (err) {
-        console.error('[rdp] 补发分辨率调整失败', err);
+        console.error(t('[rdp] 补发分辨率调整失败'), err);
       }
       if (verifyAttemptsRef.current < VIEWPORT_RETRY_ATTEMPTS) {
         verifyTimerRef.current = window.setTimeout(verify, VIEWPORT_RETRY_MS);
@@ -315,7 +317,7 @@ const RdpConsolePage = () => {
       const mimeType = pickRecorderMime();
       if (!mimeType) {
         setRecState('skipped');
-        setRecNote('当前浏览器不支持 MediaRecorder，本次会话没有录像');
+        setRecNote(t('当前浏览器不支持 MediaRecorder，本次会话没有录像'));
         return;
       }
       try {
@@ -342,7 +344,11 @@ const RdpConsolePage = () => {
                 return; // 失败片数由收尾逻辑统一报告，这里不刷屏
               }
               setRecNote(
-                `录像中（${mimeType.replace('video/', '')}，${RECORD_FPS}fps，已上传 ${sent} 片）`,
+                t('录像中（{0}，{1}fps，已上传 {2} 片）', {
+                  0: mimeType.replace('video/', ''),
+                  1: RECORD_FPS,
+                  2: sent,
+                }),
               );
             },
           },
@@ -358,7 +364,7 @@ const RdpConsolePage = () => {
           uploadQueueRef.current?.enqueue(event.data, seq);
         };
         recorder.onerror = () => {
-          console.error('[rdp] 录像中断');
+          console.error(t('[rdp] 录像中断'));
         };
         recorder.start(RECORD_SLICE_MS);
         recorderRef.current = recorder;
@@ -368,12 +374,15 @@ const RdpConsolePage = () => {
         ).toISOString();
         setRecState('recording');
         setRecNote(
-          `录像中（${mimeType.replace('video/', '')}，${RECORD_FPS}fps）`,
+          t('录像中（{0}，{1}fps）', {
+            0: mimeType.replace('video/', ''),
+            1: RECORD_FPS,
+          }),
         );
       } catch (err) {
-        console.error('[rdp] 无法开始录像', err);
+        console.error(t('[rdp] 无法开始录像'), err);
         setRecState('failed');
-        setRecNote(`录像未能开始：${describeRdpError(err)}`);
+        setRecNote(t('录像未能开始：{0}', { 0: describeRdpError(err) }));
       }
     },
     [query.hostId],
@@ -408,12 +417,15 @@ const RdpConsolePage = () => {
       const uploadWholeBlob = (blob: Blob, reason: string) => {
         setRecState('uploading');
         setRecNote(
-          `正在整包上传录像（${(blob.size / 1048576).toFixed(1)} MB，${durationSeconds} 秒）…`,
+          t('正在整包上传录像（{0} MB，{1} 秒）…', {
+            0: (blob.size / 1048576).toFixed(1),
+            1: durationSeconds,
+          }),
         );
         if (uploadId) {
           // 整包走老路径，服务端那份不完整的暂存留着也没用（而且会被自动收口成第二条录像）
           rdpApi.abortRecordingUpload(uploadId).catch((err: unknown) => {
-            console.warn('[rdp] 放弃分片任务失败', err);
+            console.warn(t('[rdp] 放弃分片任务失败'), err);
           });
         }
         const canvas = canvasRef.current;
@@ -429,13 +441,16 @@ const RdpConsolePage = () => {
           .then((saved) => {
             setRecState('saved');
             setRecNote(
-              `录像已保存（#${saved.id}，${durationSeconds} 秒，可在「审计中心 · 远程桌面录像」回看）${reason}`,
+              t(
+                '录像已保存（#{0}，{1} 秒，可在「审计中心 · 远程桌面录像」回看）{2}',
+                { 0: saved.id, 1: durationSeconds, 2: reason },
+              ),
             );
           })
           .catch((err: unknown) => {
-            console.error('[rdp] 录像上传失败', err);
+            console.error(t('[rdp] 录像上传失败'), err);
             setRecState('failed');
-            setRecNote(`录像上传失败：${describeRdpError(err)}`);
+            setRecNote(t('录像上传失败：{0}', { 0: describeRdpError(err) }));
           })
           .finally(settle);
       };
@@ -447,7 +462,7 @@ const RdpConsolePage = () => {
         recorderRef.current = null;
         if (blob.size < RECORD_MIN_BYTES) {
           setRecState('skipped');
-          setRecNote('会话过短，没有录到有效画面');
+          setRecNote(t('会话过短，没有录到有效画面'));
           settle();
           return;
         }
@@ -458,16 +473,21 @@ const RdpConsolePage = () => {
         // 先等最后几片确认落盘，再让服务端把暂存转正
         setRecState('uploading');
         setRecNote(
-          `正在收口录像（${(blob.size / 1048576).toFixed(1)} MB，${durationSeconds} 秒）…`,
+          t('正在收口录像（{0} MB，{1} 秒）…', {
+            0: (blob.size / 1048576).toFixed(1),
+            1: durationSeconds,
+          }),
         );
         queue
           .drain()
           .then((failedCount) => {
             if (failedCount > 0) {
               console.warn(
-                `[rdp] 有 ${failedCount} 个录像分片上传失败，改走整包上传`,
+                t('[rdp] 有 {0} 个录像分片上传失败，改走整包上传', {
+                  0: failedCount,
+                }),
               );
-              uploadWholeBlob(blob, '（有分片上传失败，已改用整包上传）');
+              uploadWholeBlob(blob, t('（有分片上传失败，已改用整包上传）'));
               return;
             }
             return rdpApi
@@ -475,24 +495,27 @@ const RdpConsolePage = () => {
               .then((saved) => {
                 setRecState('saved');
                 setRecNote(
-                  `录像已保存（#${saved.id}，${durationSeconds} 秒，可在「审计中心 · 远程桌面录像」回看）`,
+                  t(
+                    '录像已保存（#{0}，{1} 秒，可在「审计中心 · 远程桌面录像」回看）',
+                    { 0: saved.id, 1: durationSeconds },
+                  ),
                 );
               })
               .catch((err: unknown) => {
-                console.error('[rdp] 录像收口失败', err);
-                uploadWholeBlob(blob, '（收口失败，已改用整包上传）');
+                console.error(t('[rdp] 录像收口失败'), err);
+                uploadWholeBlob(blob, t('（收口失败，已改用整包上传）'));
               })
               .finally(settle);
           })
           .catch((err: unknown) => {
-            console.error('[rdp] 录像分片队列异常', err);
+            console.error(t('[rdp] 录像分片队列异常'), err);
             uploadWholeBlob(blob, '');
           });
       };
       try {
         recorder.stop();
       } catch (err) {
-        console.error('[rdp] 停止录像失败', err);
+        console.error(t('[rdp] 停止录像失败'), err);
         recorderRef.current = null;
         settle();
       }
@@ -506,7 +529,7 @@ const RdpConsolePage = () => {
     setRemain(0);
     window.close();
     window.setTimeout(() => {
-      setCloseHint('浏览器拒绝自动关闭本窗口，请手动关闭（Ctrl/Cmd + W）。');
+      setCloseHint(t('浏览器拒绝自动关闭本窗口，请手动关闭（Ctrl/Cmd + W）。'));
     }, 600);
   }, []);
 
@@ -570,7 +593,9 @@ const RdpConsolePage = () => {
     const canvas = canvasRef.current;
     if (!canvas || !query.hostId) {
       setStatus('failed');
-      setError('缺少 hostId 参数：请从「网页终端」列表点「连接」进入本窗口。');
+      setError(
+        t('缺少 hostId 参数：请从「网页终端」列表点「连接」进入本窗口。'),
+      );
       return;
     }
 
@@ -599,7 +624,9 @@ const RdpConsolePage = () => {
       setStatus((prev) => {
         if (prev === 'connecting') {
           setError(
-            '协商超时（45 秒）：目标机可能没开远程桌面、3389 被防火墙拦了，或堡垒机到目标机的网络不通。',
+            t(
+              '协商超时（45 秒）：目标机可能没开远程桌面、3389 被防火墙拦了，或堡垒机到目标机的网络不通。',
+            ),
           );
           return 'failed';
         }
@@ -667,18 +694,23 @@ const RdpConsolePage = () => {
               return '';
             }
           })();
-          handleSessionEnd(reason ? `会话已结束：${reason}` : '会话已结束');
+          handleSessionEnd(
+            reason ? t('会话已结束：{0}', { 0: reason }) : t('会话已结束'),
+          );
           teardown();
         })
         .catch((err: unknown) => {
           // wasm 的错误对象只在这里“见得到原形”，留着方便排障（界面上给的是人话）
-          console.error('[rdp] 会话异常', err);
+          console.error(t('[rdp] 会话异常'), err);
           const text = describeRdpError(err);
           if (connectedRef.current) {
             // 连上之后才挂的：服务端关掉隧道（例如管理员中断会话）也会走到这里，
             // 别把它当成“连接失败”让人以为是自己点错了，按「会话结束」收口。
             handleSessionEnd(
-              `与堡垒机的远程桌面通道已断开：${text}（若管理员刚中断了这条会话，就是被中断了）`,
+              t(
+                '与堡垒机的远程桌面通道已断开：{0}（若管理员刚中断了这条会话，就是被中断了）',
+                { 0: text },
+              ),
             );
           } else {
             setError(text);
@@ -689,7 +721,7 @@ const RdpConsolePage = () => {
         });
     } catch (err) {
       window.clearTimeout(timerRef.current);
-      console.error('[rdp] 连接失败', err);
+      console.error(t('[rdp] 连接失败'), err);
       setError(describeRdpError(err));
       setStatus('failed');
       teardown();
@@ -776,7 +808,7 @@ const RdpConsolePage = () => {
       return;
     }
     void target.requestFullscreen?.().catch((err: unknown) => {
-      console.error('[rdp] 全屏被拒绝', err);
+      console.error(t('[rdp] 全屏被拒绝'), err);
     });
   }, []);
 
@@ -790,13 +822,18 @@ const RdpConsolePage = () => {
           <>
             <Space size={12} wrap>
               <span className="bastion-rdp-title">
-                远程桌面 ·{' '}
-                {query.title || info?.host.hostName || `主机 #${query.hostId}`}
+                {t('远程桌面 ·{0} {1}', {
+                  0: ' ',
+                  1:
+                    query.title ||
+                    info?.host.hostName ||
+                    t('主机 #{0}', { 0: query.hostId }),
+                })}
               </span>
               <OsTag osType={info?.host.osType || 'windows'} />
               <Text type="secondary">
                 {info ? `${info.host.address}:${info.host.port}` : ''}
-                {info ? ` · 账号 ${info.account.username}` : ''}
+                {info ? t(' · 账号 {0}', { 0: info.account.username }) : ''}
               </Text>
               {viewSize ? (
                 <Text type="secondary">
@@ -806,11 +843,15 @@ const RdpConsolePage = () => {
             </Space>
             <Space size={8}>
               <Tag color={badge.color}>{badge.text}</Tag>
-              {recState === 'recording' ? <Tag color="red">录制中</Tag> : null}
-              {status === 'connected' ? (
-                <Text type="secondary">已连接 {duration}</Text>
+              {recState === 'recording' ? (
+                <Tag color="red">{t('录制中')}</Tag>
               ) : null}
-              <Tooltip title={fullscreen ? '退出全屏' : '全屏显示远端桌面'}>
+              {status === 'connected' ? (
+                <Text type="secondary">{t('已连接 {0}', { 0: duration })}</Text>
+              ) : null}
+              <Tooltip
+                title={fullscreen ? t('退出全屏') : t('全屏显示远端桌面')}
+              >
                 <Button
                   size="small"
                   icon={
@@ -824,7 +865,7 @@ const RdpConsolePage = () => {
                   onClick={toggleFullscreen}
                 />
               </Tooltip>
-              <Tooltip title="收起工具条">
+              <Tooltip title={t('收起工具条')}>
                 <Button
                   size="small"
                   icon={<UpOutlined />}
@@ -844,7 +885,7 @@ const RdpConsolePage = () => {
                 }}
                 disabled={status === 'connecting'}
               >
-                重新连接
+                {t('重新连接')}
               </Button>
               <Button
                 size="small"
@@ -853,23 +894,23 @@ const RdpConsolePage = () => {
                 disabled={status !== 'connected'}
                 onClick={() => {
                   teardown();
-                  handleSessionEnd('你已主动断开远程桌面');
+                  handleSessionEnd(t('你已主动断开远程桌面'));
                 }}
               >
-                断开
+                {t('断开')}
               </Button>
               <Button
                 size="small"
                 icon={<CloseOutlined />}
                 onClick={() => window.close()}
               >
-                关闭窗口
+                {t('关闭窗口')}
               </Button>
             </Space>
           </>
         ) : (
           <Space size={6}>
-            <Tooltip title="展开工具条">
+            <Tooltip title={t('展开工具条')}>
               <Button
                 size="small"
                 type="text"
@@ -881,7 +922,9 @@ const RdpConsolePage = () => {
               />
             </Tooltip>
             <Tag color={badge.color}>{badge.text}</Tag>
-            {recState === 'recording' ? <Tag color="red">录制中</Tag> : null}
+            {recState === 'recording' ? (
+              <Tag color="red">{t('录制中')}</Tag>
+            ) : null}
           </Space>
         )}
       </div>
@@ -891,7 +934,7 @@ const RdpConsolePage = () => {
           className="bastion-rdp-alert"
           type="error"
           showIcon
-          message="连接失败"
+          message={t('连接失败')}
           description={error}
           action={
             <Button
@@ -901,7 +944,7 @@ const RdpConsolePage = () => {
                 void connect();
               }}
             >
-              重试
+              {t('重试')}
             </Button>
           }
         />
@@ -913,7 +956,9 @@ const RdpConsolePage = () => {
           type="warning"
           showIcon
           message={endReason}
-          description="已取消自动关闭。本窗口会一直留着，可以点「重新连接」继续，或点「关闭窗口」结束。"
+          description={t(
+            '已取消自动关闭。本窗口会一直留着，可以点「重新连接」继续，或点「关闭窗口」结束。',
+          )}
           action={
             <Button
               size="small"
@@ -922,7 +967,7 @@ const RdpConsolePage = () => {
                 void connect();
               }}
             >
-              重新连接
+              {t('重新连接')}
             </Button>
           }
         />
@@ -934,7 +979,9 @@ const RdpConsolePage = () => {
             <div className="bastion-rdp-overlay">
               <Spin />
               <span>
-                正在与 {info?.host.address || '目标机'} 协商 RDP 会话…
+                {t('正在与 {0} 协商 RDP 会话…', {
+                  0: info?.host.address || t('目标机'),
+                })}
               </span>
             </div>
           ) : null}
@@ -949,26 +996,30 @@ const RdpConsolePage = () => {
 
       <Modal
         open={endReason !== undefined && !keepOpen}
-        title="远程桌面会话已结束"
+        title={t('远程桌面会话已结束')}
         closable={false}
         maskClosable={false}
         keyboard={false}
         footer={[
           <Button key="stay" onClick={cancelCloseCountdown}>
-            留在本窗口
+            {t('留在本窗口')}
           </Button>,
           <Button key="close" type="primary" danger onClick={closeWindow}>
-            立即关闭
+            {t('立即关闭')}
           </Button>,
         ]}
       >
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Text>{endReason}</Text>
           <Text type="secondary">
-            本窗口将在 {remain ?? 0} 秒后自动关闭（与 Linux
-            网页终端断开后的行为一致）。
+            {t(
+              '本窗口将在 {0} 秒后自动关闭（与 Linux 网页终端断开后的行为一致）。',
+              { 0: remain ?? 0 },
+            )}
           </Text>
-          {recNote ? <Text type="secondary">录像：{recNote}</Text> : null}
+          {recNote ? (
+            <Text type="secondary">{t('录像：{0}', { 0: recNote })}</Text>
+          ) : null}
           {closeHint ? <Text type="danger">{closeHint}</Text> : null}
         </Space>
       </Modal>

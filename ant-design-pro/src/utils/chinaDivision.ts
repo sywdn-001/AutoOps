@@ -1,6 +1,7 @@
 import hkMoTwSource from 'china-division/dist/HK-MO-TW.json';
 import pcaSource from 'china-division/dist/pca-code.json';
 
+import { t } from '@/i18n';
 export type GeographicOption = {
   label: string;
   key: string;
@@ -15,9 +16,9 @@ type DivisionNode = {
 const directAdminCodes = new Set(['11', '12', '31', '50']);
 
 const specialRegions: GeographicOption[] = [
-  { label: '台湾省', key: '710000' },
-  { label: '香港特别行政区', key: '810000' },
-  { label: '澳门特别行政区', key: '820000' },
+  { label: t('台湾省'), key: '710000' },
+  { label: t('香港特别行政区'), key: '810000' },
+  { label: t('澳门特别行政区'), key: '820000' },
 ];
 
 const toProvinceKey = (code: string) => `${code}0000`;

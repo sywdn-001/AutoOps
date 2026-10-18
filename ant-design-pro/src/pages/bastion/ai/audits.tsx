@@ -39,6 +39,7 @@ import {
   splitToolMessage,
   TimeCell,
 } from '@/components/Bastion';
+import { t } from '@/i18n';
 import type {
   AiConversationRecord,
   AiMessageRecord,
@@ -55,26 +56,26 @@ import { AiCards } from './cards';
 const { Text, Paragraph } = Typography;
 
 const ROLE_LABEL: Record<string, { color: string; text: string }> = {
-  user: { color: 'blue', text: '用户' },
+  user: { color: 'blue', text: t('用户') },
   assistant: { color: 'geekblue', text: 'AI' },
-  tool: { color: 'default', text: '工具' },
-  system: { color: 'purple', text: '系统' },
+  tool: { color: 'default', text: t('工具') },
+  system: { color: 'purple', text: t('系统') },
 };
 
 const CALL_STATUS: Record<string, { color: string; text: string }> = {
-  pending: { color: 'warning', text: '待确认' },
-  approved: { color: 'processing', text: '已确认' },
-  rejected: { color: 'default', text: '已拒绝' },
-  running: { color: 'processing', text: '执行中' },
-  success: { color: 'success', text: '成功' },
-  failure: { color: 'error', text: '失败' },
+  pending: { color: 'warning', text: t('待确认') },
+  approved: { color: 'processing', text: t('已确认') },
+  rejected: { color: 'default', text: t('已拒绝') },
+  running: { color: 'processing', text: t('执行中') },
+  success: { color: 'success', text: t('成功') },
+  failure: { color: 'error', text: t('失败') },
 };
 
 const sourceText = (source?: string) =>
   source === 'shell'
-    ? 'SSH 网关 /ask-ai'
+    ? t('SSH 网关 /ask-ai')
     : source === 'web'
-      ? '网页对话'
+      ? t('网页对话')
       : source || '-';
 
 /**
@@ -113,7 +114,7 @@ const ToolMessage = ({ content }: { content?: string | null }) => {
   if (!payloadText) {
     return (
       <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-        {head || '（空）'}
+        {head || t('（空）')}
       </Paragraph>
     );
   }
@@ -125,7 +126,7 @@ const ToolMessage = ({ content }: { content?: string | null }) => {
       ) : (
         <Paragraph
           style={{ whiteSpace: 'pre-wrap', marginBottom: 0, fontSize: 12 }}
-          ellipsis={{ rows: 4, expandable: true, symbol: '展开原文' }}
+          ellipsis={{ rows: 4, expandable: true, symbol: t('展开原文') }}
         >
           {payloadText}
         </Paragraph>
@@ -156,26 +157,26 @@ const AiAuditsPage = () => {
 
   const conversationColumns: ProColumns<AiConversationRecord>[] = [
     {
-      title: '对话',
+      title: t('对话'),
       dataIndex: 'title',
       ellipsis: true,
       render: (_, row) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{row.title || '未命名对话'}</Text>
+          <Text strong>{row.title || t('未命名对话')}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            #{row.id} · {sourceText(row.source)} · {row.model || '未知模型'}
+            #{row.id} · {sourceText(row.source)} · {row.model || t('未知模型')}
           </Text>
         </Space>
       ),
     },
     {
-      title: '发起人',
+      title: t('发起人'),
       dataIndex: 'username',
       width: 120,
       render: (_, row) => <MonoCell text={row.username} />,
     },
     {
-      title: '关联主机',
+      title: t('关联主机'),
       dataIndex: 'hostName',
       width: 180,
       render: (_, row) =>
@@ -191,13 +192,13 @@ const AiAuditsPage = () => {
         ),
     },
     {
-      title: '消息',
+      title: t('消息'),
       dataIndex: 'messageCount',
       width: 80,
       render: (_, row) => row.messageCount ?? 0,
     },
     {
-      title: '工具调用',
+      title: t('工具调用'),
       dataIndex: 'toolCount',
       width: 90,
       render: (_, row) => (
@@ -207,18 +208,18 @@ const AiAuditsPage = () => {
       ),
     },
     {
-      title: '最近活动',
+      title: t('最近活动'),
       dataIndex: 'updatedAt',
       width: 180,
       render: (_, row) => <TimeCell value={row.updatedAt} />,
     },
     {
-      title: '操作',
+      title: t('操作'),
       valueType: 'option',
       width: 90,
       render: (_, row) => [
         <a key="detail" onClick={() => void openDetail(row.id)}>
-          查看详情
+          {t('查看详情')}
         </a>,
       ],
     },
@@ -226,26 +227,26 @@ const AiAuditsPage = () => {
 
   const toolColumns: ProColumns<AiToolCallRecord>[] = [
     {
-      title: '时间',
+      title: t('时间'),
       dataIndex: 'createdAt',
       width: 180,
       render: (_, row) => <TimeCell value={row.createdAt} />,
     },
     {
-      title: '调用人',
+      title: t('调用人'),
       dataIndex: 'username',
       width: 110,
       render: (_, row) => <MonoCell text={row.username} />,
     },
     {
-      title: '工具',
+      title: t('工具'),
       dataIndex: 'toolName',
       width: 200,
       render: (_, row) => (
         <Space direction="vertical" size={0}>
           <Text strong>{row.toolName}</Text>
           <Space size={4}>
-            {row.sensitive ? <Tag color="red">敏感</Tag> : null}
+            {row.sensitive ? <Tag color="red">{t('敏感')}</Tag> : null}
             {row.requiredPermission ? (
               <Tag>{row.requiredPermission}</Tag>
             ) : null}
@@ -254,7 +255,7 @@ const AiAuditsPage = () => {
       ),
     },
     {
-      title: '状态',
+      title: t('状态'),
       dataIndex: 'status',
       width: 100,
       render: (_, row) => {
@@ -266,20 +267,20 @@ const AiAuditsPage = () => {
       },
     },
     {
-      title: '确认人',
+      title: t('确认人'),
       dataIndex: 'confirmedBy',
       width: 110,
       render: (_, row) => row.confirmedBy || '-',
     },
     {
-      title: '入参',
+      title: t('入参'),
       dataIndex: 'arguments',
       width: 320,
       ellipsis: true,
       render: (_, row) => <PayloadBlock value={row.arguments} inline />,
     },
     {
-      title: '结果',
+      title: t('结果'),
       dataIndex: 'resultSummary',
       ellipsis: true,
       render: (_, row) => (
@@ -290,17 +291,17 @@ const AiAuditsPage = () => {
           <Space size={8}>
             {row.durationMs ? (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                耗时 {row.durationMs}ms
+                {t('耗时 {0}ms', { 0: row.durationMs })}
               </Text>
             ) : null}
             {row.resultPreview ? (
               <Popover
                 trigger="click"
                 placement="left"
-                title="工具返回原文"
+                title={t('工具返回原文')}
                 content={<PayloadBlock value={row.resultPreview} inline />}
               >
-                <a style={{ fontSize: 12 }}>查看输出</a>
+                <a style={{ fontSize: 12 }}>{t('查看输出')}</a>
               </Popover>
             ) : null}
           </Space>
@@ -337,7 +338,7 @@ const AiAuditsPage = () => {
           <ToolMessage content={item.content} />
         ) : (
           <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-            {item.content || '（空）'}
+            {item.content || t('（空）')}
           </Paragraph>
         )}
         {item.cards && item.cards.length > 0 ? (
@@ -349,22 +350,24 @@ const AiAuditsPage = () => {
 
   return (
     <PageContainer
-      title="AI 对话审计"
-      subTitle="用户说了什么、AI 回了什么、调用了什么工具——与人工操作同一套留痕口径"
+      title={t('AI 对话审计')}
+      subTitle={t(
+        '用户说了什么、AI 回了什么、调用了什么工具——与人工操作同一套留痕口径',
+      )}
       extra={[
         <Tag key="scope" color={access.canAiViewAll ? 'red' : 'default'}>
           {access.canAiViewAll
-            ? '可查看全部人的对话（ai:view_all）'
-            : '仅可查看自己的对话'}
+            ? t('可查看全部人的对话（ai:view_all）')
+            : t('仅可查看自己的对话')}
         </Tag>,
-        <Tooltip key="reload" title="刷新">
+        <Tooltip key="reload" title={t('刷新')}>
           <a
             onClick={() => {
               void conversationRef.current?.reload();
               void toolRef.current?.reload();
             }}
           >
-            <ReloadOutlined /> 刷新
+            <ReloadOutlined /> {t('刷新')}
           </a>
         </Tooltip>,
       ]}
@@ -375,7 +378,7 @@ const AiAuditsPage = () => {
         items={[
           {
             key: 'conversations',
-            label: 'AI 对话',
+            label: t('AI 对话'),
             children: (
               <ProTable<AiConversationRecord>
                 rowKey="id"
@@ -402,7 +405,7 @@ const AiAuditsPage = () => {
           },
           {
             key: 'tools',
-            label: '工具调用',
+            label: t('工具调用'),
             children: (
               <ProTable<AiToolCallRecord>
                 rowKey="id"
@@ -436,7 +439,9 @@ const AiAuditsPage = () => {
 
       <Drawer
         title={
-          detail ? `对话详情 · ${detail.title || `#${detail.id}`}` : '对话详情'
+          detail
+            ? t('对话详情 · {0}', { 0: detail.title || `#${detail.id}` })
+            : t('对话详情')
         }
         width={880}
         open={detailOpen}
@@ -447,7 +452,7 @@ const AiAuditsPage = () => {
             <Spin />
           </div>
         ) : !detail ? (
-          <Empty description="没有取到对话内容" />
+          <Empty description={t('没有取到对话内容')} />
         ) : (
           <>
             <Descriptions
@@ -456,40 +461,46 @@ const AiAuditsPage = () => {
               bordered
               style={{ marginBottom: 16 }}
             >
-              <Descriptions.Item label="对话 ID">{detail.id}</Descriptions.Item>
-              <Descriptions.Item label="发起人">
+              <Descriptions.Item label={t('对话 ID')}>
+                {detail.id}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('发起人')}>
                 {detail.username || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="来源">
+              <Descriptions.Item label={t('来源')}>
                 {sourceText(detail.source)}
               </Descriptions.Item>
-              <Descriptions.Item label="模型">
+              <Descriptions.Item label={t('模型')}>
                 {detail.model || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="关联主机">
+              <Descriptions.Item label={t('关联主机')}>
                 {detail.hostName
                   ? `${detail.hostName}（${detail.hostAddress || '-'}）`
                   : '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="会话 ID">
+              <Descriptions.Item label={t('会话 ID')}>
                 {detail.sid || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="创建时间">
+              <Descriptions.Item label={t('创建时间')}>
                 {detail.createdAt || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="最近活动">
+              <Descriptions.Item label={t('最近活动')}>
                 {detail.updatedAt || '-'}
               </Descriptions.Item>
             </Descriptions>
             {(detail.messages ?? []).length === 0 ? (
-              <Alert type="info" showIcon message="这条对话还没有落库的消息" />
+              <Alert
+                type="info"
+                showIcon
+                message={t('这条对话还没有落库的消息')}
+              />
             ) : (
               (detail.messages ?? []).map(renderMessage)
             )}
             {(detail.toolCalls ?? []).length > 0 ? (
               <>
                 <Paragraph strong style={{ marginTop: 16 }}>
-                  本次对话的工具调用
+                  {t('本次对话的工具调用')}
                 </Paragraph>
                 <Table<AiToolCallRecord>
                   size="small"
@@ -497,9 +508,9 @@ const AiAuditsPage = () => {
                   pagination={false}
                   dataSource={detail.toolCalls ?? []}
                   columns={[
-                    { title: '工具', dataIndex: 'toolName', width: 160 },
+                    { title: t('工具'), dataIndex: 'toolName', width: 160 },
                     {
-                      title: '状态',
+                      title: t('状态'),
                       dataIndex: 'status',
                       width: 100,
                       render: (value: string) => {
@@ -511,19 +522,19 @@ const AiAuditsPage = () => {
                       },
                     },
                     {
-                      title: '确认人',
+                      title: t('确认人'),
                       dataIndex: 'confirmedBy',
                       width: 100,
                       render: (v: string) => v || '-',
                     },
                     {
-                      title: '入参',
+                      title: t('入参'),
                       dataIndex: 'arguments',
                       width: 320,
                       render: (v: unknown) => <PayloadBlock value={v} inline />,
                     },
                     {
-                      title: '结果',
+                      title: t('结果'),
                       dataIndex: 'resultSummary',
                       render: (v: string, row: AiToolCallRecord) => (
                         <Space

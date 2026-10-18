@@ -6,6 +6,8 @@
  * 生成随机密钥），所以可以用 vitest 直接跑：向导最容易出错的地方就是「阶段百分比
  * 跟后端对不上」「参数拼错导致后端 400」「日志级别配色错」「SSE 事件分错类」。
  */
+
+import { t } from '@/i18n';
 import type {
   CachedInstaller,
   Deployment,
@@ -581,9 +583,11 @@ export function optionsSummary(deployment: Deployment): string {
   const options = (deployment.options ?? {}) as Record<string, unknown>;
   const parts: string[] = [];
   const port = Number(options.mcpPort);
-  if (Number.isFinite(port) && port > 0) parts.push(`MCP 端口 ${port}`);
-  if (options.pipIndex) parts.push(`pip 源 ${String(options.pipIndex)}`);
-  parts.push(options.bindAll ? '监听所有网卡' : '仅本机/堡垒机可达');
-  parts.push(options.authKey ? '已启用访问密钥' : '未启用访问密钥');
+  if (Number.isFinite(port) && port > 0)
+    parts.push(t('MCP 端口 {0}', { 0: port }));
+  if (options.pipIndex)
+    parts.push(t('pip 源 {0}', { 0: String(options.pipIndex) }));
+  parts.push(options.bindAll ? t('监听所有网卡') : t('仅本机/堡垒机可达'));
+  parts.push(options.authKey ? t('已启用访问密钥') : t('未启用访问密钥'));
   return parts.join(' · ');
 }

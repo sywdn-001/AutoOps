@@ -12,6 +12,8 @@ import 'highlight.js/styles/github.css';
 import './Welcome.css';
 import './Welcome-dark.css';
 
+import { t } from '@/i18n';
+
 interface InfoCardProps {
   title: string;
   index: number;
@@ -158,7 +160,7 @@ const Welcome: React.FC = () => {
           {intl.formatMessage(
             {
               id: 'pages.welcome.celebrationTitle',
-              defaultMessage: '欢迎使用 Ant Design Pro {v6}',
+              defaultMessage: t('欢迎使用 Ant Design Pro {v6}'),
             },
             {
               v6: (

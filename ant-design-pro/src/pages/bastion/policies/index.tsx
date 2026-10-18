@@ -36,6 +36,7 @@ import {
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionTag, MonoCell, RiskTag, TimeCell } from '@/components/Bastion';
+import { t } from '@/i18n';
 import {
   MATCH_TYPE_OPTIONS,
   POLICY_ACTION_OPTIONS,
@@ -60,13 +61,16 @@ const DEFAULT_RULE_PRIORITY = 100;
 
 /** 匹配方式示例说明（放在规则表单输入框下方，避免用户瞎写正则） */
 const MATCH_EXAMPLES: Record<string, string> = {
-  exact:
+  exact: t(
     '整条命令完全等于 pattern 才命中。例：pattern=whoami 只拦 `whoami`，不拦 `sudo whoami`。',
-  prefix:
+  ),
+  prefix: t(
     '命令以 pattern 开头才命中（不要求单词边界）。例：pattern=rm 会连 `rmdir` 一起命中；pattern=`rm -rf` 更精确。',
-  contains: '命令任意位置包含 pattern 即命中。例：pattern=`/etc/shadow`。',
-  regex:
+  ),
+  contains: t('命令任意位置包含 pattern 即命中。例：pattern=`/etc/shadow`。'),
+  regex: t(
     '按 Python 正则匹配整条命令。例：`^\\s*rm\\s+-rf\\s+/` 拦截递归强删根目录；注意转义与误伤范围。',
+  ),
 };
 
 type PolicyFormValues = {
@@ -112,31 +116,33 @@ const DecisionView: React.FC<{ decision: PolicyDecision }> = ({ decision }) => (
   <Space orientation="vertical" size={12} style={{ width: '100%' }}>
     <Space size={8} wrap>
       {decision.allowed ? (
-        <Tag color="success">放行</Tag>
+        <Tag color="success">{t('放行')}</Tag>
       ) : (
-        <Tag color="error">拦截</Tag>
+        <Tag color="error">{t('拦截')}</Tag>
       )}
-      <Text type="secondary">命中动作</Text>
+      <Text type="secondary">{t('命中动作')}</Text>
       <ActionTag action={decision.action} />
-      <Text type="secondary">风险等级</Text>
+      <Text type="secondary">{t('风险等级')}</Text>
       <RiskTag level={decision.riskLevel} />
       <Text type="secondary">
-        生效策略：{decision.policyName || '默认策略'}
-        {decision.policyId ? ` #${decision.policyId}` : ''}
+        {t('生效策略：{0} {1}', {
+          0: decision.policyName || t('默认策略'),
+          1: decision.policyId ? ` #${decision.policyId}` : '',
+        })}
       </Text>
     </Space>
     <Descriptions size="small" column={1} bordered>
-      <Descriptions.Item label="命中规则">
+      <Descriptions.Item label={t('命中规则')}>
         {decision.ruleId ? (
           <Space size={6}>
             <Text>#{decision.ruleId}</Text>
             <Text code>{decision.rulePattern || '-'}</Text>
           </Space>
         ) : (
-          <Text type="secondary">未命中任何规则</Text>
+          <Text type="secondary">{t('未命中任何规则')}</Text>
         )}
       </Descriptions.Item>
-      <Descriptions.Item label="判定原因">
+      <Descriptions.Item label={t('判定原因')}>
         <Paragraph style={{ marginBottom: 0 }}>
           {decision.reason || '-'}
         </Paragraph>
@@ -147,10 +153,10 @@ const DecisionView: React.FC<{ decision: PolicyDecision }> = ({ decision }) => (
       rowKey={(row) => `${row.segment}-${row.rulePattern ?? ''}-${row.reason}`}
       dataSource={decision.segments ?? []}
       pagination={false}
-      locale={{ emptyText: '该命令没有分段信息' }}
+      locale={{ emptyText: t('该命令没有分段信息') }}
       columns={[
         {
-          title: '命令分段',
+          title: t('命令分段'),
           dataIndex: 'segment',
           width: 240,
           render: (_, row) => (
@@ -158,30 +164,30 @@ const DecisionView: React.FC<{ decision: PolicyDecision }> = ({ decision }) => (
           ),
         },
         {
-          title: '结论',
+          title: t('结论'),
           dataIndex: 'allowed',
           width: 90,
           render: (_, row) =>
             row.allowed ? (
-              <Tag color="success">放行</Tag>
+              <Tag color="success">{t('放行')}</Tag>
             ) : (
-              <Tag color="error">拦截</Tag>
+              <Tag color="error">{t('拦截')}</Tag>
             ),
         },
         {
-          title: '动作',
+          title: t('动作'),
           dataIndex: 'action',
           width: 90,
           render: (_, row) => <ActionTag action={row.action} />,
         },
         {
-          title: '风险等级',
+          title: t('风险等级'),
           dataIndex: 'riskLevel',
           width: 100,
           render: (_, row) => <RiskTag level={row.riskLevel} />,
         },
         {
-          title: '规则 ID',
+          title: t('规则 ID'),
           dataIndex: 'ruleId',
           width: 90,
           render: (_, row) =>
@@ -192,7 +198,7 @@ const DecisionView: React.FC<{ decision: PolicyDecision }> = ({ decision }) => (
             ),
         },
         {
-          title: '命中规则',
+          title: t('命中规则'),
           dataIndex: 'rulePattern',
           width: 220,
           render: (_, row) => (
@@ -200,7 +206,7 @@ const DecisionView: React.FC<{ decision: PolicyDecision }> = ({ decision }) => (
           ),
         },
         {
-          title: '原因',
+          title: t('原因'),
           dataIndex: 'reason',
           render: (_, row) => <Text type="secondary">{row.reason || '-'}</Text>,
         },
@@ -230,7 +236,7 @@ const CommandEvaluator: React.FC<{
           : await policyApi.evaluate(command);
       setDecision(result);
     } catch (err) {
-      message.error(fromApiError(err, '命令试算失败'));
+      message.error(fromApiError(err, t('命令试算失败')));
     } finally {
       setTesting(false);
     }
@@ -238,10 +244,10 @@ const CommandEvaluator: React.FC<{
 
   return (
     <Card
-      title="命令试算器"
+      title={t('命令试算器')}
       extra={
         <Text type="secondary">
-          输入一条命令，先看策略会不会拦，再决定要不要上线
+          {t('输入一条命令，先看策略会不会拦，再决定要不要上线')}
         </Text>
       }
     >
@@ -250,7 +256,7 @@ const CommandEvaluator: React.FC<{
           rows={3}
           value={command}
           onChange={(event) => setCommand(event.target.value)}
-          placeholder="例如：rm -rf /"
+          placeholder={t('例如：rm -rf /')}
         />
         <Space size={8} wrap>
           <Select
@@ -260,7 +266,7 @@ const CommandEvaluator: React.FC<{
             style={{ width: 260 }}
             value={policyId}
             onChange={(value) => setPolicyId(value)}
-            placeholder="留空 = 使用默认策略"
+            placeholder={t('留空 = 使用默认策略')}
             options={policyOptions}
           />
           <Button
@@ -268,7 +274,7 @@ const CommandEvaluator: React.FC<{
             loading={testing}
             onClick={() => void evaluate()}
           >
-            试算
+            {t('试算')}
           </Button>
         </Space>
         {decision ? (
@@ -276,7 +282,7 @@ const CommandEvaluator: React.FC<{
         ) : (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="还没有试算结果"
+            description={t('还没有试算结果')}
           />
         )}
       </Space>
@@ -306,7 +312,7 @@ const PoliciesPage: React.FC = () => {
     try {
       setPolicyOptions(await policyApi.options());
     } catch (err) {
-      message.error(fromApiError(err, '加载策略选项失败'));
+      message.error(fromApiError(err, t('加载策略选项失败')));
     }
   }, [message]);
 
@@ -345,17 +351,20 @@ const PoliciesPage: React.FC = () => {
       };
       if (editingPolicy) {
         await policyApi.update(editingPolicy.id, payload);
-        message.success('策略已更新');
+        message.success(t('策略已更新'));
       } else {
         await policyApi.create(payload);
-        message.success('策略已创建');
+        message.success(t('策略已创建'));
       }
       setPolicyOpen(false);
       actionRef.current?.reload();
       await loadPolicyOptions();
     } catch (err) {
       message.error(
-        fromApiError(err, editingPolicy ? '更新策略失败' : '创建策略失败'),
+        fromApiError(
+          err,
+          editingPolicy ? t('更新策略失败') : t('创建策略失败'),
+        ),
       );
     } finally {
       setSubmitting(false);
@@ -365,22 +374,22 @@ const PoliciesPage: React.FC = () => {
   const removePolicy = async (row: PolicyItem) => {
     try {
       await policyApi.remove(row.id);
-      message.success('策略已删除');
+      message.success(t('策略已删除'));
       actionRef.current?.reload();
       await loadPolicyOptions();
     } catch (err) {
-      message.error(fromApiError(err, '删除策略失败'));
+      message.error(fromApiError(err, t('删除策略失败')));
     }
   };
 
   const resetBuiltin = async () => {
     try {
       await policyApi.resetBuiltin();
-      message.success('内置策略已重建');
+      message.success(t('内置策略已重建'));
       actionRef.current?.reload();
       await loadPolicyOptions();
     } catch (err) {
-      message.error(fromApiError(err, '恢复内置策略失败'));
+      message.error(fromApiError(err, t('恢复内置策略失败')));
     }
   };
 
@@ -390,7 +399,7 @@ const PoliciesPage: React.FC = () => {
       setCurrentPolicy(detail);
       setDrawerRules(detail.rules ?? []);
     } catch (err) {
-      message.error(fromApiError(err, '加载策略规则失败'));
+      message.error(fromApiError(err, t('加载策略规则失败')));
     }
   };
 
@@ -439,10 +448,10 @@ const PoliciesPage: React.FC = () => {
       };
       if (editingRule) {
         await ruleApi.update(editingRule.id, payload);
-        message.success('规则已更新');
+        message.success(t('规则已更新'));
       } else {
         await ruleApi.create(payload);
-        message.success('规则已创建');
+        message.success(t('规则已创建'));
       }
       setRuleOpen(false);
       await refreshDrawerRules(currentPolicy.id);
@@ -450,7 +459,7 @@ const PoliciesPage: React.FC = () => {
       actionRef.current?.reload();
     } catch (err) {
       message.error(
-        fromApiError(err, editingRule ? '更新规则失败' : '创建规则失败'),
+        fromApiError(err, editingRule ? t('更新规则失败') : t('创建规则失败')),
       );
     } finally {
       setSubmitting(false);
@@ -460,41 +469,41 @@ const PoliciesPage: React.FC = () => {
   const removeRule = async (row: PolicyRuleItem) => {
     try {
       await ruleApi.remove(row.id);
-      message.success('规则已删除');
+      message.success(t('规则已删除'));
       if (currentPolicy) {
         await refreshDrawerRules(currentPolicy.id);
       }
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '删除规则失败'));
+      message.error(fromApiError(err, t('删除规则失败')));
     }
   };
 
   const toggleRule = async (row: PolicyRuleItem, enabled: boolean) => {
     try {
       await ruleApi.update(row.id, { enabled });
-      message.success(enabled ? '规则已启用' : '规则已停用');
+      message.success(enabled ? t('规则已启用') : t('规则已停用'));
       setDrawerRules((prev) =>
         prev.map((item) => (item.id === row.id ? { ...item, enabled } : item)),
       );
     } catch (err) {
-      message.error(fromApiError(err, '切换规则状态失败'));
+      message.error(fromApiError(err, t('切换规则状态失败')));
     }
   };
 
   const ruleColumns: ProColumns<PolicyRuleItem>[] = useMemo(
     () => [
       {
-        title: '规则 ID',
+        title: t('规则 ID'),
         dataIndex: 'id',
         width: 90,
         search: false,
         // 拦截提示里会写「命中规则 #13」，这里必须能看到编号，否则管理员只能靠说明猜是哪条。
         render: (_, row) => <Text code>#{row.id}</Text>,
       },
-      { title: '优先级', dataIndex: 'priority', width: 80, search: false },
+      { title: t('优先级'), dataIndex: 'priority', width: 80, search: false },
       {
-        title: '匹配方式',
+        title: t('匹配方式'),
         dataIndex: 'matchType',
         width: 120,
         valueType: 'select',
@@ -504,7 +513,7 @@ const PoliciesPage: React.FC = () => {
             ?.label ?? row.matchType,
       },
       {
-        title: '模式',
+        title: t('模式'),
         dataIndex: 'pattern',
         width: 240,
         render: (_, row) => (
@@ -512,7 +521,7 @@ const PoliciesPage: React.FC = () => {
         ),
       },
       {
-        title: '动作',
+        title: t('动作'),
         dataIndex: 'action',
         width: 90,
         valueType: 'select',
@@ -520,7 +529,7 @@ const PoliciesPage: React.FC = () => {
         render: (_, row) => <ActionTag action={row.action} />,
       },
       {
-        title: '风险等级',
+        title: t('风险等级'),
         dataIndex: 'riskLevel',
         width: 100,
         valueType: 'select',
@@ -528,7 +537,7 @@ const PoliciesPage: React.FC = () => {
         render: (_, row) => <RiskTag level={row.riskLevel} />,
       },
       {
-        title: '说明',
+        title: t('说明'),
         dataIndex: 'description',
         width: 200,
         search: false,
@@ -537,7 +546,7 @@ const PoliciesPage: React.FC = () => {
         ),
       },
       {
-        title: '启用',
+        title: t('启用'),
         dataIndex: 'enabled',
         width: 80,
         search: false,
@@ -550,12 +559,12 @@ const PoliciesPage: React.FC = () => {
             />
           ) : (
             <Tag color={row.enabled ? 'success' : 'default'}>
-              {row.enabled ? '启用' : '停用'}
+              {row.enabled ? t('启用') : t('停用')}
             </Tag>
           ),
       },
       {
-        title: '操作',
+        title: t('操作'),
         valueType: 'option',
         key: 'option',
         width: 110,
@@ -568,18 +577,18 @@ const PoliciesPage: React.FC = () => {
             ];
           return [
             <a key="edit" onClick={() => openEditRule(row)}>
-              编辑
+              {t('编辑')}
             </a>,
             <Popconfirm
               key="delete"
-              title="确认删除该规则？"
-              description="删除后该模式将不再被这条策略拦截。"
-              okText="删除"
+              title={t('确认删除该规则？')}
+              description={t('删除后该模式将不再被这条策略拦截。')}
+              okText={t('删除')}
               okButtonProps={{ danger: true }}
-              cancelText="取消"
+              cancelText={t('取消')}
               onConfirm={() => removeRule(row)}
             >
-              <a style={{ color: '#cf1322' }}>删除</a>
+              <a style={{ color: '#cf1322' }}>{t('删除')}</a>
             </Popconfirm>,
           ];
         },
@@ -596,15 +605,15 @@ const PoliciesPage: React.FC = () => {
   return (
     <PageContainer
       header={{
-        title: '命令策略',
-        subTitle: '默认动作定基调，规则按优先级逐条命中，试算器先验证再上线',
+        title: t('命令策略'),
+        subTitle: t('默认动作定基调，规则按优先级逐条命中，试算器先验证再上线'),
       }}
     >
       <Space orientation="vertical" size={16} style={{ width: '100%' }}>
         <ProTable<PolicyItem>
           rowKey="id"
           actionRef={actionRef}
-          headerTitle="策略列表"
+          headerTitle={t('策略列表')}
           search={{ labelWidth: 'auto' }}
           pagination={{ defaultPageSize: 10 }}
           scroll={{ x: 'max-content' }}
@@ -617,13 +626,15 @@ const PoliciesPage: React.FC = () => {
               ? [
                   <Popconfirm
                     key="reset"
-                    title="确认恢复内置策略？"
-                    description="会按内置定义重建默认策略与规则，手工改动可能被覆盖。"
-                    okText="恢复"
-                    cancelText="取消"
+                    title={t('确认恢复内置策略？')}
+                    description={t(
+                      '会按内置定义重建默认策略与规则，手工改动可能被覆盖。',
+                    )}
+                    okText={t('恢复')}
+                    cancelText={t('取消')}
                     onConfirm={resetBuiltin}
                   >
-                    <Button>恢复内置策略</Button>
+                    <Button>{t('恢复内置策略')}</Button>
                   </Popconfirm>,
                   <Button
                     key="create"
@@ -631,15 +642,15 @@ const PoliciesPage: React.FC = () => {
                     icon={<PlusOutlined />}
                     onClick={openCreatePolicy}
                   >
-                    新增策略
+                    {t('新增策略')}
                   </Button>,
                 ]
               : []
           }
           columns={[
-            { title: '策略名', dataIndex: 'name', width: 180 },
+            { title: t('策略名'), dataIndex: 'name', width: 180 },
             {
-              title: '描述',
+              title: t('描述'),
               dataIndex: 'description',
               width: 240,
               search: false,
@@ -648,52 +659,54 @@ const PoliciesPage: React.FC = () => {
               ),
             },
             {
-              title: '默认动作',
+              title: t('默认动作'),
               dataIndex: 'defaultAction',
               width: 110,
               search: false,
               render: (_, row) => <ActionTag action={row.defaultAction} />,
             },
             {
-              title: '是否默认',
+              title: t('是否默认'),
               dataIndex: 'isDefault',
               width: 110,
               search: false,
               render: (_, row) =>
                 row.isDefault ? (
-                  <Tag color="blue">默认策略</Tag>
+                  <Tag color="blue">{t('默认策略')}</Tag>
                 ) : (
                   <Text type="secondary">-</Text>
                 ),
             },
             {
-              title: '规则数',
+              title: t('规则数'),
               dataIndex: 'ruleCount',
               width: 90,
               search: false,
               render: (_, row) => <Text>{row.ruleCount}</Text>,
             },
             {
-              title: '被授权引用',
+              title: t('被授权引用'),
               dataIndex: 'grantCount',
               width: 110,
               search: false,
               render: (_, row) =>
                 row.grantCount > 0 ? (
-                  <Tag color="processing">{row.grantCount} 条授权</Tag>
+                  <Tag color="processing">
+                    {t('{0} 条授权', { 0: row.grantCount })}
+                  </Tag>
                 ) : (
                   <Text type="secondary">0</Text>
                 ),
             },
             {
-              title: '更新时间',
+              title: t('更新时间'),
               dataIndex: 'updatedAt',
               width: 170,
               search: false,
               render: (_, row) => <TimeCell value={row.updatedAt} />,
             },
             {
-              title: '操作',
+              title: t('操作'),
               valueType: 'option',
               key: 'option',
               width: 180,
@@ -706,21 +719,23 @@ const PoliciesPage: React.FC = () => {
                   ];
                 return [
                   <a key="rules" onClick={() => void openRules(row)}>
-                    规则管理
+                    {t('规则管理')}
                   </a>,
                   <a key="edit" onClick={() => openEditPolicy(row)}>
-                    编辑
+                    {t('编辑')}
                   </a>,
                   <Popconfirm
                     key="delete"
-                    title="确认删除该策略？"
-                    description="仍被授权引用的策略删除后，相关授权会回落到默认策略。"
-                    okText="删除"
+                    title={t('确认删除该策略？')}
+                    description={t(
+                      '仍被授权引用的策略删除后，相关授权会回落到默认策略。',
+                    )}
+                    okText={t('删除')}
                     okButtonProps={{ danger: true }}
-                    cancelText="取消"
+                    cancelText={t('取消')}
                     onConfirm={() => removePolicy(row)}
                   >
-                    <a style={{ color: '#cf1322' }}>删除</a>
+                    <a style={{ color: '#cf1322' }}>{t('删除')}</a>
                   </Popconfirm>,
                 ];
               },
@@ -732,15 +747,19 @@ const PoliciesPage: React.FC = () => {
       </Space>
 
       <Modal
-        title={editingPolicy ? `编辑策略 #${editingPolicy.id}` : '新增策略'}
+        title={
+          editingPolicy
+            ? t('编辑策略 #{0}', { 0: editingPolicy.id })
+            : t('新增策略')
+        }
         open={policyOpen}
         width={640}
         onCancel={() => setPolicyOpen(false)}
         onOk={() => policyForm.submit()}
         confirmLoading={submitting}
         destroyOnHidden
-        okText="保存"
-        cancelText="取消"
+        okText={t('保存')}
+        cancelText={t('取消')}
       >
         <Form
           form={policyForm}
@@ -750,27 +769,27 @@ const PoliciesPage: React.FC = () => {
         >
           <Form.Item
             name="name"
-            label="策略名"
-            rules={[{ required: true, message: '请输入策略名' }]}
+            label={t('策略名')}
+            rules={[{ required: true, message: t('请输入策略名') }]}
           >
-            <Input placeholder="例如：生产库高危命令拦截" maxLength={64} />
+            <Input placeholder={t('例如：生产库高危命令拦截')} maxLength={64} />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label={t('描述')}>
             <Input.TextArea rows={2} maxLength={200} showCount />
           </Form.Item>
           <Form.Item
             name="defaultAction"
-            label="默认动作"
-            rules={[{ required: true, message: '请选择默认动作' }]}
-            extra="规则都没命中时，用这个动作兜底；漏配的规则就靠它保命"
+            label={t('默认动作')}
+            rules={[{ required: true, message: t('请选择默认动作') }]}
+            extra={t('规则都没命中时，用这个动作兜底；漏配的规则就靠它保命')}
           >
             <Radio.Group>
               <Space orientation="vertical" size={4}>
                 <Radio value="allow">
-                  放行 —— 黑名单模式：只拦截命中的规则，其余命令一律放行
+                  {t('放行 —— 黑名单模式：只拦截命中的规则，其余命令一律放行')}
                 </Radio>
                 <Radio value="deny">
-                  拦截 —— 白名单模式：只放行命中的规则，其余命令一律拦截
+                  {t('拦截 —— 白名单模式：只放行命中的规则，其余命令一律拦截')}
                 </Radio>
               </Space>
             </Radio.Group>
@@ -784,7 +803,7 @@ const PoliciesPage: React.FC = () => {
                   style={{ width: '100%' }}
                 >
                   <Space size={8}>
-                    <Text strong>初始规则（可选）</Text>
+                    <Text strong>{t('初始规则（可选）')}</Text>
                     <Button
                       size="small"
                       icon={<PlusOutlined />}
@@ -792,12 +811,12 @@ const PoliciesPage: React.FC = () => {
                         add({ priority: DEFAULT_RULE_PRIORITY, action: 'deny' })
                       }
                     >
-                      添加一条
+                      {t('添加一条')}
                     </Button>
                   </Space>
                   {fields.length === 0 && (
                     <Text type="secondary">
-                      不填也可以，创建后在「规则管理」里慢慢加。
+                      {t('不填也可以，创建后在「规则管理」里慢慢加。')}
                     </Text>
                   )}
                   {fields.map((field) => (
@@ -814,24 +833,24 @@ const PoliciesPage: React.FC = () => {
                         <Select
                           style={{ width: 130 }}
                           options={MATCH_TYPE_OPTIONS}
-                          placeholder="匹配方式"
+                          placeholder={t('匹配方式')}
                         />
                       </Form.Item>
                       <Form.Item
                         name={[field.name, 'pattern']}
                         noStyle
-                        rules={[{ required: true, message: '请输入模式' }]}
+                        rules={[{ required: true, message: t('请输入模式') }]}
                       >
                         <Input
                           style={{ width: 240 }}
-                          placeholder="模式，如 ^\\s*rm\\s+-rf"
+                          placeholder={t('模式，如 ^\\\\s*rm\\\\s+-rf')}
                         />
                       </Form.Item>
                       <Form.Item name={[field.name, 'action']} noStyle>
                         <Select
                           style={{ width: 100 }}
                           options={POLICY_ACTION_OPTIONS}
-                          placeholder="动作"
+                          placeholder={t('动作')}
                         />
                       </Form.Item>
                       <Button
@@ -850,15 +869,19 @@ const PoliciesPage: React.FC = () => {
       </Modal>
 
       <Modal
-        title={editingRule ? `编辑规则 #${editingRule.id}` : '新增规则'}
+        title={
+          editingRule
+            ? t('编辑规则 #{0}', { 0: editingRule.id })
+            : t('新增规则')
+        }
         open={ruleOpen}
         width={680}
         onCancel={() => setRuleOpen(false)}
         onOk={() => ruleForm.submit()}
         confirmLoading={submitting}
         destroyOnHidden
-        okText="保存"
-        cancelText="取消"
+        okText={t('保存')}
+        cancelText={t('取消')}
       >
         <Form
           form={ruleForm}
@@ -868,25 +891,28 @@ const PoliciesPage: React.FC = () => {
         >
           <Form.Item
             name="priority"
-            label="优先级"
-            extra="数字越小越先命中，命中即结束；建议高危规则给 10～50"
-            rules={[{ required: true, message: '请输入优先级' }]}
+            label={t('优先级')}
+            extra={t('数字越小越先命中，命中即结束；建议高危规则给 10～50')}
+            rules={[{ required: true, message: t('请输入优先级') }]}
           >
             <InputNumber min={1} max={9999} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item
             name="matchType"
-            label="匹配方式"
-            rules={[{ required: true, message: '请选择匹配方式' }]}
+            label={t('匹配方式')}
+            rules={[{ required: true, message: t('请选择匹配方式') }]}
           >
             <Select options={MATCH_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item
             name="pattern"
-            label="模式"
-            rules={[{ required: true, message: '请输入模式' }]}
+            label={t('模式')}
+            rules={[{ required: true, message: t('请输入模式') }]}
           >
-            <Input.TextArea rows={2} placeholder="例如：^\\s*rm\\s+-rf\\s+/" />
+            <Input.TextArea
+              rows={2}
+              placeholder={t('例如：^\\\\s*rm\\\\s+-rf\\\\s+/')}
+            />
           </Form.Item>
           <Form.Item
             noStyle
@@ -908,36 +934,36 @@ const PoliciesPage: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="action"
-            label="动作"
-            rules={[{ required: true, message: '请选择动作' }]}
+            label={t('动作')}
+            rules={[{ required: true, message: t('请选择动作') }]}
           >
             <Select options={POLICY_ACTION_OPTIONS} />
           </Form.Item>
           <Form.Item
             name="riskLevel"
-            label="风险等级"
-            rules={[{ required: true, message: '请选择风险等级' }]}
+            label={t('风险等级')}
+            rules={[{ required: true, message: t('请选择风险等级') }]}
           >
             <Select options={RISK_OPTIONS} />
           </Form.Item>
-          <Form.Item name="description" label="说明">
+          <Form.Item name="description" label={t('说明')}>
             <Input.TextArea rows={2} maxLength={200} showCount />
           </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked">
+          <Form.Item name="enabled" label={t('启用')} valuePropName="checked">
             <Switch />
           </Form.Item>
         </Form>
       </Modal>
 
       <Drawer
-        title={`规则管理 · ${currentPolicy?.name ?? ''}`}
+        title={t('规则管理 · {0}', { 0: currentPolicy?.name ?? '' })}
         width={1000}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         destroyOnHidden
         extra={
           <Space size={8}>
-            <Text type="secondary">默认动作</Text>
+            <Text type="secondary">{t('默认动作')}</Text>
             <ActionTag action={currentPolicy?.defaultAction} />
           </Space>
         }
@@ -947,7 +973,7 @@ const PoliciesPage: React.FC = () => {
             rowKey="id"
             key={currentPolicy?.id ?? 0}
             actionRef={rulesActionRef}
-            headerTitle="规则列表"
+            headerTitle={t('规则列表')}
             search={{ labelWidth: 'auto' }}
             pagination={{ defaultPageSize: 10 }}
             scroll={{ x: 'max-content' }}
@@ -965,17 +991,20 @@ const PoliciesPage: React.FC = () => {
                       icon={<PlusOutlined />}
                       onClick={openCreateRule}
                     >
-                      新增规则
+                      {t('新增规则')}
                     </Button>,
                   ]
                 : []
             }
             columns={ruleColumns}
           />
-          <Card size="small" title="规则数（本策略）">
+          <Card size="small" title={t('规则数（本策略）')}>
             <Text type="secondary">
-              共 {drawerRules.length} 条规则，其中启用{' '}
-              {drawerRules.filter((rule) => rule.enabled).length} 条。
+              {t('共 {0} 条规则，其中启用{1} {2} 条。', {
+                0: drawerRules.length,
+                1: ' ',
+                2: drawerRules.filter((rule) => rule.enabled).length,
+              })}
             </Text>
           </Card>
         </Space>

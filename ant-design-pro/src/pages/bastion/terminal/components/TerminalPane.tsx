@@ -35,6 +35,7 @@ import React, {
   useState,
 } from 'react';
 
+import { t } from '@/i18n';
 /** 深色终端主题（xterm 不解析 CSS 变量，必须给字面量）。 */
 export const DARK_TERMINAL_THEME: ITheme = {
   background: '#0b1021',
@@ -190,7 +191,7 @@ const TerminalPane: React.FC<Props> = (props) => {
         if (selection) {
           event.preventDefault();
           void navigator.clipboard?.writeText(selection).catch(() => {
-            message.warning('浏览器拒绝了剪贴板写入，请手动选择后复制');
+            message.warning(t('浏览器拒绝了剪贴板写入，请手动选择后复制'));
           });
           return false;
         }
@@ -334,19 +335,19 @@ const TerminalPane: React.FC<Props> = (props) => {
   const copySelection = useCallback(() => {
     const selection = termRef.current?.getSelection() ?? '';
     if (!selection) {
-      message.info('请先选中要复制的内容');
+      message.info(t('请先选中要复制的内容'));
       return;
     }
     void navigator.clipboard?.writeText(selection).then(
-      () => message.success('已复制选中内容'),
-      () => message.warning('浏览器拒绝了剪贴板写入'),
+      () => message.success(t('已复制选中内容')),
+      () => message.warning(t('浏览器拒绝了剪贴板写入')),
     );
   }, []);
 
   const paste = useCallback(() => {
     const readText = navigator.clipboard?.readText?.();
     if (!readText) {
-      message.info('当前浏览器不允许读取剪贴板，请使用 Ctrl+V 粘贴');
+      message.info(t('当前浏览器不允许读取剪贴板，请使用 Ctrl+V 粘贴'));
       return;
     }
     void readText.then(
@@ -355,7 +356,7 @@ const TerminalPane: React.FC<Props> = (props) => {
           propsRef.current.onData(text);
         }
       },
-      () => message.warning('浏览器拒绝了剪贴板读取，请使用 Ctrl+V 粘贴'),
+      () => message.warning(t('浏览器拒绝了剪贴板读取，请使用 Ctrl+V 粘贴')),
     );
   }, []);
 
@@ -364,41 +365,41 @@ const TerminalPane: React.FC<Props> = (props) => {
       {
         key: 'copy',
         icon: <CopyOutlined />,
-        label: '复制',
+        label: t('复制'),
         disabled: !hasSelection,
         onClick: copySelection,
       },
       {
         key: 'paste',
         icon: <LinkOutlined />,
-        label: '粘贴',
+        label: t('粘贴'),
         disabled: !props.connected,
         onClick: paste,
       },
       {
         key: 'select-all',
         icon: <SelectOutlined />,
-        label: '全选',
+        label: t('全选'),
         onClick: () => termRef.current?.selectAll(),
       },
       { type: 'divider' },
       {
         key: 'clear',
         icon: <MinusOutlined />,
-        label: '清空屏幕',
+        label: t('清空屏幕'),
         onClick: () => termRef.current?.clear(),
       },
       {
         key: 'font-plus',
         icon: <PlusOutlined />,
-        label: '放大字号',
+        label: t('放大字号'),
         onClick: () =>
           propsRef.current.onFontSizeChange(propsRef.current.fontSize + 1),
       },
       {
         key: 'font-minus',
         icon: <MinusOutlined />,
-        label: '缩小字号',
+        label: t('缩小字号'),
         onClick: () =>
           propsRef.current.onFontSizeChange(propsRef.current.fontSize - 1),
       },
@@ -406,19 +407,19 @@ const TerminalPane: React.FC<Props> = (props) => {
       {
         key: 'fullscreen',
         icon: <ExpandOutlined />,
-        label: '全屏 / 退出全屏',
+        label: t('全屏 / 退出全屏'),
         onClick: () => propsRef.current.onFullscreenToggle(),
       },
       props.connected
         ? {
             key: 'disconnect',
-            label: '断开会话',
+            label: t('断开会话'),
             danger: true,
             onClick: () => propsRef.current.onDisconnect(),
           }
         : {
             key: 'reconnect',
-            label: '重新连接',
+            label: t('重新连接'),
             onClick: () => propsRef.current.onReconnect(),
           },
     ],

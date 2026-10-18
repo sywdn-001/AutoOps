@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 /**
  * WebRDP（Windows 远程桌面）控制台的类型、常量与工具函数。
  *
@@ -14,10 +15,10 @@ export const RDP_STATUS_META: Record<
   RdpStatus,
   { text: string; color: string; badge: string }
 > = {
-  connecting: { text: '正在协商', color: 'processing', badge: 'processing' },
-  connected: { text: '已连接', color: 'success', badge: 'success' },
-  disconnected: { text: '已断开', color: 'default', badge: 'default' },
-  failed: { text: '连接失败', color: 'error', badge: 'error' },
+  connecting: { text: t('正在协商'), color: 'processing', badge: 'processing' },
+  connected: { text: t('已连接'), color: 'success', badge: 'success' },
+  disconnected: { text: t('已断开'), color: 'default', badge: 'default' },
+  failed: { text: t('连接失败'), color: 'error', badge: 'error' },
 };
 
 /**
@@ -27,13 +28,13 @@ export const RDP_STATUS_META: Record<
  * 但第一眼必须让人看懂「到底哪一步不行」。
  */
 const IRON_ERROR_TEXT: Record<number, string> = {
-  0: '客户端内部错误',
-  1: '账号或口令不正确',
-  2: 'Windows 登录被拒绝（账号可能没有远程登录权限）',
-  3: '目标机拒绝访问',
-  4: 'RDCleanPath 隧道协商失败',
-  5: '堡垒机连不上目标机的 3389 端口',
-  6: '安全层协商失败（目标机可能要求 NLA/SSL）',
+  0: t('客户端内部错误'),
+  1: t('账号或口令不正确'),
+  2: t('Windows 登录被拒绝（账号可能没有远程登录权限）'),
+  3: t('目标机拒绝访问'),
+  4: t('RDCleanPath 隧道协商失败'),
+  5: t('堡垒机连不上目标机的 3389 端口'),
+  6: t('安全层协商失败（目标机可能要求 NLA/SSL）'),
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -81,7 +82,7 @@ const describeShape = (error: unknown): string => {
     const names = Object.getOwnPropertyNames(error)
       .filter((name) => name !== 'free' && name !== 'constructor')
       .slice(0, 6);
-    return names.length > 0 ? names.join('、') : '空对象';
+    return names.length > 0 ? names.join('、') : t('空对象');
   }
   return String(error);
 };
@@ -112,34 +113,52 @@ export const describeRdpError = (error: unknown): string => {
   const origin =
     message ||
     callText(record, 'backtrace') ||
-    `未知错误（${describeShape(error)}）`;
+    t('未知错误（{0}）', { 0: describeShape(error) });
   if (http === 401 || http === 403) {
-    return `堡垒机拒绝了这次连接：${origin}`;
+    return t('堡垒机拒绝了这次连接：{0}', { 0: origin });
   }
   if (http === 502 || http === 503) {
-    return `堡垒机连不上目标机，或与目标机的安全层协商失败（HTTP ${http}）：${origin}`;
+    return t(
+      '堡垒机连不上目标机，或与目标机的安全层协商失败（HTTP {0}）：{1}',
+      { 0: http, 1: origin },
+    );
   }
   if (http !== undefined && http >= 400) {
-    return `RDCleanPath 隧道握手失败（HTTP ${http}）：${origin}`;
+    return t('RDCleanPath 隧道握手失败（HTTP {0}）：{1}', {
+      0: http,
+      1: origin,
+    });
   }
   // 会话已经建立、数据也回来了，只是浏览器端解不开目标机的 PDU ——
   // 实测 Windows Server 2003 这类老系统就是「[decode error] general error」，
   // 这时要把两条出路直接写给用户，而不是只说「客户端内部错误」。
   if (/decode error/i.test(origin)) {
     return (
-      '目标机发回的远程桌面画面浏览器端解析不了（常见于只支持老旧 RDP 协议的系统，' +
-      '如 Windows Server 2003 / XP）。可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；' +
-      `若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：${origin}`
+      t(
+        '目标机发回的远程桌面画面浏览器端解析不了（常见于只支持老旧 RDP 协议的系统，',
+      ) +
+      t(
+        '如 Windows Server 2003 / XP）。可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；',
+      ) +
+      t(
+        '若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：{0}',
+        { 0: origin },
+      )
     );
   }
   // 用户实测报的那条（Windows Server 2003）：隧道在认证阶段就被掐掉，
   // wasm 只留下一句 “WebSocket connection failed”，必须补上人话与出路。
   if (/websocket connection failed/i.test(origin)) {
     return (
-      '与堡垒机的远程桌面通道在认证阶段就断了（目标机常常一个字节都没回就直接关闭连接，' +
-      'Windows Server 2003 / XP 这类只支持老旧 RDP 协议的系统尤其如此）。' +
-      '可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；' +
-      `若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：${origin}`
+      t(
+        '与堡垒机的远程桌面通道在认证阶段就断了（目标机常常一个字节都没回就直接关闭连接，',
+      ) +
+      t('Windows Server 2003 / XP 这类只支持老旧 RDP 协议的系统尤其如此）。') +
+      t('可在资产管理里把这台主机的「RDP 安全层」设为「强制 SSL」再试；') +
+      t(
+        '若仍失败，请改用 Windows 自带的「远程桌面连接」访问该主机。原始信息：{0}',
+        { 0: origin },
+      )
     );
   }
   if (friendly) {

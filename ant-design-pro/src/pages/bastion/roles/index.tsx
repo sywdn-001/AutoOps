@@ -28,6 +28,7 @@ import {
 } from 'antd';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { t } from '@/i18n';
 import { type RolePayload, roleApi } from '@/services/bastion/endpoints';
 import type { PermissionGroup, RoleItem } from '@/services/bastion/types';
 
@@ -64,7 +65,7 @@ const RolesPage: React.FC = () => {
       try {
         setGroups(await roleApi.permissions());
       } catch (err) {
-        message.error(fromApiError(err, '加载权限项失败'));
+        message.error(fromApiError(err, t('加载权限项失败')));
       }
     })();
   }, [message]);
@@ -114,7 +115,7 @@ const RolesPage: React.FC = () => {
 
   const submitForm = async (values: RoleFormValues) => {
     if (selected.length === 0) {
-      message.error('请至少勾选一项权限');
+      message.error(t('请至少勾选一项权限'));
       return;
     }
     setSubmitting(true);
@@ -127,16 +128,16 @@ const RolesPage: React.FC = () => {
       };
       if (editing) {
         await roleApi.update(editing.id, payload);
-        message.success('角色已更新');
+        message.success(t('角色已更新'));
       } else {
         await roleApi.create(payload);
-        message.success('角色已创建');
+        message.success(t('角色已创建'));
       }
       setFormOpen(false);
       actionRef.current?.reload();
     } catch (err) {
       message.error(
-        fromApiError(err, editing ? '更新角色失败' : '创建角色失败'),
+        fromApiError(err, editing ? t('更新角色失败') : t('创建角色失败')),
       );
     } finally {
       setSubmitting(false);
@@ -146,80 +147,84 @@ const RolesPage: React.FC = () => {
   const removeRole = async (row: RoleItem) => {
     try {
       await roleApi.remove(row.id);
-      message.success('角色已删除');
+      message.success(t('角色已删除'));
       actionRef.current?.reload();
     } catch (err) {
-      message.error(fromApiError(err, '删除角色失败'));
+      message.error(fromApiError(err, t('删除角色失败')));
     }
   };
 
   /** 删除按钮的提示：内置角色与仍被引用的角色后端会拒绝 */
   const deleteTip = (row: RoleItem): string => {
     if (row.isBuiltin) {
-      return '内置角色不可删除，系统依赖其权限定义';
+      return t('内置角色不可删除，系统依赖其权限定义');
     }
     if (row.userCount > 0) {
-      return `仍有 ${row.userCount} 个用户使用该角色，需先为用户改派角色`;
+      return t('仍有 {0} 个用户使用该角色，需先为用户改派角色', {
+        0: row.userCount,
+      });
     }
     return '';
   };
 
   const columns: ProColumns<RoleItem>[] = [
     {
-      title: '角色编码',
+      title: t('角色编码'),
       dataIndex: 'code',
       width: 150,
       search: false,
       render: (_, row) => <Text code>{row.code}</Text>,
     },
     {
-      title: '角色名称',
+      title: t('角色名称'),
       dataIndex: 'name',
       width: 150,
       search: false,
     },
     {
-      title: '描述',
+      title: t('描述'),
       dataIndex: 'description',
       search: false,
       ellipsis: true,
       render: (_, row) => row.description || '-',
     },
     {
-      title: '内置角色',
+      title: t('内置角色'),
       dataIndex: 'isBuiltin',
       width: 110,
       search: false,
       render: (_, row) =>
         row.isBuiltin ? (
-          <Tag color="gold">内置</Tag>
+          <Tag color="gold">{t('内置')}</Tag>
         ) : (
-          <Tag color="default">自定义</Tag>
+          <Tag color="default">{t('自定义')}</Tag>
         ),
     },
     {
-      title: '权限数量',
+      title: t('权限数量'),
       dataIndex: 'permissions',
       width: 110,
       search: false,
       render: (_, row) => (
-        <Tag color="blue">{row.permissions?.length ?? 0} 项</Tag>
+        <Tag color="blue">
+          {t('{0} 项', { 0: row.permissions?.length ?? 0 })}
+        </Tag>
       ),
     },
     {
-      title: '关联用户',
+      title: t('关联用户'),
       dataIndex: 'userCount',
       width: 110,
       search: false,
       render: (_, row) =>
         row.userCount > 0 ? (
-          <Tag color="processing">{row.userCount} 人</Tag>
+          <Tag color="processing">{t('{0} 人', { 0: row.userCount })}</Tag>
         ) : (
           '-'
         ),
     },
     {
-      title: '操作',
+      title: t('操作'),
       valueType: 'option',
       key: 'option',
       fixed: 'right',
@@ -236,14 +241,14 @@ const RolesPage: React.FC = () => {
         const deleteNode = (
           <Popconfirm
             key="delete"
-            title="确认删除该角色？"
-            description="删除后不可恢复，使用该角色的用户会失去对应权限。"
-            okText="删除"
+            title={t('确认删除该角色？')}
+            description={t('删除后不可恢复，使用该角色的用户会失去对应权限。')}
+            okText={t('删除')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('取消')}
             onConfirm={() => removeRole(row)}
           >
-            <a style={{ color: '#cf1322' }}>删除</a>
+            <a style={{ color: '#cf1322' }}>{t('删除')}</a>
           </Popconfirm>
         );
         return [
@@ -251,11 +256,11 @@ const RolesPage: React.FC = () => {
             key="edit"
             title={
               row.isBuiltin
-                ? '内置角色：可调整名称、描述与权限，code 不可修改'
-                : '编辑角色与权限'
+                ? t('内置角色：可调整名称、描述与权限，code 不可修改')
+                : t('编辑角色与权限')
             }
           >
-            <a onClick={() => void openEdit(row)}>编辑</a>
+            <a onClick={() => void openEdit(row)}>{t('编辑')}</a>
           </Tooltip>,
           tip ? (
             <Tooltip key="delete" title={tip}>
@@ -268,25 +273,25 @@ const RolesPage: React.FC = () => {
       },
     },
     {
-      title: '关键词',
+      title: t('关键词'),
       dataIndex: 'keyword',
       key: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '角色编码 / 名称' },
+      fieldProps: { placeholder: t('角色编码 / 名称') },
     },
   ];
 
   return (
     <PageContainer
       header={{
-        title: '角色管理',
-        subTitle: '角色定义与功能权限勾选，用户通过角色获得权限',
+        title: t('角色管理'),
+        subTitle: t('角色定义与功能权限勾选，用户通过角色获得权限'),
       }}
     >
       <ProTable<RoleItem>
         rowKey="id"
         actionRef={actionRef}
-        headerTitle="角色列表"
+        headerTitle={t('角色列表')}
         search={{ labelWidth: 'auto' }}
         pagination={{ defaultPageSize: 10 }}
         scroll={{ x: 'max-content' }}
@@ -303,7 +308,7 @@ const RolesPage: React.FC = () => {
                   icon={<PlusOutlined />}
                   onClick={openCreate}
                 >
-                  新增角色
+                  {t('新增角色')}
                 </Button>,
               ]
             : []
@@ -312,7 +317,9 @@ const RolesPage: React.FC = () => {
       />
 
       <Modal
-        title={editing ? `编辑角色「${editing.name}」` : '新增角色'}
+        title={
+          editing ? t('编辑角色「{0}」', { 0: editing.name }) : t('新增角色')
+        }
         open={formOpen}
         width={720}
         onCancel={() => setFormOpen(false)}
@@ -320,8 +327,8 @@ const RolesPage: React.FC = () => {
         confirmLoading={submitting}
         destroyOnHidden
         mask={{ closable: false }}
-        okText="保存"
-        cancelText="取消"
+        okText={t('保存')}
+        cancelText={t('取消')}
       >
         <Form
           form={form}
@@ -330,32 +337,37 @@ const RolesPage: React.FC = () => {
         >
           <Form.Item
             name="code"
-            label="角色编码"
+            label={t('角色编码')}
             rules={[
-              { required: true, message: '请输入角色编码' },
-              { pattern: CODE_PATTERN, message: '只能包含英文、数字与下划线' },
+              { required: true, message: t('请输入角色编码') },
+              {
+                pattern: CODE_PATTERN,
+                message: t('只能包含英文、数字与下划线'),
+              },
             ]}
             extra={
-              editing ? '角色编码创建后不可修改' : '例如 operator、auditor'
+              editing
+                ? t('角色编码创建后不可修改')
+                : t('例如 operator、auditor')
             }
           >
             <Input
-              placeholder="英文 / 数字 / 下划线"
+              placeholder={t('英文 / 数字 / 下划线')}
               disabled={!!editing}
               autoComplete="off"
             />
           </Form.Item>
           <Form.Item
             name="name"
-            label="角色名称"
-            rules={[{ required: true, message: '请输入角色名称' }]}
+            label={t('角色名称')}
+            rules={[{ required: true, message: t('请输入角色名称') }]}
           >
-            <Input placeholder="例如：运维操作员" />
+            <Input placeholder={t('例如：运维操作员')} />
           </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="选填" />
+          <Form.Item name="description" label={t('描述')}>
+            <Input.TextArea rows={3} placeholder={t('选填')} />
           </Form.Item>
-          <Form.Item label="权限" required>
+          <Form.Item label={t('权限')} required>
             <div
               style={{
                 maxHeight: 340,
@@ -367,15 +379,18 @@ const RolesPage: React.FC = () => {
             >
               <Space size={12} style={{ marginBottom: 8 }}>
                 <Text type="secondary">
-                  已选 {selected.length} / {allCodes.length} 项
+                  {t('已选 {0} / {1} 项', {
+                    0: selected.length,
+                    1: allCodes.length,
+                  })}
                 </Text>
-                <a onClick={() => setSelected(allCodes)}>全选</a>
-                <a onClick={() => setSelected([])}>清空</a>
+                <a onClick={() => setSelected(allCodes)}>{t('全选')}</a>
+                <a onClick={() => setSelected([])}>{t('清空')}</a>
               </Space>
               {groups.length === 0 ? (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="暂无权限项"
+                  description={t('暂无权限项')}
                 />
               ) : (
                 groups.map((group) => {
@@ -390,8 +405,12 @@ const RolesPage: React.FC = () => {
                         <Text type="secondary">
                           {groupSelected.length}/{codes.length}
                         </Text>
-                        <a onClick={() => toggleGroup(group, true)}>全选</a>
-                        <a onClick={() => toggleGroup(group, false)}>清空</a>
+                        <a onClick={() => toggleGroup(group, true)}>
+                          {t('全选')}
+                        </a>
+                        <a onClick={() => toggleGroup(group, false)}>
+                          {t('清空')}
+                        </a>
                       </Space>
                       <div>
                         <Checkbox.Group

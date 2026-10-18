@@ -12,6 +12,7 @@ import { Helmet, SelectLang, useModel } from '@umijs/max';
 import { Alert, App } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { startTransition, useState } from 'react';
+import { t } from '@/i18n';
 import { setToken } from '@/services/bastion/client';
 import { authApi } from '@/services/bastion/endpoints';
 import Settings from '../../../../config/defaultSettings';
@@ -99,12 +100,14 @@ const Login: React.FC = () => {
       });
       const data = body?.data;
       if (!data?.token) {
-        setErrorMessage(body?.message || '登录失败：后端未返回令牌');
+        setErrorMessage(body?.message || t('登录失败：后端未返回令牌'));
         return;
       }
       // 先把令牌落到 localStorage，后续请求拦截器才能带上 Authorization
       setToken(data.token);
-      message.success(`欢迎回来，${data.user?.displayName || values.username}`);
+      message.success(
+        t('欢迎回来，{0}', { 0: data.user?.displayName || values.username }),
+      );
       const userInfo = await fetchUserInfo();
       const urlParams = new URL(window.location.href).searchParams;
       const mustChange = (
@@ -120,7 +123,7 @@ const Login: React.FC = () => {
         (error as { response?: { data?: { message?: string } } })?.response
           ?.data?.message ||
         (error as Error)?.message ||
-        '登录失败，请检查用户名与密码';
+        t('登录失败，请检查用户名与密码');
       setErrorMessage(text);
     } finally {
       setLoading(false);
@@ -130,7 +133,7 @@ const Login: React.FC = () => {
   return (
     <div className={styles.container}>
       <Helmet>
-        <title>{`登录 - ${Settings.title}`}</title>
+        <title>{t('登录 - {0}', { 0: Settings.title })}</title>
       </Helmet>
       <Lang />
       <div
@@ -145,13 +148,13 @@ const Login: React.FC = () => {
             maxWidth: '75vw',
           }}
           logo={<img alt="logo" src="/logo.svg" />}
-          title="AutoOps 堡垒机"
-          subTitle="统一运维入口 · 全程操作审计 · 命令级策略管控"
+          title={t('AutoOps 堡垒机')}
+          subTitle={t('统一运维入口 · 全程操作审计 · 命令级策略管控')}
           initialValues={{
             autoLogin: true,
           }}
           submitter={{
-            searchConfig: { submitText: '登 录' },
+            searchConfig: { submitText: t('登 录') },
             submitButtonProps: { loading, size: 'large', block: true },
           }}
           onFinish={async (values) => {
@@ -172,7 +175,9 @@ const Login: React.FC = () => {
               type="info"
               showIcon
               icon={<SafetyCertificateOutlined />}
-              title="首次部署默认管理员：admin / admin123（首次登录后请立即修改密码）"
+              title={t(
+                '首次部署默认管理员：admin / admin123（首次登录后请立即修改密码）',
+              )}
             />
           ) : null}
           <ProFormText
@@ -182,8 +187,8 @@ const Login: React.FC = () => {
               prefix: <UserOutlined />,
               autoComplete: 'username',
             }}
-            placeholder="堡垒机账号"
-            rules={[{ required: true, message: '请输入堡垒机账号！' }]}
+            placeholder={t('堡垒机账号')}
+            rules={[{ required: true, message: t('请输入堡垒机账号！') }]}
           />
           <ProFormText.Password
             name="password"
@@ -192,8 +197,8 @@ const Login: React.FC = () => {
               prefix: <LockOutlined />,
               autoComplete: 'current-password',
             }}
-            placeholder="登录密码"
-            rules={[{ required: true, message: '请输入登录密码！' }]}
+            placeholder={t('登录密码')}
+            rules={[{ required: true, message: t('请输入登录密码！') }]}
           />
           <div
             style={{
@@ -201,7 +206,7 @@ const Login: React.FC = () => {
             }}
           >
             <ProFormCheckbox noStyle name="autoLogin">
-              保持登录状态
+              {t('保持登录状态')}
             </ProFormCheckbox>
             <span
               style={{
@@ -209,7 +214,7 @@ const Login: React.FC = () => {
                 color: 'rgba(0,0,0,0.45)',
               }}
             >
-              忘记密码请联系管理员重置
+              {t('忘记密码请联系管理员重置')}
             </span>
           </div>
         </LoginForm>

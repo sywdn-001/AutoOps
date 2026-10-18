@@ -25,6 +25,7 @@ import {
 } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
 import { BoolTag, CopyText } from '@/components/Bastion';
+import { t } from '@/i18n';
 import { settingApi } from '@/services/bastion/endpoints';
 import type { GatewayStatus } from '@/services/bastion/types';
 
@@ -45,7 +46,7 @@ const Gateway: React.FC = () => {
     try {
       setStatus(await settingApi.gateway());
     } catch (error) {
-      message.error(backendMessage(error, '网关状态加载失败，请稍后重试'));
+      message.error(backendMessage(error, t('网关状态加载失败，请稍后重试')));
     } finally {
       setLoading(false);
     }
@@ -61,7 +62,7 @@ const Gateway: React.FC = () => {
   const paramItems = [
     {
       key: 'serverVersion',
-      label: '服务器版本',
+      label: t('服务器版本'),
       children: (
         <Space size={6}>
           <CloudServerOutlined style={{ color: '#2E7BFF' }} />
@@ -71,7 +72,7 @@ const Gateway: React.FC = () => {
     },
     {
       key: 'clientVersion',
-      label: '客户端版本',
+      label: t('客户端版本'),
       children: (
         <Space size={6}>
           <LaptopOutlined style={{ color: '#12B8C8' }} />
@@ -79,25 +80,25 @@ const Gateway: React.FC = () => {
         </Space>
       ),
     },
-    { key: 'hostname', label: '主机名', children: status?.hostname || '-' },
+    { key: 'hostname', label: t('主机名'), children: status?.hostname || '-' },
     {
       key: 'allowPassword',
-      label: '密码认证',
+      label: t('密码认证'),
       children: <BoolTag value={status?.allowPassword} />,
     },
     {
       key: 'allowPublicKey',
-      label: '公钥认证',
+      label: t('公钥认证'),
       children: <BoolTag value={status?.allowPublicKey} />,
     },
     {
       key: 'hostKeyFingerprint',
-      label: '主机密钥指纹',
+      label: t('主机密钥指纹'),
       children: <CopyText text={status?.hostKeyFingerprint} />,
     },
     {
       key: 'banner',
-      label: '登录横幅',
+      label: t('登录横幅'),
       span: 'filled' as const,
       children: (
         <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
@@ -109,11 +110,11 @@ const Gateway: React.FC = () => {
 
   return (
     <PageContainer
-      title="SSH 网关"
-      subTitle="运维人员通过 ssh 进入审计 shell，逐条命令留痕"
+      title={t('SSH 网关')}
+      subTitle={t('运维人员通过 ssh 进入审计 shell，逐条命令留痕')}
       extra={
         <Button icon={<ReloadOutlined />} loading={loading} onClick={load}>
-          刷新
+          {t('刷新')}
         </Button>
       }
     >
@@ -121,32 +122,32 @@ const Gateway: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card loading={loading && !status}>
             <Statistic
-              title="运行状态"
-              value={status ? (running ? '运行中' : '未运行') : '-'}
+              title={t('运行状态')}
+              value={status ? (running ? t('运行中') : t('未运行')) : '-'}
               styles={{ content: { color: running ? '#52c41a' : '#ff4d4f' } }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card loading={loading && !status}>
-            <Statistic title="监听地址" value={listen} />
+            <Statistic title={t('监听地址')} value={listen} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card loading={loading && !status}>
             <Statistic
-              title="网关在线会话"
+              title={t('网关在线会话')}
               value={status ? status.gatewaySessions : '-'}
-              suffix="个"
+              suffix={t('个')}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card loading={loading && !status}>
             <Statistic
-              title="全部在线会话"
+              title={t('全部在线会话')}
               value={status ? status.onlineSessions : '-'}
-              suffix="个"
+              suffix={t('个')}
             />
           </Card>
         </Col>
@@ -157,7 +158,7 @@ const Gateway: React.FC = () => {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          title="网关未监听，请确认后端启动日志中 SSH 网关是否报端口占用"
+          title={t('网关未监听，请确认后端启动日志中 SSH 网关是否报端口占用')}
         />
       ) : null}
 
@@ -166,21 +167,23 @@ const Gateway: React.FC = () => {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          title="未获取到网关状态"
-          description="请确认已登录且后端 SSH 网关配置可用，然后点击「刷新」重试。"
+          title={t('未获取到网关状态')}
+          description={t(
+            '请确认已登录且后端 SSH 网关配置可用，然后点击「刷新」重试。',
+          )}
         />
       ) : null}
 
       {status ? (
         <>
-          <Card title="如何接入" style={{ marginBottom: 16 }}>
+          <Card title={t('如何接入')} style={{ marginBottom: 16 }}>
             <Space orientation="vertical" size={12} style={{ width: '100%' }}>
               <Alert
                 type="info"
                 showIcon
                 title={
                   <Space wrap size={8}>
-                    <Text>运维侧接入命令：</Text>
+                    <Text>{t('运维侧接入命令：')}</Text>
                     <CopyText text={status.connectCommand} />
                   </Space>
                 }
@@ -188,20 +191,25 @@ const Gateway: React.FC = () => {
               <Typography>
                 <ol style={{ margin: 0, paddingLeft: 22, lineHeight: 2 }}>
                   <li>
-                    在目标 Linux 主机上配置好资产账号（主机列表 → 账号管理）。
+                    {t(
+                      '在目标 Linux 主机上配置好资产账号（主机列表 → 账号管理）。',
+                    )}
                   </li>
-                  <li>在「身份与权限」里给用户开启「网关登录」开关。</li>
-                  <li>在「访问授权」里把主机授权给该用户并绑定命令策略。</li>
+                  <li>{t('在「身份与权限」里给用户开启「网关登录」开关。')}</li>
                   <li>
-                    运维人员执行上面的 ssh 命令，输入堡垒机账号密码后进入审计
-                    shell，按菜单序号选择主机；每条命令与输出都会被记录到「审计中心」。
+                    {t('在「访问授权」里把主机授权给该用户并绑定命令策略。')}
+                  </li>
+                  <li>
+                    {t(
+                      '运维人员执行上面的 ssh 命令，输入堡垒机账号密码后进入审计\n                    shell，按菜单序号选择主机；每条命令与输出都会被记录到「审计中心」。',
+                    )}
                   </li>
                 </ol>
               </Typography>
             </Space>
           </Card>
 
-          <Card title="网关参数" style={{ marginBottom: 16 }}>
+          <Card title={t('网关参数')} style={{ marginBottom: 16 }}>
             <Descriptions
               column={{ xs: 1, sm: 1, lg: 2 }}
               bordered
@@ -215,7 +223,9 @@ const Gateway: React.FC = () => {
       <Alert
         type="info"
         showIcon
-        title="修改网关端口/横幅请到『参数设置』；主机密钥指纹应在首次部署时分发给运维人员，以防中间人攻击"
+        title={t(
+          '修改网关端口/横幅请到『参数设置』；主机密钥指纹应在首次部署时分发给运维人员，以防中间人攻击',
+        )}
       />
     </PageContainer>
   );

@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 /**
  * 网页终端控制台的类型与常量。
  *
@@ -50,12 +51,12 @@ export const STATUS_META: Record<
   ConnectionStatus,
   { text: string; color: string; badge: string }
 > = {
-  selecting: { text: '未连接', color: 'default', badge: 'default' },
-  connecting: { text: '连接中', color: 'processing', badge: 'processing' },
-  ready: { text: '连接中', color: 'processing', badge: 'processing' },
-  connected: { text: '已连接', color: 'success', badge: 'success' },
-  disconnected: { text: '已断开', color: 'default', badge: 'default' },
-  failed: { text: '连接失败', color: 'error', badge: 'error' },
+  selecting: { text: t('未连接'), color: 'default', badge: 'default' },
+  connecting: { text: t('连接中'), color: 'processing', badge: 'processing' },
+  ready: { text: t('连接中'), color: 'processing', badge: 'processing' },
+  connected: { text: t('已连接'), color: 'success', badge: 'success' },
+  disconnected: { text: t('已断开'), color: 'default', badge: 'default' },
+  failed: { text: t('连接失败'), color: 'error', badge: 'error' },
 };
 
 /**
@@ -63,23 +64,23 @@ export const STATUS_META: Record<
  * 的 closeReasonKeys 等价物）。后端可能给中文原因，也可能给短码。
  */
 const CLOSE_REASON_TEXT: Record<string, string> = {
-  idle_disconnect: '超过最大空闲时间',
-  max_session_timeout: '达到会话最大时长',
-  permission_expired: '连接权限已过期',
-  admin_terminate: '管理员终止会话',
-  connect_disconnect: '资产侧连接已结束',
-  connect_failed: '连接建立失败',
-  initialization_failed: '会话初始化失败',
-  read_timeout: '读取超时',
-  write_timeout: '写入超时',
-  write_failed: '写入失败',
-  request_canceled: '服务已关闭该会话',
-  share_removed: '已从共享会话移除',
+  idle_disconnect: t('超过最大空闲时间'),
+  max_session_timeout: t('达到会话最大时长'),
+  permission_expired: t('连接权限已过期'),
+  admin_terminate: t('管理员终止会话'),
+  connect_disconnect: t('资产侧连接已结束'),
+  connect_failed: t('连接建立失败'),
+  initialization_failed: t('会话初始化失败'),
+  read_timeout: t('读取超时'),
+  write_timeout: t('写入超时'),
+  write_failed: t('写入失败'),
+  request_canceled: t('服务已关闭该会话'),
+  share_removed: t('已从共享会话移除'),
 };
 
 export const describeCloseReason = (reason?: string): string => {
   if (!reason) {
-    return '会话已结束';
+    return t('会话已结束');
   }
   const key = reason.trim();
   const mapped = CLOSE_REASON_TEXT[key] ?? CLOSE_REASON_TEXT[key.split(':')[0]];

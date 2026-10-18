@@ -68,6 +68,8 @@ import { patchRoundBlock, roundBlocksOf } from './blocks';
 import { AiCardView, AiCode } from './cards';
 import './ai.css';
 
+import { t } from '@/i18n';
+
 const { Text, Paragraph } = Typography;
 
 /** 一次工具调用的前端状态（后端事件字段一一对应，不做二次加工） */
@@ -109,13 +111,13 @@ interface ChatTurn {
 }
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
-  running: { color: 'processing', text: '执行中' },
-  pending: { color: 'warning', text: '待管理员确认' },
-  approved: { color: 'processing', text: '已确认，执行中' },
-  success: { color: 'success', text: '成功' },
-  failure: { color: 'error', text: '失败' },
-  denied: { color: 'error', text: '无权限' },
-  rejected: { color: 'default', text: '已拒绝' },
+  running: { color: 'processing', text: t('执行中') },
+  pending: { color: 'warning', text: t('待管理员确认') },
+  approved: { color: 'processing', text: t('已确认，执行中') },
+  success: { color: 'success', text: t('成功') },
+  failure: { color: 'error', text: t('失败') },
+  denied: { color: 'error', text: t('无权限') },
+  rejected: { color: 'default', text: t('已拒绝') },
 };
 
 const nextKey = (() => {
@@ -227,7 +229,7 @@ const AiPage = () => {
         }
       } catch (error) {
         if (alive) {
-          notifyError(error, 'AI 状态读取失败');
+          notifyError(error, t('AI 状态读取失败'));
         }
       }
     })();
@@ -309,7 +311,7 @@ const AiPage = () => {
         case 'tool_call': {
           const call: ToolCallState = {
             callId: asString(event.callId) ?? nextKey('call'),
-            name: asString(event.name) ?? '未知工具',
+            name: asString(event.name) ?? t('未知工具'),
             args: asRecord(event.args),
             description: asString(event.description),
             permission: asString(event.permission),
@@ -373,7 +375,7 @@ const AiPage = () => {
         case 'error': {
           patchTurn(key, (turn) => ({
             ...turn,
-            error: asString(event.message) ?? 'AI 执行失败',
+            error: asString(event.message) ?? t('AI 执行失败'),
           }));
           break;
         }
@@ -383,7 +385,7 @@ const AiPage = () => {
             const item = asRecord(raw) ?? {};
             return {
               callId: asString(item.callId) ?? nextKey('call'),
-              name: asString(item.name) ?? '未知工具',
+              name: asString(item.name) ?? t('未知工具'),
               args: asRecord(item.args),
               description: asString(item.description),
               permission: asString(item.permission),
@@ -412,7 +414,7 @@ const AiPage = () => {
           }));
           resumeTurnKeyRef.current = key;
           setConfirmCalls(pendingCalls);
-          setConfirmReason(asString(event.reason) ?? '该操作需要管理员确认');
+          setConfirmReason(asString(event.reason) ?? t('该操作需要管理员确认'));
           setConfirmError(undefined);
           setConfirmOpen(true);
           break;
@@ -441,7 +443,7 @@ const AiPage = () => {
         if ((error as Error)?.name !== 'AbortError') {
           patchTurn(key, (turn) => ({
             ...turn,
-            error: error instanceof Error ? error.message : 'AI 请求失败',
+            error: error instanceof Error ? error.message : t('AI 请求失败'),
           }));
         }
       } finally {
@@ -520,7 +522,7 @@ const AiPage = () => {
       // 请求层的 toast 一闪而过，且绝不能再把 axios 的 "Request failed with status code 400" 当提示
       setConfirmError(
         apiErrorMessage(error) ??
-          (error instanceof Error ? error.message : '确认失败'),
+          (error instanceof Error ? error.message : t('确认失败')),
       );
     } finally {
       setConfirming(false);
@@ -536,14 +538,14 @@ const AiPage = () => {
       await confirmAiOperation({
         conversationId,
         approve: false,
-        reason: '用户在页面上拒绝了该操作',
+        reason: t('用户在页面上拒绝了该操作'),
       });
       setConfirmOpen(false);
       confirmForm.resetFields();
       const key = resumeTurnKeyRef.current ?? nextKey('assistant');
       await runStream(key, { conversationId, resume: true });
     } catch (error) {
-      notifyError(error, '操作失败');
+      notifyError(error, t('操作失败'));
     } finally {
       setConfirming(false);
     }
@@ -625,7 +627,7 @@ const AiPage = () => {
       }
       setTurns(restored);
     } catch (error) {
-      notifyError(error, '对话详情读取失败');
+      notifyError(error, t('对话详情读取失败'));
     } finally {
       setLoadingHistory(false);
     }
@@ -643,11 +645,11 @@ const AiPage = () => {
     async (id: number) => {
       try {
         await deleteAiConversation(id);
-        message.success('已删除该对话（连带消息与工具调用记录）');
+        message.success(t('已删除该对话（连带消息与工具调用记录）'));
         if (activeId === id) startNewConversation();
         await loadConversations();
       } catch (error) {
-        notifyError(error, '删除失败');
+        notifyError(error, t('删除失败'));
       }
     },
     [activeId, loadConversations, startNewConversation],
@@ -661,10 +663,13 @@ const AiPage = () => {
           <span className="bastion-ai-conv-label">
             {/* 标题单行省略：列表项改成自适应高度之后，长标题不能再靠固定高度裁掉 */}
             <span className="bastion-ai-conv-title">
-              {item.title || '未命名对话'}
+              {item.title || t('未命名对话')}
             </span>
             <span className="bastion-ai-conv-meta">
-              {item.messageCount ?? 0} 条 · 工具 {item.toolCount ?? 0}
+              {t('{0} 条 · 工具 {1}', {
+                0: item.messageCount ?? 0,
+                1: item.toolCount ?? 0,
+              })}
             </span>
           </span>
         ),
@@ -713,7 +718,9 @@ const AiPage = () => {
             items.push({
               key: 'reasoning',
               label: (
-                <span className="bastion-ai-collapse-label">思考过程</span>
+                <span className="bastion-ai-collapse-label">
+                  {t('思考过程')}
+                </span>
               ),
               children: (
                 <pre className="bastion-ai-reasoning">{block.reasoning}</pre>
@@ -725,9 +732,11 @@ const AiPage = () => {
               key: 'tools',
               label: (
                 <span className="bastion-ai-collapse-label">
-                  工具调用 {block.toolCalls.length} 次
+                  {t('工具调用 {0} 次', { 0: block.toolCalls.length })}
                   {pendingCalls.length > 0 ? (
-                    <Tag color="warning">待确认 {pendingCalls.length}</Tag>
+                    <Tag color="warning">
+                      {t('待确认 {0}', { 0: pendingCalls.length })}
+                    </Tag>
                   ) : null}
                 </span>
               ),
@@ -773,7 +782,7 @@ const AiPage = () => {
         })}
         {turn.streaming && !turn.content && !turn.reasoning ? (
           <span className="bastion-ai-thinking">
-            <Spin size="small" /> 正在思考…
+            <Spin size="small" /> {t('正在思考…')}
           </span>
         ) : null}
         {turn.error ? (
@@ -786,11 +795,16 @@ const AiPage = () => {
         ) : null}
         {turn.elapsedMs ? (
           <div className="bastion-ai-meta">
-            {turn.status === 'max_rounds' ? '已达单轮工具调用上限 · ' : ''}
-            用时 {(turn.elapsedMs / 1000).toFixed(1)}s
-            {turn.usage?.completion_tokens
-              ? ` · 输出 ${turn.usage.completion_tokens} tokens`
-              : ''}
+            {t('{0} 用时 {1}s {2}', {
+              0:
+                turn.status === 'max_rounds'
+                  ? t('已达单轮工具调用上限 · ')
+                  : '',
+              1: (turn.elapsedMs / 1000).toFixed(1),
+              2: turn.usage?.completion_tokens
+                ? t(' · 输出 {0} tokens', { 0: turn.usage.completion_tokens })
+                : '',
+            })}
           </div>
         ) : null}
       </div>
@@ -807,13 +821,15 @@ const AiPage = () => {
         <div className="bastion-ai-tool-head">
           <Tag color={tag.color}>{tag.text}</Tag>
           <Text strong>{call.name}</Text>
-          {call.sensitive ? <Tag color="red">敏感操作</Tag> : null}
+          {call.sensitive ? <Tag color="red">{t('敏感操作')}</Tag> : null}
           {call.permission ? <Tag>{call.permission}</Tag> : null}
           {call.durationMs ? (
             <Text type="secondary">{call.durationMs}ms</Text>
           ) : null}
           {call.confirmedBy ? (
-            <Text type="secondary">确认人 {call.confirmedBy}</Text>
+            <Text type="secondary">
+              {t('确认人 {0}', { 0: call.confirmedBy })}
+            </Text>
           ) : null}
         </div>
         {call.description ? (
@@ -845,9 +861,9 @@ const AiPage = () => {
   }));
 
   const disabledReason = !status?.enabled
-    ? '管理员尚未开启 AI 运维功能（参数设置里的 AI 开关）'
+    ? t('管理员尚未开启 AI 运维功能（参数设置里的 AI 开关）')
     : !status?.configured
-      ? '尚未配置 DEEPSEEK_API_KEY（写入 bastion-backend/.env 后重启服务）'
+      ? t('尚未配置 DEEPSEEK_API_KEY（写入 bastion-backend/.env 后重启服务）')
       : undefined;
 
   return (
@@ -856,7 +872,7 @@ const AiPage = () => {
       // 内容区高度按视口算好，交给下面的 .bastion-ai 做「左侧列表 + 右侧对话」两栏平铺。
       ghost
       className="bastion-ai-page"
-      title="AI 运维"
+      title={t('AI 运维')}
       childrenContentStyle={{
         paddingBlock: 0,
         height: 'calc(100vh - 160px)',
@@ -866,20 +882,20 @@ const AiPage = () => {
       }}
       extra={[
         <Tag key="model" icon={<RobotOutlined />} color="blue">
-          {status?.model || '未配置模型'}
+          {status?.model || t('未配置模型')}
         </Tag>,
         <Tag key="tools" icon={<ThunderboltOutlined />} color="geekblue">
-          {status?.toolCount ?? 0} 个工具可用
+          {t('{0} 个工具可用', { 0: status?.toolCount ?? 0 })}
         </Tag>,
         <Button key="catalog" onClick={() => setToolsOpen(true)}>
-          AI 能用什么
+          {t('AI 能用什么')}
         </Button>,
         access.canAiView ? (
           <Button key="audit" onClick={() => history.push('/audit/ai')}>
-            对话与工具审计
+            {t('对话与工具审计')}
           </Button>
         ) : null,
-        <Tooltip key="reload" title="刷新对话列表">
+        <Tooltip key="reload" title={t('刷新对话列表')}>
           <Button
             icon={<ReloadOutlined />}
             onClick={() => void loadConversations()}
@@ -905,7 +921,7 @@ const AiPage = () => {
               icon={<PlusOutlined />}
               onClick={startNewConversation}
             >
-              新建对话
+              {t('新建对话')}
             </Button>
           </div>
           <div className="bastion-ai-side-list">
@@ -913,7 +929,7 @@ const AiPage = () => {
               <Empty
                 className="bastion-ai-empty"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="还没有对话记录"
+                description={t('还没有对话记录')}
               />
             ) : (
               <Conversations
@@ -924,7 +940,7 @@ const AiPage = () => {
                   items: [
                     {
                       key: 'delete',
-                      label: '删除对话',
+                      label: t('删除对话'),
                       icon: <DeleteOutlined />,
                       danger: true,
                     },
@@ -939,21 +955,21 @@ const AiPage = () => {
           <div className="bastion-ai-stream">
             {loadingHistory ? (
               <div className="bastion-ai-loading">
-                <Spin /> 正在读取历史对话…
+                <Spin /> {t('正在读取历史对话…')}
               </div>
             ) : bubbleItems.length === 0 ? (
               <div className="bastion-ai-welcome">
                 <RobotOutlined className="bastion-ai-welcome-icon" />
                 <div className="bastion-ai-welcome-title">
-                  告诉我要做什么，我来操作并给你证据
+                  {t('告诉我要做什么，我来操作并给你证据')}
                 </div>
                 <div className="bastion-ai-welcome-hints">
                   {[
-                    '列出当前所有在线会话',
-                    '有哪些主机？把最近新增的三台列出来',
-                    '在 web-01 上执行 uptime 和 df -h',
-                    '新建一个只读用户，只给查看权限',
-                    '审计一下最近的敏感命令',
+                    t('列出当前所有在线会话'),
+                    t('有哪些主机？把最近新增的三台列出来'),
+                    t('在 web-01 上执行 uptime 和 df -h'),
+                    t('新建一个只读用户，只给查看权限'),
+                    t('审计一下最近的敏感命令'),
                   ].map((hint) => (
                     <Tag
                       key={hint}
@@ -998,13 +1014,15 @@ const AiPage = () => {
                   setStreaming(false);
                 }}
               >
-                停止生成
+                {t('停止生成')}
               </Button>
             ) : null}
             <Sender
               value={input}
               loading={streaming}
-              placeholder="例如：在 web-01 上执行 uptime（敏感操作会要管理员密码确认）"
+              placeholder={t(
+                '例如：在 web-01 上执行 uptime（敏感操作会要管理员密码确认）',
+              )}
               onChange={(value) => setInput(value)}
               onSubmit={(value) => handleSend(value ?? input)}
             />
@@ -1013,7 +1031,7 @@ const AiPage = () => {
       </div>
 
       <Drawer
-        title={`AI 可用工具（${tools.tools.length} 个）`}
+        title={t('AI 可用工具（{0} 个）', { 0: tools.tools.length })}
         width={720}
         open={toolsOpen}
         onClose={() => setToolsOpen(false)}
@@ -1021,15 +1039,15 @@ const AiPage = () => {
         <Input
           allowClear
           prefix={<SearchOutlined />}
-          placeholder="按名称 / 说明 / 接口搜索"
+          placeholder={t('按名称 / 说明 / 接口搜索')}
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
           className="bastion-ai-tool-search"
         />
         <Paragraph type="secondary" className="bastion-ai-tool-tip">
-          工具目录按当前登录账号的权限过滤：AI
-          只能用你本人能用的能力，调用时复用你的 JWT，
-          后端仍会再校验一次权限并写审计。
+          {t(
+            '工具目录按当前登录账号的权限过滤：AI\n          只能用你本人能用的能力，调用时复用你的 JWT，\n          后端仍会再校验一次权限并写审计。',
+          )}
         </Paragraph>
         <Collapse
           accordion
@@ -1042,7 +1060,9 @@ const AiPage = () => {
                   <div className="bastion-ai-tool-item" key={tool.name}>
                     <div className="bastion-ai-tool-item-head">
                       <Text strong>{tool.name}</Text>
-                      {tool.sensitive ? <Tag color="red">敏感</Tag> : null}
+                      {tool.sensitive ? (
+                        <Tag color="red">{t('敏感')}</Tag>
+                      ) : null}
                       <Tag>{tool.permission}</Tag>
                       <Text type="secondary" code>
                         {tool.method} {tool.path}
@@ -1060,7 +1080,7 @@ const AiPage = () => {
       </Drawer>
 
       <Modal
-        title="敏感操作需要管理员确认"
+        title={t('敏感操作需要管理员确认')}
         open={confirmOpen}
         onCancel={() => {
           setConfirmOpen(false);
@@ -1096,21 +1116,21 @@ const AiPage = () => {
         >
           <Form.Item
             name="adminUsername"
-            label="管理员账号（留空则用当前账号）"
+            label={t('管理员账号（留空则用当前账号）')}
           >
             <Input
               allowClear
-              placeholder="留空则用当前登录账号"
+              placeholder={t('留空则用当前登录账号')}
               autoComplete="off"
             />
           </Form.Item>
           <Form.Item
             name="adminPassword"
-            label="管理员密码"
-            rules={[{ required: true, message: '请输入管理员密码' }]}
+            label={t('管理员密码')}
+            rules={[{ required: true, message: t('请输入管理员密码') }]}
           >
             <Input.Password
-              placeholder="请输入密码以确认执行"
+              placeholder={t('请输入密码以确认执行')}
               autoComplete="new-password"
             />
           </Form.Item>
@@ -1126,14 +1146,14 @@ const AiPage = () => {
         ) : null}
         <Space>
           <Popconfirm
-            title="拒绝这次操作？"
-            description="AI 会收到「用户已拒绝」，并给出替代方案。"
-            okText="拒 绝"
-            cancelText="取 消"
+            title={t('拒绝这次操作？')}
+            description={t('AI 会收到「用户已拒绝」，并给出替代方案。')}
+            okText={t('拒 绝')}
+            cancelText={t('取 消')}
             onConfirm={() => void rejectConfirm()}
           >
             <Button danger loading={confirming}>
-              拒绝执行
+              {t('拒绝执行')}
             </Button>
           </Popconfirm>
           <Button
@@ -1141,7 +1161,7 @@ const AiPage = () => {
             loading={confirming}
             onClick={() => void submitConfirm()}
           >
-            确认执行
+            {t('确认执行')}
           </Button>
         </Space>
       </Modal>

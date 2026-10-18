@@ -3,23 +3,20 @@ import { getAllLocales, getLocale, setLocale } from '@umijs/max';
 import type { MenuProps } from 'antd';
 import { Button } from 'antd';
 import { useMemo } from 'react';
+import { t } from '@/i18n';
 import HeaderDropdown from '../HeaderDropdown';
 import useHeaderActionStyles from './style';
 
 const localeLabelMap: Record<string, { emoji: string; label: string }> = {
   'zh-CN': { emoji: '🇨🇳', label: '简体中文' },
-  'zh-TW': { emoji: '🇭🇰', label: '繁體中文' },
   'en-US': { emoji: '🇺🇸', label: 'English' },
-  'ja-JP': { emoji: '🇯🇵', label: '日本語' },
-  'pt-BR': { emoji: '🇧🇷', label: 'Português' },
-  'id-ID': { emoji: '🇮🇩', label: 'Bahasa Indonesia' },
-  'fa-IR': { emoji: '🇮🇷', label: 'فارسی' },
-  'bn-BD': { emoji: '🇧🇩', label: 'বাংলা' },
 };
 
 const onLangClick: MenuProps['onClick'] = ({ key }) => {
   if (key.startsWith('lang-')) {
-    setLocale(key.replace('lang-', ''), false);
+    // 第二个参数 true = 整页重载：t() 读的是 Umi 的全局 locale，
+    // 不重载的话已经渲染好的页面不会自己变。
+    setLocale(key.replace('lang-', ''), true);
   }
 };
 
@@ -55,7 +52,7 @@ export const LangDropdown: React.FC = () => {
         style: { minWidth: 180 },
       }}
     >
-      <Button type="text" className={styles.action} aria-label="语言切换">
+      <Button type="text" className={styles.action} aria-label={t('语言切换')}>
         <GlobalOutlined />
       </Button>
     </HeaderDropdown>

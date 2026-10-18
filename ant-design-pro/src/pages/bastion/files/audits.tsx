@@ -25,6 +25,7 @@ import {
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionTag, MonoCell, RiskTag, TimeCell } from '@/components/Bastion';
+import { t } from '@/i18n';
 import { humanAuditMessage } from '@/services/bastion/constants';
 import { fileAuditApi, type PurgePayload } from '@/services/bastion/endpoints';
 import type { FileLogItem, FileLogOptions } from '@/services/bastion/types';
@@ -66,13 +67,13 @@ const formatSize = (bytes?: number): string => {
 
 const renderResult = (result: string) => {
   if (result === 'success') {
-    return <Tag color="success">成功</Tag>;
+    return <Tag color="success">{t('成功')}</Tag>;
   }
   if (result === 'denied') {
-    return <Tag color="error">被拦截</Tag>;
+    return <Tag color="error">{t('被拦截')}</Tag>;
   }
   if (result === 'failure') {
-    return <Tag color="warning">失败</Tag>;
+    return <Tag color="warning">{t('失败')}</Tag>;
   }
   return <Tag>{result || '-'}</Tag>;
 };
@@ -133,11 +134,11 @@ const FileAuditsPage: React.FC = () => {
       setPurging(true);
       try {
         const result = await fileAuditApi.purge(payload);
-        message.success(`已清除 ${result.deleted} 条文件操作记录`);
+        message.success(t('已清除 {0} 条文件操作记录', { 0: result.deleted }));
         setSelectedKeys([]);
         actionRef.current?.reload();
       } catch (error) {
-        message.error((error as Error)?.message || '清除文件记录失败');
+        message.error((error as Error)?.message || t('清除文件记录失败'));
       } finally {
         setPurging(false);
       }
@@ -153,7 +154,7 @@ const FileAuditsPage: React.FC = () => {
 
     return [
       {
-        title: '时间',
+        title: t('时间'),
         dataIndex: 'startedAt',
         valueType: 'dateTime',
         width: 180,
@@ -161,7 +162,7 @@ const FileAuditsPage: React.FC = () => {
         render: (_, row) => <TimeCell value={row.startedAt} />,
       },
       {
-        title: '用户',
+        title: t('用户'),
         dataIndex: 'username',
         width: 120,
         valueType: 'select',
@@ -171,7 +172,7 @@ const FileAuditsPage: React.FC = () => {
         },
       },
       {
-        title: '主机',
+        title: t('主机'),
         dataIndex: 'hostName',
         width: 150,
         valueType: 'select',
@@ -181,7 +182,7 @@ const FileAuditsPage: React.FC = () => {
         },
       },
       {
-        title: '操作',
+        title: t('操作'),
         dataIndex: 'operation',
         width: 130,
         valueType: 'select',
@@ -189,7 +190,7 @@ const FileAuditsPage: React.FC = () => {
         render: (_, row) => operationLabel(row.operation),
       },
       {
-        title: '路径',
+        title: t('路径'),
         dataIndex: 'path',
         search: false,
         render: (_, row) => (
@@ -204,7 +205,7 @@ const FileAuditsPage: React.FC = () => {
         ),
       },
       {
-        title: '动作',
+        title: t('动作'),
         dataIndex: 'action',
         width: 90,
         valueType: 'select',
@@ -212,7 +213,7 @@ const FileAuditsPage: React.FC = () => {
         render: (_, row) => <ActionTag action={row.action} />,
       },
       {
-        title: '风险',
+        title: t('风险'),
         dataIndex: 'riskLevel',
         width: 90,
         valueType: 'select',
@@ -220,7 +221,7 @@ const FileAuditsPage: React.FC = () => {
         render: (_, row) => <RiskTag level={row.riskLevel} />,
       },
       {
-        title: '结果',
+        title: t('结果'),
         dataIndex: 'result',
         width: 90,
         valueType: 'select',
@@ -228,34 +229,34 @@ const FileAuditsPage: React.FC = () => {
         render: (_, row) => renderResult(row.result),
       },
       {
-        title: '大小',
+        title: t('大小'),
         dataIndex: 'size',
         width: 90,
         search: false,
         render: (_, row) => formatSize(row.size),
       },
       {
-        title: '说明',
+        title: t('说明'),
         dataIndex: 'message',
         ellipsis: true,
         search: false,
         render: (_, row) => humanAuditMessage(row.message) || row.reason || '-',
       },
       {
-        title: '会话号',
+        title: t('会话号'),
         dataIndex: 'sid',
         search: false,
         width: 140,
         render: (_, row) => <MonoCell text={row.sid} />,
       },
       {
-        title: '关键字',
+        title: t('关键字'),
         dataIndex: 'keyword',
         hideInTable: true,
-        fieldProps: { placeholder: '路径 / 说明 / 用户 / 主机' },
+        fieldProps: { placeholder: t('路径 / 说明 / 用户 / 主机') },
       },
       {
-        title: '操作',
+        title: t('操作'),
         valueType: 'option',
         width: 80,
         render: (_, row) => [
@@ -265,7 +266,7 @@ const FileAuditsPage: React.FC = () => {
             size="small"
             onClick={() => setDetail(row)}
           >
-            详情
+            {t('详情')}
           </Button>,
         ],
       },
@@ -273,7 +274,10 @@ const FileAuditsPage: React.FC = () => {
   }, [operationLabel, options]);
 
   return (
-    <PageContainer title="文件记录" subTitle="文件管理器里的每一次操作">
+    <PageContainer
+      title={t('文件记录')}
+      subTitle={t('文件管理器里的每一次操作')}
+    >
       <ProTable<FileLogItem>
         rowKey="id"
         actionRef={actionRef}
@@ -291,8 +295,10 @@ const FileAuditsPage: React.FC = () => {
             ? [
                 <Popconfirm
                   key="purge-selected"
-                  title={`清除选中的 ${selectedKeys.length} 条记录？`}
-                  description="清除动作本身也会写一条审计日志。"
+                  title={t('清除选中的 {0} 条记录？', {
+                    0: selectedKeys.length,
+                  })}
+                  description={t('清除动作本身也会写一条审计日志。')}
                   disabled={!selectedKeys.length}
                   onConfirm={() => runPurge({ ids: selectedKeys as number[] })}
                 >
@@ -301,17 +307,19 @@ const FileAuditsPage: React.FC = () => {
                     loading={purging}
                     disabled={!selectedKeys.length}
                   >
-                    清除选中
+                    {t('清除选中')}
                   </Button>
                 </Popconfirm>,
                 <Popconfirm
                   key="purge-filtered"
-                  title="清除当前筛选结果？"
-                  description="不选筛选条件时会清空全部文件操作记录（含会话录像无关，仅记录）。"
+                  title={t('清除当前筛选结果？')}
+                  description={t(
+                    '不选筛选条件时会清空全部文件操作记录（含会话录像无关，仅记录）。',
+                  )}
                   onConfirm={() => runPurge({ all: true, ...currentFilters() })}
                 >
                   <Button danger loading={purging}>
-                    清除筛选结果
+                    {t('清除筛选结果')}
                   </Button>
                 </Popconfirm>,
               ]
@@ -327,7 +335,7 @@ const FileAuditsPage: React.FC = () => {
               success: true,
             };
           } catch (error) {
-            message.error((error as Error)?.message || '加载文件记录失败');
+            message.error((error as Error)?.message || t('加载文件记录失败'));
             return { data: [], total: 0, success: false };
           }
         }}
@@ -336,7 +344,7 @@ const FileAuditsPage: React.FC = () => {
       <Drawer
         open={Boolean(detail)}
         width={680}
-        title="文件操作详情"
+        title={t('文件操作详情')}
         onClose={() => setDetail(undefined)}
         destroyOnHidden
       >
@@ -348,83 +356,91 @@ const FileAuditsPage: React.FC = () => {
             items={[
               {
                 key: 'time',
-                label: '时间',
+                label: t('时间'),
                 children: <TimeCell value={detail.startedAt} />,
               },
-              { key: 'user', label: '用户', children: detail.username || '-' },
-              { key: 'host', label: '主机', children: detail.hostName || '-' },
+              {
+                key: 'user',
+                label: t('用户'),
+                children: detail.username || '-',
+              },
+              {
+                key: 'host',
+                label: t('主机'),
+                children: detail.hostName || '-',
+              },
               {
                 key: 'operation',
-                label: '操作',
+                label: t('操作'),
                 children: operationLabel(detail.operation),
               },
               {
                 key: 'path',
-                label: '路径',
+                label: t('路径'),
                 children: <MonoCell text={detail.path} />,
               },
               ...(detail.targetPath
                 ? [
                     {
                       key: 'target',
-                      label: '目标路径',
+                      label: t('目标路径'),
                       children: <MonoCell text={detail.targetPath} />,
                     },
                   ]
                 : []),
               {
                 key: 'action',
-                label: '策略动作',
+                label: t('策略动作'),
                 children: <ActionTag action={detail.action} />,
               },
               {
                 key: 'risk',
-                label: '风险等级',
+                label: t('风险等级'),
                 children: <RiskTag level={detail.riskLevel} />,
               },
               {
                 key: 'result',
-                label: '执行结果',
+                label: t('执行结果'),
                 children: renderResult(detail.result),
               },
               {
                 key: 'rule',
-                label: '命中规则',
+                label: t('命中规则'),
                 children: detail.matchedRuleId ? (
                   <Space size={8} wrap>
                     <Tag color="purple">#{detail.matchedRuleId}</Tag>
                     <MonoCell text={detail.matchedRulePattern} />
                   </Space>
                 ) : (
-                  <Text type="secondary">未命中规则</Text>
+                  <Text type="secondary">{t('未命中规则')}</Text>
                 ),
               },
               {
                 key: 'reason',
-                label: '判定说明',
+                label: t('判定说明'),
                 children: detail.reason || '-',
               },
               {
                 key: 'message',
-                label: '执行信息',
+                label: t('执行信息'),
                 children: humanAuditMessage(detail.message) || '-',
               },
               {
                 key: 'size',
-                label: '大小',
-                children: `${formatSize(detail.size)}${detail.fileCount > 1 ? ` · ${detail.fileCount} 个对象` : ''}`,
+                label: t('大小'),
+                children: `${formatSize(detail.size)}${detail.fileCount > 1 ? t(' · {0} 个对象', { 0: detail.fileCount }) : ''}`,
               },
               {
                 key: 'duration',
-                label: '耗时',
+                label: t('耗时'),
                 children: `${detail.durationMs} ms`,
               },
               {
                 key: 'sid',
-                label: '会话号',
+                label: t('会话号'),
                 children: <MonoCell text={detail.sid} />,
               },
-              { key: 'seq', label: '会话内序号', children: detail.seq },
+              { key: 'seq', label: t('会话内序号'), children: detail.seq },
             ]}
           />
         ) : null}

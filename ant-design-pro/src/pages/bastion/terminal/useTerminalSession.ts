@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { t } from '@/i18n';
 import type { TerminalTarget } from '@/services/bastion/types';
 import type { TerminalHandle } from './components/TerminalPane';
 import {
@@ -110,7 +111,9 @@ export const useTerminalSession = (options?: {
       });
 
       socket.on('connect_error', (error: Error) => {
-        const text = `终端通道连接失败：${error?.message || '未知原因'}`;
+        const text = t('终端通道连接失败：{0}', {
+          0: error?.message || t('未知原因'),
+        });
         patch({ status: 'failed', error: text });
         write(`\r\n\x1b[31m${text}\x1b[0m\r\n`);
       });
@@ -152,7 +155,10 @@ export const useTerminalSession = (options?: {
             error: undefined,
           });
           write(
-            `\r\n\x1b[32m[堡垒机] 已进入审计会话（账号 ${accountName}，会话号 ${payload.sid}）\x1b[0m\r\n`,
+            t(
+              '\\r\\n\\x1b[32m[堡垒机] 已进入审计会话（账号 {0}，会话号 {1}）\\x1b[0m\\r\\n',
+              { 0: accountName, 1: payload.sid },
+            ),
           );
           const handle = handleRef.current;
           handle?.fit();
@@ -173,19 +179,27 @@ export const useTerminalSession = (options?: {
       // 命令被拒绝的提示不在这里——桥接层已经把它写进终端输出流，这里再写一行就是重复。
       socket.on('terminal:notice', (payload: { message?: string }) => {
         if (payload?.message) {
-          write(`\r\n\x1b[33m[堡垒机] ${payload.message}\x1b[0m\r\n`);
+          write(
+            t('\\r\\n\\x1b[33m[堡垒机] {0}\\x1b[0m\\r\\n', {
+              0: payload.message,
+            }),
+          );
         }
       });
 
       socket.on('terminal:closed', (payload: { reason?: string }) => {
         const reason = describeCloseReason(payload?.reason);
         patch({ status: 'disconnected', closedReason: reason });
-        write(`\r\n\x1b[31m=== 会话已结束（${reason}）===\x1b[0m\r\n`);
+        write(
+          t('\\r\\n\\x1b[31m=== 会话已结束（{0}）===\\x1b[0m\\r\\n', {
+            0: reason,
+          }),
+        );
         onClosedRef.current?.(reason);
       });
 
       socket.on('terminal:error', (payload: { message?: string }) => {
-        const text = payload?.message || '终端通道返回未知错误';
+        const text = payload?.message || t('终端通道返回未知错误');
         setSession((prev) =>
           prev
             ? {
@@ -214,7 +228,7 @@ export const useTerminalSession = (options?: {
             return {
               ...prev,
               status: 'failed' as ConnectionStatus,
-              error: `终端通道已关闭：${reason}`,
+              error: t('终端通道已关闭：{0}', { 0: reason }),
             };
           }
           return prev;
@@ -226,10 +240,14 @@ export const useTerminalSession = (options?: {
 
   /** 用户主动断开会话（保留终端内容，便于回看刚才的输出）。 */
   const disconnect = useCallback(
-    (reason = '用户主动断开') => {
+    (reason = t('用户主动断开')) => {
       teardown(true);
       patch({ status: 'disconnected', closedReason: reason });
-      write(`\r\n\x1b[33m=== 已断开连接（${reason}）===\x1b[0m\r\n`);
+      write(
+        t('\\r\\n\\x1b[33m=== 已断开连接（{0}）===\\x1b[0m\\r\\n', {
+          0: reason,
+        }),
+      );
     },
     [patch, teardown, write],
   );

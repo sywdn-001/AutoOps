@@ -3,17 +3,18 @@
  */
 import type { CommandAction, RiskLevel, SessionSource, SessionStatus } from './types';
 
+import { t } from '@/i18n';
 export type TagMeta = { text: string; color: string };
 
 /** 星期（后端 weekdays 用 Monday=0 的 weekday()，与 JS 的 getDay() 差 1） */
 export const WEEKDAYS = [
-  { value: 0, label: '周一' },
-  { value: 1, label: '周二' },
-  { value: 2, label: '周三' },
-  { value: 3, label: '周四' },
-  { value: 4, label: '周五' },
-  { value: 5, label: '周六' },
-  { value: 6, label: '周日' },
+  { value: 0, label: t('周一') },
+  { value: 1, label: t('周二') },
+  { value: 2, label: t('周三') },
+  { value: 3, label: t('周四') },
+  { value: 4, label: t('周五') },
+  { value: 5, label: t('周六') },
+  { value: 6, label: t('周日') },
 ];
 
 export const WEEKDAY_OPTIONS = WEEKDAYS.map((item) => ({
@@ -23,19 +24,19 @@ export const WEEKDAY_OPTIONS = WEEKDAYS.map((item) => ({
 
 /** [0..6] → 「每天」/「周一、周三」；空数组表示不限 */
 export const weekdayLabel = (days?: number[] | null): string => {
-  if (!days || days.length === 0) return '每天';
-  if (days.length >= 7) return '每天';
+  if (!days || days.length === 0) return t('每天');
+  if (days.length >= 7) return t('每天');
   return [...days]
     .sort((a, b) => a - b)
-    .map((day) => WEEKDAYS[day]?.label ?? `星期${day}`)
+    .map((day) => WEEKDAYS[day]?.label ?? t('星期{0}', { 0: day }))
     .join('、');
 };
 
 export const RISK_META: Record<RiskLevel, TagMeta> = {
-  low: { text: '低', color: 'default' },
-  medium: { text: '中', color: 'blue' },
-  high: { text: '高', color: 'orange' },
-  critical: { text: '致命', color: 'red' },
+  low: { text: t('低'), color: 'default' },
+  medium: { text: t('中'), color: 'blue' },
+  high: { text: t('高'), color: 'orange' },
+  critical: { text: t('致命'), color: 'red' },
 };
 
 export const RISK_ORDER: RiskLevel[] = ['low', 'medium', 'high', 'critical'];
@@ -46,22 +47,22 @@ export const RISK_OPTIONS = RISK_ORDER.map((level) => ({
 }));
 
 export const ACTION_META: Record<string, TagMeta> = {
-  allow: { text: '放行', color: 'success' },
-  deny: { text: '拦截', color: 'error' },
-  confirm: { text: '需确认', color: 'warning' },
+  allow: { text: t('放行'), color: 'success' },
+  deny: { text: t('拦截'), color: 'error' },
+  confirm: { text: t('需确认'), color: 'warning' },
 };
 
 export const ACTION_OPTIONS = [
-  { label: '放行', value: 'allow' },
-  { label: '拦截', value: 'deny' },
+  { label: t('放行'), value: 'allow' },
+  { label: t('拦截'), value: 'deny' },
 ];
 
 export const SESSION_STATUS_META: Record<SessionStatus, TagMeta> = {
-  active: { text: '在线', color: 'processing' },
-  closed: { text: '已结束', color: 'default' },
-  failed: { text: '连接失败', color: 'error' },
-  terminated: { text: '已被中断', color: 'warning' },
-  denied: { text: '已拒绝', color: 'error' },
+  active: { text: t('在线'), color: 'processing' },
+  closed: { text: t('已结束'), color: 'default' },
+  failed: { text: t('连接失败'), color: 'error' },
+  terminated: { text: t('已被中断'), color: 'warning' },
+  denied: { text: t('已拒绝'), color: 'error' },
 };
 
 /**
@@ -74,15 +75,15 @@ export const SESSION_STATUS_META: Record<SessionStatus, TagMeta> = {
 const END_REASON_RULES: Array<[RegExp, string]> = [
   [
     /WinError 10054|forcibly closed|连接被对方重置|远程主机强迫关闭/i,
-    '目标主机断开了连接（对方可能重启、注销或网络中断）',
+    t('目标主机断开了连接（对方可能重启、注销或网络中断）'),
   ],
   [
     /WinError 10061|积极拒绝|refused/i,
-    '目标主机拒绝了连接（远程桌面服务可能没启动，或端口不通）',
+    t('目标主机拒绝了连接（远程桌面服务可能没启动，或端口不通）'),
   ],
-  [/WinError 10060|timed out|连接超时/i, '连接目标主机超时（网络不通或对方没有响应）'],
-  [/目标机关闭了连接/, '目标主机结束了远程桌面会话'],
-  [/客户端已断开/, '浏览器侧关闭了窗口'],
+  [/WinError 10060|timed out|连接超时/i, t('连接目标主机超时（网络不通或对方没有响应）')],
+  [/目标机关闭了连接/, t('目标主机结束了远程桌面会话')],
+  [/客户端已断开/, t('浏览器侧关闭了窗口')],
 ];
 
 export const humanizeEndReason = (reason?: string | null): string => {
@@ -101,56 +102,56 @@ export const humanizeEndReason = (reason?: string | null): string => {
 };
 
 export const SESSION_SOURCE_META: Record<SessionSource, TagMeta> = {
-  gateway: { text: 'SSH 网关', color: 'geekblue' },
-  web: { text: '网页终端', color: 'green' },
+  gateway: { text: t('SSH 网关'), color: 'geekblue' },
+  web: { text: t('网页终端'), color: 'green' },
 };
 
 export const COMMAND_ACTION_META: Record<CommandAction, TagMeta> = {
-  allow: { text: '放行', color: 'success' },
-  deny: { text: '拦截', color: 'error' },
+  allow: { text: t('放行'), color: 'success' },
+  deny: { text: t('拦截'), color: 'error' },
 };
 
 export const MATCH_TYPE_OPTIONS = [
-  { label: '正则表达式', value: 'regex' },
-  { label: '前缀匹配', value: 'prefix' },
-  { label: '精确匹配', value: 'exact' },
-  { label: '包含匹配', value: 'contains' },
+  { label: t('正则表达式'), value: 'regex' },
+  { label: t('前缀匹配'), value: 'prefix' },
+  { label: t('精确匹配'), value: 'exact' },
+  { label: t('包含匹配'), value: 'contains' },
 ];
 
 export const POLICY_ACTION_OPTIONS = [
-  { label: '放行', value: 'allow' },
-  { label: '拦截', value: 'deny' },
+  { label: t('放行'), value: 'allow' },
+  { label: t('拦截'), value: 'deny' },
 ];
 
 export const USER_STATUS_META: Record<string, TagMeta> = {
-  active: { text: '正常', color: 'success' },
-  disabled: { text: '已停用', color: 'default' },
+  active: { text: t('正常'), color: 'success' },
+  disabled: { text: t('已停用'), color: 'default' },
 };
 
 export const HOST_STATUS_META: Record<string, TagMeta> = {
-  active: { text: '启用', color: 'success' },
-  disabled: { text: '停用', color: 'default' },
+  active: { text: t('启用'), color: 'success' },
+  disabled: { text: t('停用'), color: 'default' },
 };
 
 export const AUTH_TYPE_OPTIONS = [
-  { label: '密码认证', value: 'password' },
-  { label: '密钥认证', value: 'key' },
+  { label: t('密码认证'), value: 'password' },
+  { label: t('密钥认证'), value: 'key' },
 ];
 
 /** 秒 → 「1 天 2 小时 3 分」 */
 export const formatDuration = (seconds?: number | null): string => {
   const total = Math.max(0, Math.floor(seconds || 0));
-  if (total < 60) return `${total} 秒`;
+  if (total < 60) return t('{0} 秒', { 0: total });
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const secs = total % 60;
   const parts: string[] = [];
-  if (days) parts.push(`${days} 天`);
-  if (hours) parts.push(`${hours} 小时`);
-  if (minutes) parts.push(`${minutes} 分`);
-  if (!days && !hours && secs) parts.push(`${secs} 秒`);
-  return parts.join(' ') || '0 秒';
+  if (days) parts.push(t('{0} 天', { 0: days }));
+  if (hours) parts.push(t('{0} 小时', { 0: hours }));
+  if (minutes) parts.push(t('{0} 分', { 0: minutes }));
+  if (!days && !hours && secs) parts.push(t('{0} 秒', { 0: secs }));
+  return parts.join(' ') || t('0 秒');
 };
 
 /** 毫秒 → 「123 ms」/「1.2 s」 */
@@ -194,13 +195,13 @@ export const truncate = (text?: string | null, max = 60): string => {
 
 /** 历史审计记录里以机器词开头的文案 → 中文直白说法（只替换开头那个词） */
 const MACHINE_WORDS: Record<string, string> = {
-  ok: '成功',
-  okay: '成功',
-  success: '成功',
-  succeeded: '成功',
-  done: '成功',
-  finished: '成功',
-  true: '成功',
+  ok: t('成功'),
+  okay: t('成功'),
+  success: t('成功'),
+  succeeded: t('成功'),
+  done: t('成功'),
+  finished: t('成功'),
+  true: t('成功'),
 };
 
 /**

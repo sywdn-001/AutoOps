@@ -10,6 +10,7 @@ import React from 'react';
 import type { AiCard } from '@/services/bastion/ai';
 import './cards.css';
 
+import { t } from '@/i18n';
 /** 单张 ai-card → antd 组件 */
 export const AiCardView = ({ card }: { card: AiCard }) => {
   if (card.type === 'table') {
@@ -77,7 +78,7 @@ export const AiCardView = ({ card }: { card: AiCard }) => {
         className="bastion-ai-card"
         type={card.level ?? 'info'}
         showIcon
-        message={card.title ?? '提示'}
+        message={card.title ?? t('提示')}
         description={card.text}
       />
     );
@@ -121,7 +122,7 @@ export const AiCardView = ({ card }: { card: AiCard }) => {
               key={`image#${index}`}
               className="bastion-ai-card-image"
               src={src}
-              alt={`${card.title ?? '截图'} ${index + 1}`}
+              alt={`${card.title ?? t('截图')} ${index + 1}`}
             />
           ))}
         </div>
@@ -194,7 +195,9 @@ export const AiCode = (
     const card = parseCard(children);
     if (card) return <AiCardView card={card} />;
     if (streamStatus === 'loading') {
-      return <span className="bastion-ai-card-pending">正在生成卡片…</span>;
+      return (
+        <span className="bastion-ai-card-pending">{t('正在生成卡片…')}</span>
+      );
     }
     return <code className="bastion-ai-code">{flattenText(children)}</code>;
   }

@@ -5,6 +5,7 @@
 import { CopyOutlined } from '@ant-design/icons';
 import { App, Button, Empty, Space, Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
+import { t } from '@/i18n';
 import {
   ACTION_META,
   formatDateTime,
@@ -69,7 +70,7 @@ export const BoolTag: React.FC<{
   value?: boolean | null;
   yes?: string;
   no?: string;
-}> = ({ value, yes = '允许', no = '禁止' }) =>
+}> = ({ value, yes = t('允许'), no = t('禁止') }) =>
   value ? <Tag color="success">{yes}</Tag> : <Tag color="default">{no}</Tag>;
 
 /** 授权时段文本 */
@@ -80,7 +81,7 @@ export const WindowText: React.FC<{
 }> = ({ weekdays, timeStart, timeEnd }) => {
   const dayText = weekdayLabel(weekdays);
   if (!timeStart && !timeEnd)
-    return <Text type="secondary">{dayText} · 全天</Text>;
+    return <Text type="secondary">{t('{0} · 全天', { 0: dayText })}</Text>;
   return (
     <Text type="secondary">
       {dayText} · {timeStart || '00:00'}-{timeEnd || '23:59'}
@@ -122,7 +123,7 @@ export const CopyText: React.FC<{ text?: string | null; label?: string }> = ({
   return (
     <Space size={4}>
       <Text code>{label ?? value}</Text>
-      <Tooltip title="复制">
+      <Tooltip title={t('复制')}>
         <Button
           type="text"
           size="small"
@@ -130,9 +131,9 @@ export const CopyText: React.FC<{ text?: string | null; label?: string }> = ({
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(value);
-              message.success('已复制到剪贴板');
+              message.success(t('已复制到剪贴板'));
             } catch {
-              message.warning('浏览器未授权剪贴板，请手动复制');
+              message.warning(t('浏览器未授权剪贴板，请手动复制'));
             }
           }}
         />
@@ -144,7 +145,7 @@ export const CopyText: React.FC<{ text?: string | null; label?: string }> = ({
 /** JSON 详情块（审计 detail、设置项等）—— 原样展示，可视化版本见 `JsonCards` */
 export const JsonBlock: React.FC<{ value?: unknown; empty?: string }> = ({
   value,
-  empty = '暂无详情',
+  empty = t('暂无详情'),
 }) => {
   if (value === null || value === undefined) {
     return <Text type="secondary">{empty}</Text>;
@@ -164,7 +165,7 @@ export const OutputBlock: React.FC<{
   text?: string | null;
   maxHeight?: number;
   empty?: string;
-}> = ({ text, maxHeight = 420, empty = '（无输出）' }) => {
+}> = ({ text, maxHeight = 420, empty = t('（无输出）') }) => {
   const value = text ?? '';
   if (!value.trim())
     return <Empty description={empty} image={Empty.PRESENTED_IMAGE_SIMPLE} />;

@@ -9,6 +9,8 @@
  * 所以这里做两件事：**只读地把截断的 JSON 尽量修回可解析**（修不回来就退回原文，绝不编数据），
  * 以及**把工具消息正文拆成「人看的一行」和「结构化载荷」**，让页面能上卡片而不是堆 JSON。
  */
+
+import { t } from '@/i18n';
 import { humanAuditMessage } from '@/services/bastion/constants';
 
 /** 后端截断提示：`…（结果过长，已截断，共 63909 字符）` */
@@ -190,10 +192,11 @@ export const splitToolMessage = (
   let head = headText;
   if (name) {
     const label = status ? ` ${status}` : '';
-    if (!summary || summary === status) head = `[工具 ${name}]${label}`;
+    if (!summary || summary === status)
+      head = t('[工具 {0}]{1}', { 0: name, 1: label });
     else if (summary.startsWith('（') || summary.startsWith('('))
-      head = `[工具 ${name}]${label}${summary}`;
-    else head = `[工具 ${name}]${label}：${summary}`;
+      head = t('[工具 {0}]{1}{2}', { 0: name, 1: label, 2: summary });
+    else head = t('[工具 {0}]{1}：{2}', { 0: name, 1: label, 2: summary });
   }
 
   const parsed = payloadText

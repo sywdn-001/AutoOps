@@ -18,6 +18,8 @@ import {
 import { Tag } from 'antd';
 import React from 'react';
 
+import { t } from '@/i18n';
+
 const ICON_STYLE = { fontSize: 13 } as const;
 const DEFAULT_COLOR = '#8c8c8c';
 
@@ -62,7 +64,7 @@ const OS_META: Record<string, OsMeta> = {
     icon: <AndroidOutlined style={ICON_STYLE} />,
   },
   other: {
-    label: '其它',
+    label: t('其它'),
     color: DEFAULT_COLOR,
     icon: <DesktopOutlined style={ICON_STYLE} />,
   },
@@ -76,7 +78,7 @@ export const osMeta = (osType?: string | null): OsMeta => {
     return hit;
   }
   return {
-    label: (osType || '').trim() || '未知系统',
+    label: (osType || '').trim() || t('未知系统'),
     color: DEFAULT_COLOR,
     icon: <DesktopOutlined style={ICON_STYLE} />,
   };

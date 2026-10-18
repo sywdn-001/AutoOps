@@ -2,6 +2,7 @@ import type { RequestOptions } from '@@/plugin-request/request';
 import type { RequestConfig } from '@umijs/max';
 import { getIntl, history } from '@umijs/max';
 import { message, notification } from 'antd';
+import { t } from '@/i18n';
 import { clearToken, getToken } from '@/services/bastion/client';
 
 // 错误处理方案： 错误类型
@@ -91,14 +92,15 @@ export const errorConfig: RequestConfig = {
         // 堡垒机后端在 4xx/5xx 里返回 { success:false, message, code }，优先展示它的 message
         const status: number = error.response.status;
         const payload = (error.response.data ?? {}) as ResponseStructure;
-        const text = payload.message || `请求失败（HTTP ${status}）`;
+        const text =
+          payload.message || t('请求失败（HTTP {0}）', { 0: status });
         if (status === 401) {
-          message.error(text || '登录状态已失效，请重新登录');
+          message.error(text || t('登录状态已失效，请重新登录'));
           redirectToLogin();
         } else if (status === 403) {
-          message.error(text || '当前账号没有该操作权限');
+          message.error(text || t('当前账号没有该操作权限'));
         } else if (status >= 500) {
-          notification.error({ title: '服务端异常', description: text });
+          notification.error({ title: t('服务端异常'), description: text });
         } else {
           message.error(text);
         }
@@ -111,9 +113,11 @@ export const errorConfig: RequestConfig = {
           }),
         );
       } else if (error.request) {
-        message.error('后端无响应，请确认 Flask 服务已启动（python run.py）');
+        message.error(
+          t('后端无响应，请确认 Flask 服务已启动（python run.py）'),
+        );
       } else {
-        message.error('请求异常，请重试');
+        message.error(t('请求异常，请重试'));
       }
     },
   },

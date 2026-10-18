@@ -54,6 +54,7 @@ import type {
   UserItem,
 } from './types';
 
+import { t } from '@/i18n';
 // ---------------------------------------------------------------- 认证
 
 /** Pro 兼容登录信封（登录页直接用，token 在 data.token） */
@@ -752,7 +753,7 @@ async function fetchBinary(url: string, fallbackName: string, sid: string): Prom
   });
   if (!response.ok) {
     // 失败的响应体是 JSON 信封，把后端的拒绝原因（谁拦的、命中哪条规则）原样抛出去
-    let message = `下载失败（HTTP ${response.status}）`;
+    let message = t('下载失败（HTTP {0}）', { 0: response.status });
     try {
       const body = await response.json();
       message = body?.message || message;

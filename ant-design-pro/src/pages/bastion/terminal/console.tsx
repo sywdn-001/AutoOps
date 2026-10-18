@@ -38,6 +38,8 @@ import { terminalApi } from '@/services/bastion/endpoints';
 import ConsoleStatusBar from './components/ConsoleStatusBar';
 import TerminalPane, { type TerminalHandle } from './components/TerminalPane';
 import './console.css';
+
+import { t } from '@/i18n';
 import {
   buildFileConsoleUrl,
   clampFontSize,
@@ -52,15 +54,15 @@ import { useTerminalSession } from './useTerminalSession';
 const CLOSE_COUNTDOWN_SECONDS = 10;
 
 const SHORTCUTS: Array<[string, string]> = [
-  ['Ctrl / Cmd + F', '搜索终端输出'],
-  ['Ctrl / Cmd + Shift + C', '复制选中内容'],
-  ['Ctrl（单独按）', '发送中断信号（SIGINT）'],
-  ['Ctrl / Cmd + V', '粘贴（走浏览器剪贴板权限）'],
-  ['Ctrl / Cmd + Shift + F', '工作区全屏 / 退出全屏'],
-  ['Ctrl / Cmd + Shift + P', '纯净模式（隐藏状态条）'],
-  ['Ctrl / Cmd + Shift + A', '回到资产列表（关闭本窗口）'],
-  ['Ctrl / Cmd + +/-', '字号放大 / 缩小'],
-  ['Esc（长按 800ms）', '退出纯净模式与全屏'],
+  ['Ctrl / Cmd + F', t('搜索终端输出')],
+  ['Ctrl / Cmd + Shift + C', t('复制选中内容')],
+  [t('Ctrl（单独按）'), t('发送中断信号（SIGINT）')],
+  ['Ctrl / Cmd + V', t('粘贴（走浏览器剪贴板权限）')],
+  ['Ctrl / Cmd + Shift + F', t('工作区全屏 / 退出全屏')],
+  ['Ctrl / Cmd + Shift + P', t('纯净模式（隐藏状态条）')],
+  ['Ctrl / Cmd + Shift + A', t('回到资产列表（关闭本窗口）')],
+  ['Ctrl / Cmd + +/-', t('字号放大 / 缩小')],
+  [t('Esc（长按 800ms）'), t('退出纯净模式与全屏')],
 ];
 
 /**
@@ -159,7 +161,7 @@ const TerminalConsolePage = () => {
     write,
   } = useTerminalSession({
     onClosed: (reason) => {
-      message.info(`会话已结束：${reason}`);
+      message.info(t('会话已结束：{0}', { 0: reason }));
       // 会话在服务端结束（超时、被管理员踢掉、目标机断开）同样走关窗倒计时
       startCloseCountdownRef.current();
     },
@@ -170,13 +172,15 @@ const TerminalConsolePage = () => {
     let cancelled = false;
     const prepare = async () => {
       if (!access.canTerminalUse) {
-        setError('当前账号没有网页终端权限（terminal:use），请联系管理员。');
+        setError(t('当前账号没有网页终端权限（terminal:use），请联系管理员。'));
         setPreparing(false);
         return;
       }
       if (!(hostId > 0) || !(accountId > 0)) {
         setError(
-          '缺少连接受参（hostId / accountId），请从「网页终端」资产列表点「连接」打开本页。',
+          t(
+            '缺少连接受参（hostId / accountId），请从「网页终端」资产列表点「连接」打开本页。',
+          ),
         );
         setPreparing(false);
         return;
@@ -193,13 +197,18 @@ const TerminalConsolePage = () => {
         if (!target) {
           throw new Error(
             urlProtocol
-              ? `这台主机没有「${urlProtocol}」这个入口（hostId=${hostId}）。`
-              : `主机不在你的授权范围内（hostId=${hostId}）。`,
+              ? t('这台主机没有「{0}」这个入口（hostId={1}）。', {
+                  0: urlProtocol,
+                  1: hostId,
+                })
+              : t('主机不在你的授权范围内（hostId={0}）。', { 0: hostId }),
           );
         }
         const account = target.accounts.find((item) => item.id === accountId);
         if (!account) {
-          throw new Error('该主机下找不到指定的资产账号，可能授权已被回收。');
+          throw new Error(
+            t('该主机下找不到指定的资产账号，可能授权已被回收。'),
+          );
         }
         const check = await terminalApi.check(
           hostId,
@@ -207,7 +216,7 @@ const TerminalConsolePage = () => {
           target.protocol,
         );
         if (!check.allowed) {
-          throw new Error(check.reason || '准入校验未通过。');
+          throw new Error(check.reason || t('准入校验未通过。'));
         }
         if (cancelled) {
           return;
@@ -233,8 +242,8 @@ const TerminalConsolePage = () => {
   useEffect(() => {
     const name = session?.hostName || urlTitle;
     document.title = name
-      ? `${name} · 网页终端 · AutoOps 堡垒机`
-      : '网页终端 · AutoOps 堡垒机';
+      ? t('{0} · 网页终端 · AutoOps 堡垒机', { 0: name })
+      : t('网页终端 · AutoOps 堡垒机');
   }, [session?.hostName, urlTitle]);
 
   // 全屏状态也可能被浏览器自己改掉（F11、Esc 退出全屏），同步回按钮图标与工作区 class
@@ -314,20 +323,24 @@ const TerminalConsolePage = () => {
     let remain = CLOSE_COUNTDOWN_SECONDS;
     const tick = () => {
       write(
-        `\r\x1b[K\x1b[33m[堡垒机] 本窗口将在 ${remain} 秒后自动关闭…\x1b[0m`,
+        t('\\r\\x1b[K\\x1b[33m[堡垒机] 本窗口将在 {0} 秒后自动关闭…\\x1b[0m', {
+          0: remain,
+        }),
       );
       getHandle()?.scrollToBottom();
       if (remain <= 0) {
         countdownTimer.current = undefined;
         write(
-          '\r\x1b[K\x1b[33m[堡垒机] 倒计时结束，正在关闭本窗口…\x1b[0m\r\n',
+          t('\r\x1b[K\x1b[33m[堡垒机] 倒计时结束，正在关闭本窗口…\x1b[0m\r\n'),
         );
         getHandle()?.scrollToBottom();
         window.setTimeout(() => {
           window.close();
           window.setTimeout(() => {
             write(
-              '\r\n\x1b[33m[堡垒机] 浏览器拒绝自动关闭，请手动关闭本窗口（Ctrl/Cmd + W）。\x1b[0m\r\n',
+              t(
+                '\r\n\x1b[33m[堡垒机] 浏览器拒绝自动关闭，请手动关闭本窗口（Ctrl/Cmd + W）。\x1b[0m\r\n',
+              ),
             );
             getHandle()?.scrollToBottom();
           }, 600);
@@ -347,7 +360,7 @@ const TerminalConsolePage = () => {
     }
     window.clearTimeout(countdownTimer.current);
     countdownTimer.current = undefined;
-    write('\r\x1b[K\x1b[33m[堡垒机] 已取消自动关闭本窗口。\x1b[0m\r\n');
+    write(t('\r\x1b[K\x1b[33m[堡垒机] 已取消自动关闭本窗口。\x1b[0m\r\n'));
     getHandle()?.scrollToBottom();
   }, [getHandle, write]);
 
@@ -422,7 +435,7 @@ const TerminalConsolePage = () => {
       opened.focus();
     } else {
       message.warning(
-        '浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。',
+        t('浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。'),
       );
     }
   }, [hostId, accountId, session?.hostName, urlTitle]);
@@ -449,26 +462,28 @@ const TerminalConsolePage = () => {
   // 而不是留一颗永远点不动的灰按钮。
   const isWinrm = session?.protocol === 'winrm';
   const filesTip = isWinrm
-    ? 'Windows（WinRM）会话不支持文件传输，需要传文件请改用 Linux 主机或远程桌面'
+    ? t(
+        'Windows（WinRM）会话不支持文件传输，需要传文件请改用 Linux 主机或远程桌面',
+      )
     : !access.canFileUse
-      ? '当前账号没有文件管理器权限（file:use）'
+      ? t('当前账号没有文件管理器权限（file:use）')
       : !session?.sid
-        ? '终端会话建立后才能打开文件管理器'
-        : '在同一台资产上新开一个文件管理器窗口（SFTP）';
+        ? t('终端会话建立后才能打开文件管理器')
+        : t('在同一台资产上新开一个文件管理器窗口（SFTP）');
 
   if (error) {
     return (
       <div className="bastion-console-page bastion-console-centered">
         <Result
           status="warning"
-          title="无法建立终端会话"
+          title={t('无法建立终端会话')}
           subTitle={error}
           extra={
             <Space>
               <Button type="primary" onClick={() => history.push('/terminal')}>
-                返回资产列表
+                {t('返回资产列表')}
               </Button>
-              <Button onClick={() => window.close()}>关闭本窗口</Button>
+              <Button onClick={() => window.close()}>{t('关闭本窗口')}</Button>
             </Space>
           }
         />
@@ -487,7 +502,7 @@ const TerminalConsolePage = () => {
         .join(' ')}
     >
       <div className="bastion-toolbar">
-        <Tooltip title="回到资产列表（关闭本窗口）">
+        <Tooltip title={t('回到资产列表（关闭本窗口）')}>
           <Button
             className="bastion-toolbar-back"
             size="small"
@@ -495,20 +510,20 @@ const TerminalConsolePage = () => {
             icon={<HomeOutlined />}
             onClick={backToLauncher}
           >
-            资产列表
+            {t('资产列表')}
           </Button>
         </Tooltip>
         <span className="bastion-toolbar-asset" title={session?.hostName}>
-          {session?.hostName || urlTitle || '连接中…'}
+          {session?.hostName || urlTitle || t('连接中…')}
         </span>
         {status ? <Tag color={status.color}>{status.text}</Tag> : null}
         {session?.accountUsername ? (
           <span className="bastion-toolbar-chip">
-            账号 {session.accountUsername}
+            {t('账号 {0}', { 0: session.accountUsername })}
           </span>
         ) : null}
         {connected && session?.sid ? (
-          <span className="bastion-toolbar-chip" title="会话号">
+          <span className="bastion-toolbar-chip" title={t('会话号')}>
             {session.sid}
           </span>
         ) : null}
@@ -522,12 +537,12 @@ const TerminalConsolePage = () => {
               disabled={!access.canFileUse || !session?.sid}
               onClick={openFileManager}
             >
-              文件管理
+              {t('文件管理')}
             </Button>
           </Tooltip>
         )}
         <span className="bastion-toolbar-spacer" />
-        <Tooltip title="重新连接">
+        <Tooltip title={t('重新连接')}>
           <Button
             size="small"
             type="text"
@@ -538,7 +553,7 @@ const TerminalConsolePage = () => {
             }}
           />
         </Tooltip>
-        <Tooltip title="搜索（Ctrl/Cmd + F）">
+        <Tooltip title={t('搜索（Ctrl/Cmd + F）')}>
           <Button
             size="small"
             type="text"
@@ -546,7 +561,7 @@ const TerminalConsolePage = () => {
             onClick={() => setShowSearch((prev) => !prev)}
           />
         </Tooltip>
-        <Tooltip title="缩小字号">
+        <Tooltip title={t('缩小字号')}>
           <Button
             size="small"
             type="text"
@@ -556,7 +571,7 @@ const TerminalConsolePage = () => {
           />
         </Tooltip>
         <span className="bastion-toolbar-chip">{fontSize}px</span>
-        <Tooltip title="放大字号">
+        <Tooltip title={t('放大字号')}>
           <Button
             size="small"
             type="text"
@@ -565,7 +580,7 @@ const TerminalConsolePage = () => {
             onClick={() => changeFont(1)}
           />
         </Tooltip>
-        <Tooltip title={focusMode ? '退出纯净模式' : '纯净模式'}>
+        <Tooltip title={focusMode ? t('退出纯净模式') : t('纯净模式')}>
           <Button
             size="small"
             type="text"
@@ -574,7 +589,9 @@ const TerminalConsolePage = () => {
           />
         </Tooltip>
         <Tooltip
-          title={fullscreen ? '退出全屏（Ctrl/Cmd + Shift + F）' : '工作区全屏'}
+          title={
+            fullscreen ? t('退出全屏（Ctrl/Cmd + Shift + F）') : t('工作区全屏')
+          }
         >
           <Button
             className="bastion-toolbar-fullscreen"
@@ -586,7 +603,7 @@ const TerminalConsolePage = () => {
             onClick={() => toggleWorkspaceFullscreen(setFullscreen)}
           />
         </Tooltip>
-        <Tooltip title="快捷键说明">
+        <Tooltip title={t('快捷键说明')}>
           <Button
             size="small"
             type="text"
@@ -594,7 +611,7 @@ const TerminalConsolePage = () => {
             onClick={() => setShowHelp(true)}
           />
         </Tooltip>
-        <Tooltip title="断开会话">
+        <Tooltip title={t('断开会话')}>
           <Button
             className="bastion-toolbar-disconnect"
             size="small"
@@ -607,7 +624,7 @@ const TerminalConsolePage = () => {
               startCloseCountdown();
             }}
           >
-            断开
+            {t('断开')}
           </Button>
         </Tooltip>
       </div>
@@ -618,37 +635,39 @@ const TerminalConsolePage = () => {
             ref={searchRef}
             size="small"
             allowClear
-            placeholder="在终端输出里搜索（Enter 下一个 / Shift+Enter 上一个）"
+            placeholder={t(
+              '在终端输出里搜索（Enter 下一个 / Shift+Enter 上一个）',
+            )}
             value={term}
             onChange={(event) => setTerm(event.target.value)}
             onPressEnter={(event) => runSearch(event.shiftKey ? -1 : 1)}
           />
           <Button size="small" onClick={() => runSearch(-1)}>
-            上一个
+            {t('上一个')}
           </Button>
           <Button size="small" onClick={() => runSearch(1)}>
-            下一个
+            {t('下一个')}
           </Button>
           <Checkbox
             checked={caseSensitive}
             onChange={(event) => setCaseSensitive(event.target.checked)}
           >
-            区分大小写
+            {t('区分大小写')}
           </Checkbox>
           <Checkbox
             checked={wholeWord}
             onChange={(event) => setWholeWord(event.target.checked)}
           >
-            全词
+            {t('全词')}
           </Checkbox>
           <Checkbox
             checked={regex}
             onChange={(event) => setRegex(event.target.checked)}
           >
-            正则
+            {t('正则')}
           </Checkbox>
           <Button size="small" type="text" onClick={closeSearch}>
-            关闭
+            {t('关闭')}
           </Button>
         </div>
       ) : null}
@@ -658,7 +677,7 @@ const TerminalConsolePage = () => {
           <div className="bastion-terminal-empty">
             <Spin />
             <span className="bastion-terminal-empty-title">
-              正在校验权限并建立审计会话…
+              {t('正在校验权限并建立审计会话…')}
             </span>
           </div>
         ) : null}
@@ -696,7 +715,7 @@ const TerminalConsolePage = () => {
 
       <Modal
         open={showHelp}
-        title="控制台快捷键"
+        title={t('控制台快捷键')}
         footer={null}
         onCancel={() => setShowHelp(false)}
       >
@@ -709,9 +728,9 @@ const TerminalConsolePage = () => {
           ))}
         </ul>
         <p className="bastion-shortcut-tip">
-          在终端里点右键还能复制、粘贴、全选、清空屏幕与调整字号。退出会话请点工具栏「断开」，
-          断开后终端会显示 10
-          秒倒计时并自动关闭本窗口；倒计时结束前点「重新连接」可以继续使用本窗口。
+          {t(
+            '在终端里点右键还能复制、粘贴、全选、清空屏幕与调整字号。退出会话请点工具栏「断开」，\n          断开后终端会显示 10\n          秒倒计时并自动关闭本窗口；倒计时结束前点「重新连接」可以继续使用本窗口。',
+          )}
         </p>
       </Modal>
     </div>

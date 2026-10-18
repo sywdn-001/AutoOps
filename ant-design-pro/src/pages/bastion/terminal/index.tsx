@@ -25,6 +25,8 @@ import { buildRdpConsoleUrl } from '@/pages/bastion/rdp/types';
 import { terminalApi } from '@/services/bastion/endpoints';
 import type { TerminalTarget } from '@/services/bastion/types';
 import './console.css';
+
+import { t } from '@/i18n';
 import {
   buildConsoleUrl,
   buildFileConsoleUrl,
@@ -130,9 +132,9 @@ const usableAccounts = (endpoints: TerminalTarget[]) => {
 
 /** 每个协议入口在操作列里的按钮文案 */
 const PROTOCOL_BUTTON_TEXT: Record<string, string> = {
-  ssh: '连接',
+  ssh: t('连接'),
   winrm: 'WinRM',
-  rdp: '远程桌面',
+  rdp: t('远程桌面'),
 };
 
 /**
@@ -141,19 +143,19 @@ const PROTOCOL_BUTTON_TEXT: Record<string, string> = {
  */
 const protocolHint = (protocol: string) => {
   if (protocol === 'winrm') {
-    return ' · WinRM 网页终端';
+    return t(' · WinRM 网页终端');
   }
   if (protocol === 'rdp') {
-    return ' · 远程桌面';
+    return t(' · 远程桌面');
   }
   if (protocol === 'ssh') {
-    return ' · SSH 网页终端';
+    return t(' · SSH 网页终端');
   }
   return '';
 };
 
 const protocolButtonText = (protocol: string) =>
-  PROTOCOL_BUTTON_TEXT[protocol] ?? '连接';
+  PROTOCOL_BUTTON_TEXT[protocol] ?? t('连接');
 
 /**
  * 操作列里那颗按钮的 Tooltip：远程桌面要额外说明「口令会下发到浏览器」。
@@ -167,12 +169,14 @@ const protocolButtonTip = (
     return reason;
   }
   if (protocol === 'rdp') {
-    return '弹出独立远程桌面窗口。CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计），请只在自己信得过的设备上使用';
+    return t(
+      '弹出独立远程桌面窗口。CredSSP/NLA 必须在浏览器侧完成，所以该资产账号的口令会下发到你的浏览器（服务端会单独留一条审计），请只在自己信得过的设备上使用',
+    );
   }
   if (protocol === 'winrm') {
-    return '弹出独立终端窗口（Windows PowerShell / WinRM 字符会话）';
+    return t('弹出独立终端窗口（Windows PowerShell / WinRM 字符会话）');
   }
-  return '弹出独立终端窗口';
+  return t('弹出独立终端窗口');
 };
 
 const TerminalLauncherPage = () => {
@@ -198,7 +202,7 @@ const TerminalLauncherPage = () => {
         opened.focus();
       } else {
         message.warning(
-          '浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。',
+          t('浏览器拦截了文件管理器弹窗，请允许本站点弹出窗口后重试。'),
         );
       }
       setOpeningFiles(undefined);
@@ -237,8 +241,8 @@ const TerminalLauncherPage = () => {
       } else {
         message.warning(
           isRdp
-            ? '浏览器拦截了远程桌面弹窗，请允许本站点弹出窗口后重试。'
-            : '浏览器拦截了终端弹窗，请允许本站点弹出窗口后重试。',
+            ? t('浏览器拦截了远程桌面弹窗，请允许本站点弹出窗口后重试。')
+            : t('浏览器拦截了终端弹窗，请允许本站点弹出窗口后重试。'),
         );
       }
       setOpening(undefined);
@@ -248,7 +252,7 @@ const TerminalLauncherPage = () => {
 
   const columns: ProColumns<LauncherRow>[] = [
     {
-      title: '资产',
+      title: t('资产'),
       dataIndex: 'hostName',
       render: (_, record) => (
         <Space direction="vertical" size={0}>
@@ -266,32 +270,36 @@ const TerminalLauncherPage = () => {
       ),
     },
     {
-      title: '分组',
+      title: t('分组'),
       dataIndex: 'groupName',
       width: 120,
       render: (_, record) => record.groupName || '—',
     },
     {
-      title: '命令策略',
+      title: t('命令策略'),
       dataIndex: 'policyName',
       width: 180,
-      render: (_, record) => record.policyName || '系统默认策略',
+      render: (_, record) => record.policyName || t('系统默认策略'),
     },
     {
-      title: '并发上限',
+      title: t('并发上限'),
       dataIndex: 'maxSessions',
       width: 100,
       render: (_, record) =>
-        record.maxSessions > 0 ? `${record.maxSessions} 条` : '不限',
+        record.maxSessions > 0
+          ? t('{0} 条', { 0: record.maxSessions })
+          : t('不限'),
     },
     {
-      title: '资产账号',
+      title: t('资产账号'),
       key: 'account',
       width: 220,
       render: (_, record) => {
         const accounts = usableAccounts(record.endpoints);
         if (!accounts.length) {
-          return <span className="bastion-launcher-warn">无可用账号</span>;
+          return (
+            <span className="bastion-launcher-warn">{t('无可用账号')}</span>
+          );
         }
         const value = picked[record.hostId] ?? accounts[0]?.id;
         return (
@@ -314,7 +322,7 @@ const TerminalLauncherPage = () => {
       },
     },
     {
-      title: '操作',
+      title: t('操作'),
       key: 'action',
       width: 240,
       render: (_, record) => {
@@ -335,22 +343,24 @@ const TerminalLauncherPage = () => {
               );
               const disabled = !endpoint.canWebterm || !accountId || !pickedOk;
               const reason = !endpoint.canWebterm
-                ? '该资产的授权未开放交互式登录'
+                ? t('该资产的授权未开放交互式登录')
                 : !pickedOk
                   ? needsPasswordAccount(endpoint.protocol)
-                    ? '该协议只认口令账号（远程桌面 / WinRM 不支持密钥登录），请在账号列选一个口令账号'
-                    : '该主机下没有可用资产账号'
-                  : '该主机下没有可用资产账号';
+                    ? t(
+                        '该协议只认口令账号（远程桌面 / WinRM 不支持密钥登录），请在账号列选一个口令账号',
+                      )
+                    : t('该主机下没有可用资产账号')
+                  : t('该主机下没有可用资产账号');
               const key = `${record.hostId}:${endpoint.protocol}`;
               // WinRM 与远程桌面都没有 SFTP 通道（WinRS 只跑命令、RDP 只给画面），
               // 别给一个点了才报错的入口 —— 「文件」只挂在 ssh 端点上。
               const filesDisabled =
                 !endpoint.canSftp || !accountId || !pickedOk;
               const filesReason = !endpoint.canSftp
-                ? '该资产的授权未开放 SFTP 文件管理'
+                ? t('该资产的授权未开放 SFTP 文件管理')
                 : filesDisabled
-                  ? '该主机下没有可用资产账号'
-                  : '弹出独立文件管理器窗口';
+                  ? t('该主机下没有可用资产账号')
+                  : t('弹出独立文件管理器窗口');
               return (
                 <Space size={4} key={key}>
                   <Tooltip
@@ -375,7 +385,7 @@ const TerminalLauncherPage = () => {
                     <Tooltip
                       title={
                         endpoint.canSftp && !filesDisabled
-                          ? '弹出独立文件管理器窗口'
+                          ? t('弹出独立文件管理器窗口')
                           : filesReason
                       }
                     >
@@ -386,7 +396,7 @@ const TerminalLauncherPage = () => {
                         loading={openingFiles === key}
                         onClick={() => openFiles(endpoint, accountId as number)}
                       >
-                        文件
+                        {t('文件')}
                       </Button>
                     </Tooltip>
                   ) : null}
@@ -402,19 +412,21 @@ const TerminalLauncherPage = () => {
   // 只有远程桌面权限、没有终端权限的账号也要能用本页（列表里只有 Windows 主机）
   if (!access.canTerminalUse && !access.canRdpUse) {
     return (
-      <PageContainer title="网页终端">
+      <PageContainer title={t('网页终端')}>
         <Alert
           type="warning"
           showIcon
-          title="没有网页终端权限"
-          description="当前账号缺少 terminal:use（网页终端）与 rdp:use（Windows 远程桌面）权限。请联系管理员在角色里勾选「网页终端」或「Windows 远程桌面」后再试。"
+          title={t('没有网页终端权限')}
+          description={t(
+            '当前账号缺少 terminal:use（网页终端）与 rdp:use（Windows 远程桌面）权限。请联系管理员在角色里勾选「网页终端」或「Windows 远程桌面」后再试。',
+          )}
         />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer title="网页终端">
+    <PageContainer title={t('网页终端')}>
       <ProTable<LauncherRow>
         rowKey="hostId"
         actionRef={actionRef}
@@ -422,7 +434,7 @@ const TerminalLauncherPage = () => {
         search={false}
         pagination={false}
         cardBordered
-        headerTitle="可访问资产"
+        headerTitle={t('可访问资产')}
         options={{ reload: true, density: false, setting: false }}
         toolBarRender={() => [
           <Button
@@ -430,17 +442,17 @@ const TerminalLauncherPage = () => {
             icon={<ReloadOutlined />}
             onClick={() => actionRef.current?.reload()}
           >
-            刷新
+            {t('刷新')}
           </Button>,
         ]}
         locale={{
           emptyText: (
             <Space direction="vertical" size={4}>
-              <span>没有可连接的资产</span>
+              <span>{t('没有可连接的资产')}</span>
               <span className="bastion-launcher-addr">
-                需要管理员在「访问授权」里为你的账号配置「用户 × 主机 ×
-                账号」授权，并勾选交互式登录（Linux 走网页终端，Windows 走 WinRM
-                网页终端或远程桌面）。
+                {t(
+                  '需要管理员在「访问授权」里为你的账号配置「用户 × 主机 ×\n                账号」授权，并勾选交互式登录（Linux 走网页终端，Windows 走 WinRM\n                网页终端或远程桌面）。',
+                )}
               </span>
             </Space>
           ),

@@ -1,8 +1,8 @@
 import { Avatar } from 'antd';
 import dayjs from 'dayjs';
 import React from 'react';
+import { t } from '@/i18n';
 import useStyles from './index.style';
-
 export type ArticleListContentProps = {
   data: {
     content?: React.ReactNode;
@@ -22,7 +22,7 @@ const ArticleListContent: React.FC<ArticleListContentProps> = ({
       <div className={styles.description}>{content}</div>
       <div className={styles.extra}>
         <Avatar src={avatar} size="small" />
-        <a href={href}>{owner}</a> 发布在 <a href={href}>{href}</a>
+        <a href={href}>{owner}</a> {t('发布在')} <a href={href}>{href}</a>
         <em>{dayjs(updatedAt).format('YYYY-MM-DD HH:mm')}</em>
       </div>
     </div>
