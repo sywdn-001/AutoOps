@@ -13,6 +13,7 @@ import { isEnglish } from '@/i18n';
 export type SuggestionPayload = {
   bucket: string;
   nonce: number;
+  source?: 'ai' | 'mixed' | 'fallback';
   items: { zh: string; en: string }[];
 };
 
@@ -68,6 +69,8 @@ export function useSuggestions(
       const resp = await request<SuggestionPayload>('/api/ai/suggestions', {
         method: 'GET',
         params: { scope, nonce: next },
+        // 首次生成要真调一次模型（实测 6~8 秒），别用默认的短超时
+        timeout: 30000,
       });
       // 拦截器一般已经解包成 data；没解包时再兜一层
       const payload =
@@ -77,7 +80,10 @@ export function useSuggestions(
               | SuggestionPayload
               | undefined);
       if (payload?.items?.length) {
-        writeCache(scope, payload);
+        // 只有真·模型产出的批次才缓存：兜底文案不缓存，下次进来继续尝试生成
+        if (payload.source !== 'fallback') {
+          writeCache(scope, payload);
+        }
         setItems(payload.items.map(pick));
         setNonce(payload.nonce ?? next);
       }

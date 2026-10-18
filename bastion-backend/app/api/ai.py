@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 
 from flask import Blueprint, Response, current_app, request, stream_with_context
 from sqlalchemy import func, or_
@@ -502,10 +503,18 @@ def ai_settings():
     )
 
 # --------------------------------------------------------------------------- #
-# 输入框的示例建议：按系统当前状态生成，24 小时换一轮，也可以手动换一批
+# --------------------------------------------------------------------------- #
+# 输入框的示例建议：调 AI 按系统当前状态**实时生成**，24 小时缓存一轮，可手动换一批
 # --------------------------------------------------------------------------- #
 CHAT_SUGGESTION_COUNT = 4
 COMPUTER_USE_SUGGESTION_COUNT = 3
+SUGGESTION_PROMPT_VERSION = 2
+
+_SUGGESTION_SYSTEM = """你是 AutoOps 堡垒机的运维助手，用户会在聊天框里看到你给的「快捷建议」。
+只输出一个 JSON 数组，不要 markdown 代码块、不要任何解释文字。数组元素形如：
+{"zh": "中文建议", "en": "English suggestion"}
+每条都是**用户可以一键发给 AI 的具体动作**（查什么、在哪台机器上做什么、建什么策略），
+中文 12~40 字、英文对应且同义，不要寒暄、不要编号、不要占位符。"""
 
 
 def _state_facts() -> dict:
@@ -519,6 +528,8 @@ def _state_facts() -> dict:
         "denied": 0,
         "cu_ready": 0,
         "cu_failed": 0,
+        "hosts_preview": [],
+        "sessions_preview": [],
     }
     try:
         from ..models import CommandLog, ComputerUseDeployment, Host, SessionRecord
@@ -528,7 +539,7 @@ def _state_facts() -> dict:
             facts["windows"] = Host.query.filter(
                 db.func.lower(Host.os_type).like("%windows%")
             ).count()
-        except Exception:  # noqa: BLE001 - 列名变了也不影响主流程
+        except Exception:  # noqa: BLE001
             facts["windows"] = 0
         facts["linux"] = max(facts["hosts"] - facts["windows"], 0)
         facts["online"] = SessionRecord.query.filter_by(status="active").count()
@@ -543,155 +554,201 @@ def _state_facts() -> dict:
         except Exception:  # noqa: BLE001
             facts["cu_ready"] = 0
             facts["cu_failed"] = 0
-    except Exception:  # noqa: BLE001 - 统计失败就全部退回「通用建议」
+        try:
+            facts["hosts_preview"] = [
+                {"name": h.name, "os": h.os_type, "address": h.address}
+                for h in Host.query.order_by(Host.id.desc()).limit(4)
+            ]
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            facts["sessions_preview"] = [
+                {"user": s.username, "host": s.host_name, "protocol": s.protocol}
+                for s in SessionRecord.query.filter_by(status="active").limit(4)
+            ]
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
         pass
     return facts
 
 
-def _chat_pool(facts: dict) -> list[dict]:
-    """AI 运维页的建议池：先放与当前状态强相关的，再放几条通用兜底。"""
-    pool: list[dict] = []
-
-    def add(zh: str, en: str, when: bool = True) -> None:
-        if when:
-            pool.append({"zh": zh, "en": en})
-
-    add(
-        f"现在有 {facts['online']} 个在线会话，帮我看看它们分别是谁在用",
-        f"There are {facts['online']} live sessions right now — who is using each of them?",
-        facts["online"] > 0,
-    )
-    add(
-        "列出所有在线会话，按开始时间排一下",
-        "List every live session, ordered by start time",
-        facts["online"] == 0,
-    )
-    add(
-        f"纳管了 {facts['hosts']} 台主机（Windows {facts['windows']} / Linux {facts['linux']}），"
-        "帮我挑三台做个健康巡检",
-        f"{facts['hosts']} hosts are managed (Windows {facts['windows']} / Linux {facts['linux']}) — "
-        "pick three and run a health check",
-        facts["hosts"] > 0,
-    )
-    add(
-        "帮我接入第一台主机，然后给它建一个只读账号",
-        "Help me onboard the first host and create a read-only account for it",
-        facts["hosts"] == 0,
-    )
-    add(
-        f"最近有 {facts['denied']} 条命令被拦截，帮我按命令和主机归个类",
-        f"{facts['denied']} commands have been blocked so far — group them by command and host",
-        facts["denied"] > 0,
-    )
-    add(
-        "审计一下最近的敏感命令，有高危的就标出来",
-        "Audit recent sensitive commands and flag anything high risk",
-        facts["denied"] == 0,
-    )
-    add(
-        f"系统里现在有 {facts['users']} 个账号，帮我看看谁的权限给大了",
-        f"There are {facts['users']} accounts — check which ones are over-privileged",
-        facts["users"] > 1,
-    )
-    add(
-        "新建一个只读用户，只给查看权限",
-        "Create a read-only user with view-only permissions",
-        facts["users"] <= 1,
-    )
-    add(
-        "把最近 24 小时的登录失败和被拦截命令整理成一份小结",
-        "Summarize the last 24 hours of failed logins and blocked commands",
-    )
-    add(
-        "有哪些主机还没有分组？帮我整理一下",
-        "Which hosts are not in any group yet? Help me tidy them up",
-    )
-    add(
-        "看一下当前 AI 任务的最大调用轮数，并解释这个值怎么调",
-        "Show the current max AI tool rounds and explain how to tune it",
-    )
-    add(
-        "帮我写一条「拦截 rm -rf /」的命令策略并说明生效范围",
-        "Write a command policy that blocks `rm -rf /` and explain its scope",
-    )
-    return pool
+_FALLBACK_CHAT = [
+    {"zh": "列出当前所有在线会话", "en": "List every live session"},
+    {"zh": "有哪些主机？把最近新增的三台列出来", "en": "Which hosts exist? Show the three newest"},
+    {"zh": "审计一下最近的敏感命令", "en": "Audit recent sensitive commands"},
+    {"zh": "新建一个只读用户，只给查看权限", "en": "Create a read-only user with view-only rights"},
+]
+_FALLBACK_CU = [
+    {"zh": "把当前屏幕截一张给我看", "en": "Take a screenshot of the current screen"},
+    {"zh": "看看这台机器装的是什么版本的 Python", "en": "Check which Python version is installed here"},
+    {"zh": "列一下正在运行的程序", "en": "List the programs that are running"},
+]
 
 
-def _computer_use_pool(facts: dict) -> list[dict]:
-    """ComputerUse 侧边栏的建议池：围绕「操作这台机器」给。"""
-    pool: list[dict] = []
+def _suggest_key(scope: str) -> str:
+    return f"ai_suggestions_v{SUGGESTION_PROMPT_VERSION}_{scope}"
 
-    def add(zh: str, en: str, when: bool = True) -> None:
-        if when:
-            pool.append({"zh": zh, "en": en})
 
-    add(
-        "把当前屏幕截一张图给我，说明现在停在哪个界面",
-        "Take a screenshot and tell me which screen we are on",
-    )
-    add(
-        "打开记事本，写上「今天的巡检结论：一切正常」并保存到桌面",
-        'Open Notepad, type "Today\'s inspection: all good" and save it to the desktop',
-    )
-    add(
-        "打开任务管理器，看看哪个进程最占内存",
-        "Open Task Manager and find the process using the most memory",
-        facts["cu_ready"] > 0,
-    )
-    add(
-        "这台机器装的是什么版本的 Python？顺便看看 .NET 运行时",
-        "Which Python version is installed here? Also check the .NET runtime",
-    )
-    add(
-        "列一下现在正在运行的程序，把自启项也一并列出来",
-        "List the running programs, including autostart entries",
-    )
-    add(
-        "按 Win+R 打开运行框，执行 msinfo32，把系统摘要读给我",
-        "Press Win+R, run msinfo32 and read the system summary to me",
-        facts["windows"] > 0,
-    )
-    add(
-        "把我刚打开的窗口关掉，回到桌面",
-        "Close the windows I just opened and get back to the desktop",
-    )
-    add(
-        "在开始菜单里找到「设置 → 系统 → 关于」，把设备名称读给我",
-        "Open Settings → System → About and read me the device name",
-    )
-    if facts["cu_failed"] > 0:
-        add(
-            "这台机器的 MCP 上次部署失败过，帮我看看现在恢复没有",
-            "The MCP deployment failed here before — check whether it is healthy now",
+def _read_suggestion_cache(scope: str) -> dict | None:
+    from ..settings_store import get_setting
+
+    raw = (get_setting(_suggest_key(scope), "") or "").strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_suggestion_cache(scope: str, payload: dict) -> None:
+    from ..settings_store import set_setting
+
+    try:
+        set_setting(_suggest_key(scope), json.dumps(payload, ensure_ascii=False))
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - 缓存写失败不影响本次返回
+        db.session.rollback()
+
+
+def _parse_items(text: str, size: int) -> list[dict]:
+    """从模型输出里抠出 JSON 数组；抠不出来就返回空，让调用方走兜底。"""
+    if not text:
+        return []
+    body = text.strip()
+    if body.startswith("```"):
+        body = body.strip("`")
+        if body.lower().startswith("json"):
+            body = body[4:]
+    start, end = body.find("["), body.rfind("]")
+    if start < 0 or end <= start:
+        return []
+    raw = None
+    try:
+        raw = json.loads(body[start : end + 1])
+    except Exception:  # noqa: BLE001 - 有些模型会在数组里塞注释/换行，退回逐个对象抠
+        raw = None
+    if raw is None:
+        objects = re.findall(r"\{[^{}]*\}", body)
+        raw = []
+        for chunk in objects:
+            try:
+                raw.append(json.loads(chunk))
+            except Exception:  # noqa: BLE001
+                continue
+    items, seen = [], set()
+    for entry in raw if isinstance(raw, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        zh = str(entry.get("zh") or "").strip()
+        en = str(entry.get("en") or "").strip()
+        if not zh or not en or zh in seen:
+            continue
+        seen.add(zh)
+        items.append({"zh": zh, "en": en})
+        if len(items) >= size:
+            break
+    return items
+
+
+def _generate_items(scope: str, facts: dict, size: int, avoid: list[str]) -> list[dict]:
+    """调 AI 现生成一批建议；未配置 / 调用失败 / 解析失败都返回空，由上层兜底。"""
+    client, error = _ai_client()
+    if error or client is None:
+        return []
+    if scope == "computeruse":
+        task = (
+            f"场景：右侧是 Windows 远程桌面（ComputerUse）的侧边栏，AI 能直接操作这台机器的桌面。"
+            f"请给 {size} 条「让 AI 在这台机器上点/看/运行什么」的建议。"
         )
-    return pool
+    else:
+        task = (
+            f"场景：堡垒机后台的「AI 运维」聊天框，AI 能查资产/会话/审计、还能建策略与账号。"
+            f"请给 {size} 条「管理员现在最可能想做」的建议。"
+        )
+    prompt = {
+        "task": task,
+        "system_state": facts,
+        "avoid_previous": avoid,
+        "rules": [
+            f"正好 {size} 条",
+            "每条都必须贴合上面的 system_state（比如有在线会话就问会话、没有主机就问怎么接入）",
+            "具体可执行，不要泛泛而谈",
+            "只输出 JSON 数组",
+        ],
+    }
+    def _once(temperature: float) -> list[dict]:
+        chunks: list[str] = []
+        for event in client.stream_chat(
+            [
+                {"role": "system", "content": _SUGGESTION_SYSTEM},
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+            temperature=temperature,
+            max_tokens=700,
+        ):
+            if event.get("type") == "content":
+                chunks.append(event.get("text") or "")
+        text = "".join(chunks)
+        parsed = _parse_items(text, size)
+        if not parsed:
+            current_app.logger.warning("AI 建议解析失败，原始输出：%s", text[:600])
+        return parsed
+
+    try:
+        items = _once(0.8)
+        if len(items) < size:
+            # 模型偶尔会少给或带解释文字：把温度调低重试一次
+            items = _once(0.3)
+        return items
+    except Exception:  # noqa: BLE001 - 生成失败就走兜底，不能让输入框空着
+        current_app.logger.warning("AI 建议生成失败", exc_info=True)
+        return []
 
 
 @bp.get("/suggestions")
 @permission_required("ai:use")
 def suggestions():
-    """示例建议：同一天内稳定，换一天自动换一轮；`nonce` 递增则立刻换一批。"""
+    """示例建议：调 AI 按当前状态现生成；同一天同一批缓存复用，`nonce` 变则立刻重新生成。"""
     scope = (request.args.get("scope") or "chat").strip().lower()
     nonce = parse_int(request.args.get("nonce"), 0) or 0
+    today = datetime.date.today().isoformat()
+    size = COMPUTER_USE_SUGGESTION_COUNT if scope == "computeruse" else CHAT_SUGGESTION_COUNT
+
+    cached = _read_suggestion_cache(scope)
+    if (
+        cached
+        and cached.get("bucket") == today
+        and int(cached.get("nonce") or 0) == nonce
+        and isinstance(cached.get("items"), list)
+        and len(cached["items"]) == size
+    ):
+        return api_ok(cached)
+
     facts = _state_facts()
-    if scope == "computeruse":
-        pool = _computer_use_pool(facts)
-        size = COMPUTER_USE_SUGGESTION_COUNT
-    else:
-        pool = _chat_pool(facts)
-        size = CHAT_SUGGESTION_COUNT
-    today = datetime.date.today()
-    if pool:
-        start = (today.toordinal() + nonce * 7) % len(pool)
-        items = [pool[(start + i) % len(pool)] for i in range(min(size, len(pool)))]
-    else:  # pragma: no cover - 兜底，正常不会走到
-        items = []
-    return api_ok(
-        {
-            "bucket": today.isoformat(),
-            "nonce": nonce,
-            "scope": scope,
-            "items": items,
-            "facts": facts,
-        }
-    )
+    avoid = [i.get("zh") for i in (cached or {}).get("items", []) if isinstance(i, dict)]
+    items = _generate_items(scope, facts, size, avoid)
+    ai_count = len(items)
+    if ai_count < size:
+        fallback = _FALLBACK_CU if scope == "computeruse" else _FALLBACK_CHAT
+        have = {i["zh"] for i in items}
+        for entry in fallback:
+            if len(items) >= size:
+                break
+            if entry["zh"] not in have:
+                items.append(entry)
+                have.add(entry["zh"])
+    source = "ai" if ai_count >= size else ("mixed" if ai_count else "fallback")
+    payload = {
+        "bucket": today,
+        "nonce": nonce,
+        "scope": scope,
+        "source": source,
+        "generatedAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        "items": items,
+        "facts": facts,
+    }
+    _write_suggestion_cache(scope, payload)
+    return api_ok(payload)
