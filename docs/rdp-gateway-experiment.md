@@ -76,3 +76,34 @@ mstsc ──X.224 连接请求──▶ X.224 Confirm
   **只允许堡垒机来源的端口映射**（`netsh interface portproxy`）+ 在堡垒机上限制来源 IP，
   审计靠目标机的 4624/4649 日志与堡垒机侧的连接日志，**没有选单、没有录像**——和你的
   需求 1、2 都不完全对齐，但能马上用。要不要走这条，你定。
+
+## 七、2026-10-21：Rust 工具链装好了，网关真的连上了（里程碑）
+
+**环境（这台机器上实际做的）**：
+- 
+ustup-init.exe 从 static.rust-lang.org 只跑到 12MB 就卡（约 20KB/s），换 **清华镜像**（RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup，实测 1.4MB/s）后秒装：**rustc / cargo 1.99.1，stable-x86_64-pc-windows-msvc**，装在 D:\\Rust（RUSTUP_HOME/CARGO_HOME 已写进用户环境变量，PATH 加了 D:\\Rust\\cargo\\bin）；VS 18 Community 自带的 MSVC 直接可用。
+- crates 走清华 sparse 镜像（D:\\Rust\\cargo\\config.toml）。
+
+**踩到并绕过的坑**：
+1. cargo build（debug）→ libz-sys 的 C 编译报 **D8050**（命令行放不进调试记录）→ 改用 --release（不带 -Z7）就好了；
+2. ws-lc-sys 归档时报 **LNK1104: 无法打开 lnk{GUID}.tmp**（CMake 构建也失败）→ 根因是这台机器上 lib.exe/CMake 建大归档的临时文件有问题；**解法**：把 	okio-rustls **vendor 进仓库**（astion-rdp-gateway/vendor/tokio-rustls）并把它的默认加密后端从 ws_lc_rs 改成 **
+ing**，再用 [patch.crates-io] 指过去 —— 依赖树里 ws-lc-rs 彻底消失（cargo tree -i aws-lc-rs → nothing），
+ing 能正常编；
+3. 顺带把 ironrdp-server 的默认特性关掉（去掉 zstd/qoi），只要 helper（TlsIdentityCtx）。
+
+**已经跑通的事**（astion-rdp-gateway，cargo build --release 成功）：
+- mstsc /v:127.0.0.1:4489 → 弹出「证书来自不受信任的机构」→ 点「是」→ **看到网关自己画的选单画面**（AutoOps Bastion - RDP Gateway (experimental)，深色底 + 白字），说明 X.224/MCS/TLS/图形通道全通了；
+- 首次启动用 
+cgen 自签证书，落在 astion-backend/instance/rdp-gateway-{cert,key}.pem；
+- 键盘事件实时到达网关日志（keyboard event=Pressed { code: 30 } / Released），输入通道也是通的。
+
+**下一步**（接着做）：把 
+dp_menu.py 的授权主机列表接进来画成选单 → 加鼠标命中（现成 hit_test）→ 用 ironrdp-client 连目标机、把画面接到这条会话 → 审计 + ironrdp-capture-replay 录像。
+
+**运行方式**（当前）：
+`
+cd bastion-rdp-gateway
+set RDP_GATEWAY_PORT=4489
+set BASTION_INSTANCE_DIR=..\\bastion-backend\\instance
+cargo run --release          # 或 target\\release\\bastion-rdp-gateway.exe
+`
