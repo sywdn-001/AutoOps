@@ -45,48 +45,52 @@
 - **SFTP file manager** — browse, upload, download, rename, delete, chmod and archive, all under the same grants and policies as the terminal.
 - **AI operations assistant** — describe a task in natural language; the channel is picked per host endpoint (Linux → SSH, Windows → WinRM), sensitive actions require the administrator password, and every tool call is audited.
 
+- **Bilingual UI (Chinese / English, English is complete)**: switch from the globe button in the header —
+  every page, menu, table header, form validation message, hint and AI suggestion has an English version
+  (the switch takes effect immediately). Every screenshot in this document is taken from the English UI.
+
 ## Screenshots
 
-> Nothing here is mocked up: `bastion-backend/tools/ui_shots.py` drives a real Chrome (over CDP), signs in to the local service, actually connects to the demo target and to `win-75`, and shoots each page. Re-run `python -u tools/ui_shots.py` after a change to refresh every image. Click an image for the full-size file.
+> Nothing here is mocked up: `bastion-backend/tools/i18n_shots.py` drives a real Chrome (over CDP), switches the UI to **English** (`umi_locale=en-US`), signs in to the local service, actually connects to the demo target and to `win-75`, and shoots each page — so every image below is the real English interface. Re-run `python -u tools/i18n_shots.py --only readme` after a change to refresh them. Click an image for the full-size file.
 
 <table align="center">
   <tr>
     <td align="center" width="50%">
-      <a href="../screenshots/dashboard.png"><img src="../screenshots/dashboard.png" width="100%" alt="Dashboard" /></a>
+      <a href="../screenshots/en/dashboard.png"><img src="../screenshots/en/dashboard.png" width="100%" alt="Dashboard" /></a>
       <br /><sub><b>Dashboard</b> — assets, live sessions, risk and recent audit at a glance</sub>
     </td>
     <td align="center" width="50%">
-      <a href="../screenshots/multiproto-launcher.png"><img src="../screenshots/multiproto-launcher.png" width="100%" alt="Web terminal launcher" /></a>
+      <a href="../screenshots/en/multiproto-launcher.png"><img src="../screenshots/en/multiproto-launcher.png" width="100%" alt="Web terminal launcher" /></a>
       <br /><sub><b>Web terminal launcher</b> — one row per host, one button per permitted protocol</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <a href="../screenshots/multiproto-hosts-list.png"><img src="../screenshots/multiproto-hosts-list.png" width="100%" alt="Host list" /></a>
+      <a href="../screenshots/en/multiproto-hosts-list.png"><img src="../screenshots/en/multiproto-hosts-list.png" width="100%" alt="Host list" /></a>
       <br /><sub><b>Host list</b> — one machine with several protocol endpoints; same-address records merge in one click</sub>
     </td>
     <td align="center" width="50%">
-      <a href="../screenshots/web-rdp-win75.png"><img src="../screenshots/web-rdp-win75.png" width="100%" alt="Windows Remote Desktop" /></a>
+      <a href="../screenshots/en/web-rdp-win75.png"><img src="../screenshots/en/web-rdp-win75.png" width="100%" alt="Windows Remote Desktop" /></a>
       <br /><sub><b>Windows Remote Desktop</b> — a real WebRDP session to <code>win-75</code>, recording in progress</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <a href="../screenshots/file-manager.png"><img src="../screenshots/file-manager.png" width="100%" alt="SFTP file manager" /></a>
+      <a href="../screenshots/en/file-manager.png"><img src="../screenshots/en/file-manager.png" width="100%" alt="SFTP file manager" /></a>
       <br /><sub><b>SFTP file manager</b> — browse, upload, download, chmod; same grants and policies as the terminal</sub>
     </td>
     <td align="center" width="50%">
-      <a href="../screenshots/ai-console.png"><img src="../screenshots/ai-console.png" width="100%" alt="AI operations assistant" /></a>
+      <a href="../screenshots/en/ai-console.png"><img src="../screenshots/en/ai-console.png" width="100%" alt="AI operations assistant" /></a>
       <br /><sub><b>AI operations assistant</b> — plain-language requests, with an admin confirmation for sensitive tools</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <a href="../screenshots/ssh-gateway-menu.png"><img src="../screenshots/ssh-gateway-menu.png" width="100%" alt="SSH gateway menu" /></a>
-      <br /><sub><b>SSH gateway menu</b> — after <code>ssh -p 2222</code>, only the hosts you may reach</sub>
+      <a href="../screenshots/en/ssh-gateway.png"><img src="../screenshots/en/ssh-gateway.png" width="100%" alt="SSH gateway" /></a>
+      <br /><sub><b>SSH gateway</b> — one <code>ssh -p 2222</code> entry point; after signing in, the menu only lists the hosts you may reach</sub>
     </td>
     <td align="center" width="50%">
-      <a href="../screenshots/audit-chain-detail.png"><img src="../screenshots/audit-chain-detail.png" width="100%" alt="Tamper-evident audit" /></a>
+      <a href="../screenshots/en/audit-chain-detail.png"><img src="../screenshots/en/audit-chain-detail.png" width="100%" alt="Tamper-evident audit" /></a>
       <br /><sub><b>Tamper-evident audit</b> — a hash chain over command logs; editing one entry shows up immediately</sub>
     </td>
   </tr>

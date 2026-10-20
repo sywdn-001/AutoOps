@@ -288,6 +288,7 @@ def run_shots(
     token: str,
     width: int,
     height: int,
+    locale: str = "",
 ) -> list[str]:
     """按清单逐项出图，返回「未就绪、保留了旧图」的名字。
 
@@ -304,6 +305,9 @@ def run_shots(
     # 先落到同源页面，才能写 localStorage
     tab.navigate(f"{base}/user/login")
     tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
+    if locale:
+        # 让整个后台切到指定语言：t() 读的是 Umi 的全局 locale
+        tab.evaluate(f"localStorage.setItem('umi_locale', {json.dumps(locale)})")
 
     failures: list[str] = []
     try:
@@ -312,6 +316,8 @@ def run_shots(
                 tab.evaluate("localStorage.removeItem('bastion_token')")
             else:
                 tab.evaluate(f"localStorage.setItem('bastion_token', {json.dumps(token)})")
+            if locale:
+                tab.evaluate(f"localStorage.setItem('umi_locale', {json.dumps(locale)})")
             tab.navigate(f"{base}{shot.route}")
             ready = tab.wait_for(shot.wait, timeout=shot.timeout)
             if shot.action:

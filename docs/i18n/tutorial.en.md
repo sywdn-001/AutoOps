@@ -45,7 +45,7 @@ seeing `{"success": true, ...}` means the API is alive.
 
 ### ① Open the bastion and sign in with your bastion account
 
-![Login page](../screenshots/tutorial/01-login.png)
+![Login page](../screenshots/tutorial-en/01-login.png)
 
 Go to <http://localhost:8000>. On the very first login use `admin / admin123`; the system will
 **force you to change it** (initial passwords that are never rotated are not allowed in — see
@@ -55,7 +55,7 @@ Go to <http://localhost:8000>. On the very first login use `admin / admin123`; t
 
 ### ② Dashboard: the whole picture on one screen
 
-![Dashboard](../screenshots/tutorial/02-dashboard.png)
+![Dashboard](../screenshots/tutorial-en/02-dashboard.png)
 
 Asset count, live sessions, risk hints and recent audit entries. Day to day you start in the audit
 centre to look for anomalies, then go to asset management to onboard machines.
@@ -66,7 +66,7 @@ centre to look for anomalies, then go to asset management to onboard machines.
 
 ### ③ Assets → Hosts
 
-![Host list](../screenshots/tutorial/03-hosts.png)
+![Host list](../screenshots/tutorial-en/03-hosts.png)
 
 One machine per row, and **a row can carry several protocol endpoints**: a Linux box gets `ssh:22`,
 a Windows box can carry both `winrm:5985` and `rdp:3389` — that is, the same Windows machine offers a
@@ -76,7 +76,7 @@ action, which re-parents both accounts and endpoints.
 
 ### ④ Edit a host: protocol endpoints and per-protocol ports
 
-![Edit host](../screenshots/tutorial/04-host-form.png)
+![Edit host](../screenshots/tutorial-en/04-host-form.png)
 
 Click "Edit" in a row to open the drawer:
 
@@ -94,7 +94,7 @@ Click "Edit" in a row to open the drawer:
 
 ### ⑤ Users: who may sign in to the bastion
 
-![User management](../screenshots/tutorial/05-identity-users.png)
+![User management](../screenshots/tutorial-en/05-identity-users.png)
 
 One bastion account per operator (again: *not* a target account). A user's role decides which menus
 appear and which machines they may touch — but the front end is only a convenience layer; every API
@@ -102,7 +102,7 @@ re-checks the permission codes on the server side.
 
 ### ⑥ Roles: permissions are ticked, not assumed
 
-![Role management](../screenshots/tutorial/06-identity-roles.png)
+![Role management](../screenshots/tutorial-en/06-identity-roles.png)
 
 Permission codes are grouped by module; typical ones are "view assets", "open the web terminal",
 "transfer files", "watch recordings", "edit command policies". **Grant the minimum**: an
@@ -110,7 +110,7 @@ audit-only operator should not get write access to asset management.
 
 ### ⑦ Access grants: who → which host → which account
 
-![Access grants](../screenshots/tutorial/07-grants.png)
+![Access grants](../screenshots/tutorial-en/07-grants.png)
 
 This is the heart of the bastion. One grant = a user (or role) × a host × an account, plus whether
 they **may open the web terminal**, **may use the file manager**, and any time-window or duration
@@ -124,7 +124,7 @@ audit log.
 
 ### ⑧ Command policies: what may and may not be typed
 
-![Command policies](../screenshots/tutorial/08-policies.png)
+![Command policies](../screenshots/tutorial-en/08-policies.png)
 
 Rules are regular expressions plus a risk level. When a "deny" rule matches, the command **never
 reaches the target**: the user sees a refusal and the audit log records `denied`. A high-risk command
@@ -140,7 +140,7 @@ user/role and per host scope, and both allowances and refusals are recorded.
 
 ### ⑨ Web terminal: one row per host, one button per protocol
 
-![Web terminal launcher](../screenshots/tutorial/09-launcher.png)
+![Web terminal launcher](../screenshots/tutorial-en/09-launcher.png)
 
 The "Web terminal" page lists every host **you are granted**, with a button per protocol: SSH for
 Linux, WinRM / remote desktop for Windows. Clicking "Connect" opens a **new browser tab** — one tab,
@@ -148,7 +148,7 @@ one session.
 
 ### ⑩ Reach a Linux host straight from the browser
 
-![Linux web terminal](../screenshots/tutorial/10-console-linux.png)
+![Linux web terminal](../screenshots/tutorial-en/10-console-linux.png)
 
 No client to install: it is a real terminal in the browser. This one is connected to the demo target
 `e2e-demo-01`, where `whoami` returned `opsadmin`. The top bar shows the host, the login account and
@@ -160,7 +160,7 @@ the bottom bar shows `SSH · connected · elapsed`.
 
 ### ⑪ File manager: SFTP without leaving the browser
 
-![File manager](../screenshots/tutorial/11-file-manager.png)
+![File manager](../screenshots/tutorial-en/11-file-manager.png)
 
 Click "File manager" in the terminal toolbar to open another tab: directory tree on the left, file
 list on the right, with upload, download, mkdir, rename, chmod and delete. **It runs through the same
@@ -169,7 +169,7 @@ allowed scope are refused and audited.
 
 ### ⑫ Windows hosts get a character session too (WinRM)
 
-![WinRM console](../screenshots/tutorial/12-winrm-console.png)
+![WinRM console](../screenshots/tutorial-en/12-winrm-console.png)
 
 Once a Windows host carries a `winrm:5985` endpoint, the same web-terminal entry point opens a
 PowerShell session (here `hostname` returned `WIN-930NKGJCOED`). Its semantics differ from Linux, and
@@ -183,7 +183,7 @@ the page says so up front:
 
 ### ⑬ Windows Remote Desktop: driven from the browser, recorded throughout
 
-![WebRDP remote desktop](../screenshots/tutorial/13-rdp-console.png)
+![WebRDP remote desktop](../screenshots/tutorial-en/13-rdp-console.png)
 
 Click "Remote desktop" on a Windows host and the Windows desktop appears in the browser (here
 `win-75`, Windows Server 2025). The top-right shows "**Recording**" and the elapsed time, with
@@ -199,7 +199,7 @@ replayed later under "Audit centre → Remote desktop recordings".
 
 ### ⑭ Remote desktop recordings
 
-![Remote desktop recordings](../screenshots/tutorial/14-rdp-recordings.png)
+![Remote desktop recordings](../screenshots/tutorial-en/14-rdp-recordings.png)
 
 One recording per RDP session, filterable by host, account and time. Auditors with the permission see
 everyone's recordings; ordinary users see only their own — filtered in the backend, not merely hidden
@@ -207,7 +207,7 @@ in the UI.
 
 ### ⑮ Command log: every command and its output
 
-![Command log](../screenshots/tutorial/15-audit-commands.png)
+![Command log](../screenshots/tutorial-en/15-audit-commands.png)
 
 This is the hardest requirement of the lot: **every command and its output is recorded**. The list
 shows who, in which session, at what time, typed what, what came back, which policy matched, and
@@ -215,7 +215,7 @@ whether it was allowed or refused. Open a row for the full output.
 
 ### ⑯ Session log
 
-![Session log](../screenshots/tutorial/16-audit-sessions.png)
+![Session log](../screenshots/tutorial-en/16-audit-sessions.png)
 
 Who connected from where, to which machine, with which account, over which protocol (SSH / WinRM /
 RDP / SFTP), for how long, and whether it is still live. Administrators can **force-terminate** a
@@ -223,7 +223,7 @@ live session.
 
 ### ⑰ Operation log and hash chain
 
-![Operation log and hash chain](../screenshots/tutorial/17-audit-chain.png)
+![Operation log and hash chain](../screenshots/tutorial-en/17-audit-chain.png)
 
 Beyond "who connected where", this records "who changed the configuration": added a host, edited a
 grant, changed a policy, deleted a user. Each entry is linked into a **hash chain** (the previous
@@ -236,7 +236,7 @@ with `python tools/verify_audit_chain.py`.
 
 ### ⑱ Natural language, human-approved for sensitive work
 
-![AI operations assistant](../screenshots/tutorial/18-ai-console.png)
+![AI operations assistant](../screenshots/tutorial-en/18-ai-console.png)
 
 Under "AI operations" you can simply talk, e.g. "how much disk is left on win-75?". Every tool the AI
 calls (run a command, read the audit log, open a terminal) is subject to the **same permissions and
@@ -260,7 +260,7 @@ implemented by the bastion itself, so **hosts you have no grant for never even a
 
 Administrators can check the port and the on/off switch under "System settings → SSH gateway":
 
-![SSH gateway settings](../screenshots/ssh-gateway-menu.png)
+![SSH gateway settings](../screenshots/en/ssh-gateway.png)
 
 ---
 

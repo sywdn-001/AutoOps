@@ -42,6 +42,10 @@
 - **AI 运维助手** — 自然语言下指令，按主机端点自动选通道（Linux 走 SSH、Windows 走 WinRM），敏感操作要管理员密码确认，工具调用全过程进审计。
 - **ComputerUse（让 AI 直接操作 Windows 主机）** — 系统设置里分步部署：列华为云镜像的 Python 安装包并先缓存到堡垒机 → 传包静默安装 → `pip install windows-mcp` → 写开机自启 VBS 并启动 MCP → 开 portproxy 与只放行堡垒机的防火墙 → 探活；**部署成功后**，Windows RDP 控制台右侧才会出现可收起的 ComputerUse 侧边栏，AI 经 MCP 看屏幕、点鼠标、跑 PowerShell，每一步都进审计。
 
+- **中英双语界面（操作界面已全面英文化）**：顶部栏右上角的地球按钮一键切换「简体中文 / English」，
+  所有页面文案、菜单、表头、表单校验、提示语、AI 输入建议都已提供英文版本（切换后整页立即生效）；
+  英文版截图见 [`docs/screenshots/en`](docs/screenshots/en) 与 [`docs/i18n/README.en.md`](docs/i18n/README.en.md)。
+
 ## 界面截图
 
 <table align="center">
