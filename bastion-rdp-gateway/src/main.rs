@@ -214,6 +214,36 @@ fn draw_wrapped(buf: &mut [u8], x0: u16, y0: u16, text: &str, color: (u8, u8, u8
     }
 }
 
+
+/// ASCII 字符 → (扫描码, 是否需要 Shift)。US 布局，够覆盖密码/命令/快捷键。
+fn char_to_scan(ch: char) -> Option<(u8, bool)> {
+    let lower = ch.to_ascii_lowercase();
+    let (scan, shift) = match lower {
+        '1' => (0x02, false), '2' => (0x03, false), '3' => (0x04, false), '4' => (0x05, false),
+        '5' => (0x06, false), '6' => (0x07, false), '7' => (0x08, false), '8' => (0x09, false),
+        '9' => (0x0A, false), '0' => (0x0B, false),
+        'q' => (0x10, false), 'w' => (0x11, false), 'e' => (0x12, false), 'r' => (0x13, false),
+        't' => (0x14, false), 'y' => (0x15, false), 'u' => (0x16, false), 'i' => (0x17, false),
+        'o' => (0x18, false), 'p' => (0x19, false),
+        'a' => (0x1E, false), 's' => (0x1F, false), 'd' => (0x20, false), 'f' => (0x21, false),
+        'g' => (0x22, false), 'h' => (0x23, false), 'j' => (0x24, false), 'k' => (0x25, false),
+        'l' => (0x26, false),
+        'z' => (0x2C, false), 'x' => (0x2D, false), 'c' => (0x2E, false), 'v' => (0x2F, false),
+        'b' => (0x30, false), 'n' => (0x31, false), 'm' => (0x32, false),
+        ' ' => (0x39, false), '-' => (0x0C, false), '=' => (0x0D, false), '[' => (0x1A, false),
+        ']' => (0x1B, false), ';' => (0x27, false), '\'' => (0x28, false), '`' => (0x29, false),
+        '\\' => (0x2B, false), ',' => (0x33, false), '.' => (0x34, false), '/' => (0x35, false),
+        _ => return None,
+    };
+    // 大写字母 / 需要 Shift 的符号
+    let shifted = match ch {
+        'A'..='Z' => true,
+        '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '_' | '+' | '{' | '}' | ':' | '"' | '~' | '|' | '<' | '>' | '?' => true,
+        _ => false,
+    };
+    Some((scan, shift || shifted))
+}
+
 const WHITE: (u8, u8, u8) = (0xe6, 0xed, 0xf3);const DIM: (u8, u8, u8) = (0x94, 0xa3, 0xb8);
 const ACCENT: (u8, u8, u8) = (0x60, 0xa5, 0xfa);
 const WARN: (u8, u8, u8) = (0xfb, 0xbf, 0x24);
@@ -809,22 +839,44 @@ impl RdpServerInputHandler for GatewayInput {
                     }
                     (Screen::Target, Some(c)) if !c.is_control() => {
                         if let Some(handle) = state.target.as_ref() {
-                            handle.send_unicode(c as u16, true);
-                            handle.send_unicode(c as u16, false);
+                            if let Some((scan, need_shift)) = char_to_scan(c) {
+                                if need_shift {
+                                    handle.send_key(0x2A, false, true);
+                                }
+                                handle.send_key(scan, false, true);
+                                handle.send_key(scan, false, false);
+                                if need_shift {
+                                    handle.send_key(0x2A, false, false);
+                                }
+                            } else {
+                                handle.send_unicode(c as u16, true);
+                                handle.send_unicode(c as u16, false);
+                            }
                         }
                     }
                     _ => {}
                 }
                 let total = state.key_events;
+                let in_target = state.screen == Screen::Target;
                 drop(state);
                 if total % 30 == 0 {
                     tracing::info!(keys = total, "键盘事件累计（每 30 条汇总一次）");
                 }
-                shared.redraw();
+                if !in_target {
+                    shared.redraw();
+                }
             }
             KeyboardEvent::Pressed { code, extended } => {
                 if code == 0x2A || code == 0x36 {
-                    shared.state.lock().unwrap().shift = true;
+                    let mut st = shared.state.lock().unwrap();
+                    if st.screen == Screen::Target {
+                        // 目标机屏：Shift 要真的发过去，否则大写/组合键全废
+                        if let Some(handle) = st.target.as_ref() {
+                            handle.send_key(code, extended, true);
+                        }
+                    } else {
+                        st.shift = true;
+                    }
                     return;
                 }
                 let shift = shared.state.lock().unwrap().shift;
@@ -887,15 +939,25 @@ impl RdpServerInputHandler for GatewayInput {
                     }
                 }
                 let total = state.key_events;
+                let in_target = state.screen == Screen::Target;
                 drop(state);
                 if total % 30 == 0 {
                     tracing::info!(keys = total, "键盘事件累计（每 30 条汇总一次）");
                 }
-                shared.redraw();
+                if !in_target {
+                    shared.redraw();
+                }
             }
             KeyboardEvent::Released { code, extended } => {
                 if code == 0x2A || code == 0x36 {
-                    shared.state.lock().unwrap().shift = false;
+                    let mut st = shared.state.lock().unwrap();
+                    if st.screen == Screen::Target {
+                        if let Some(handle) = st.target.as_ref() {
+                            handle.send_key(code, extended, false);
+                        }
+                    } else {
+                        st.shift = false;
+                    }
                     return;
                 }
                 let mut state = shared.state.lock().unwrap();
@@ -925,6 +987,7 @@ impl RdpServerInputHandler for GatewayInput {
             MouseEvent::LeftPressed => {
                 let mut state = shared.state.lock().unwrap();
                 state.mouse_events += 1;
+                tracing::info!(screen = ?state.screen, x = state.mouse.0, y = state.mouse.1, "左键按下");
                 let (x, y) = state.mouse;
                 match state.screen {
                     Screen::Menu if y >= MENU_TOP => {
@@ -937,6 +1000,8 @@ impl RdpServerInputHandler for GatewayInput {
                     }
                     Screen::Target => {
                         if let Some(handle) = state.target.as_ref() {
+                            // 先发一次移动，再按下（有些服务器要求先定位）
+                            handle.send_mouse(x, y, target::MouseButton::None, false);
                             handle.send_mouse(x, y, target::MouseButton::Left, true);
                         }
                         drop(state);
@@ -947,6 +1012,7 @@ impl RdpServerInputHandler for GatewayInput {
             MouseEvent::LeftReleased => {
                 let mut state = shared.state.lock().unwrap();
                 state.mouse_events += 1;
+                tracing::info!(screen = ?state.screen, x = state.mouse.0, y = state.mouse.1, "左键抬起");
                 let (x, y) = state.mouse;
                 if state.screen == Screen::Target {
                     if let Some(handle) = state.target.as_ref() {

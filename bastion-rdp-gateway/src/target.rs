@@ -55,7 +55,8 @@ impl TargetHandle {
     }
 
     pub fn send_mouse(&self, x: u16, y: u16, button: MouseButton, down: bool) {
-        let mut bits = 0x0800u16; // PTRFLAGS_MOVE
+        // 注意：纯移动用 PTRFLAGS_MOVE；按键事件不能再带 MOVE 标志，否则目标机会当移动忽略掉
+        let mut bits = 0u16;
         match button {
             MouseButton::Left => {
                 bits |= 0x1000; // BUTTON1
@@ -69,9 +70,12 @@ impl TargetHandle {
                     bits |= 0x8000;
                 }
             }
-            MouseButton::None => {}
+            MouseButton::None => {
+                bits |= 0x0800; // MOVE
+            }
         }
         let flags = PointerFlags::from_bits_truncate(bits);
+        tracing::info!(x, y, ?button, down, bits, "发鼠标事件给目标机");
         let pdu = MousePdu {
             flags,
             number_of_wheel_rotation_units: 0,
@@ -230,11 +234,12 @@ fn blit(
         let dst_row = y * out_w as usize * 4;
         for x in 0..out_w as usize {
             let sx = if sw == out_w as usize { x } else { x * sw / out_w as usize };
+            // 客户端给的 u32 是 from_be_bytes([0, r, g, b])：低字节是 B、次高字节是 R
             let pixel = buffer[sy * sw + sx];
             let off = dst_row + x * 4;
-            guard[off] = (pixel & 0xFF) as u8;
-            guard[off + 1] = ((pixel >> 8) & 0xFF) as u8;
-            guard[off + 2] = ((pixel >> 16) & 0xFF) as u8;
+            guard[off] = ((pixel >> 16) & 0xFF) as u8; // R
+            guard[off + 1] = ((pixel >> 8) & 0xFF) as u8; // G
+            guard[off + 2] = (pixel & 0xFF) as u8; // B
             guard[off + 3] = 0;
         }
     }
