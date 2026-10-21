@@ -187,10 +187,61 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "版本号：$TAG ｜ 通道：$CHANNEL ｜ 预发布：$PRERELEASE ｜ 夜间构建：$DEV_BUILD"
 
-  # ---------------------------------------------------------------- ① 打包两个架构
+  # ---------------------------------------------------------------- ⓪b 编译 RDP 网关（Rust）
+  # Windows 的 mstsc 连堡垒机 4489 就是这个进程：RDP 服务端 + 目标机 RDP 客户端。
+  # 单独一个 job，产物两处用：塞进安装包（rdp-gateway/），也作为独立附件直接挂在 Release 上。
+  rdp-gateway:
+    name: 编译 RDP 网关（Rust）
+    needs: plan
+    runs-on: windows-latest
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo 产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bastion-rdp-gateway
+
+      - name: cargo build --release
+        working-directory: bastion-rdp-gateway
+        run: |
+          cargo build --release
+          Get-Item target/release/bastion-rdp-gateway.exe | Select-Object Name, Length, LastWriteTime
+        shell: pwsh
+
+      - name: 冒烟检查（能起来、能监听、然后退出）
+        shell: pwsh
+        working-directory: bastion-rdp-gateway
+        env:
+          RDP_GATEWAY_PORT: '4489'
+          BASTION_INSTANCE_DIR: ${{ github.workspace }}/bastion-backend/instance-ci
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proc = Start-Process -FilePath 'target/release/bastion-rdp-gateway.exe' -PassThru `
+            -RedirectStandardOutput 'gw.out.log' -RedirectStandardError 'gw.err.log'
+          Start-Sleep -Seconds 6
+          $listening = (Get-NetTCPConnection -State Listen -LocalPort 4489 -ErrorAction SilentlyContinue | Measure-Object).Count
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Content gw.out.log, gw.err.log -ErrorAction SilentlyContinue | Write-Host
+          if ($listening -lt 1) { throw '网关没有在 4489 上监听' }
+          "RDP 网关冒烟检查通过（4489 已监听）" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: 上传网关产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-gateway
+          path: bastion-rdp-gateway/target/release/bastion-rdp-gateway.exe
+          if-no-files-found: error
+          retention-days: 7
+
+# ---------------------------------------------------------------- ① 打包两个架构
   package:
     name: 打包 ${{ matrix.label }}
-    needs: plan
+    needs: [plan, rdp-gateway]
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -207,6 +258,12 @@ jobs:
     steps:
       - name: 取出代码
         uses: actions/checkout@v4
+
+      - name: 取回 RDP 网关
+        uses: actions/download-artifact@v4
+        with:
+          name: rdp-gateway
+          path: rdp-gateway-bin
 
       - name: 接管版本号与通道
         shell: bash
@@ -304,6 +361,28 @@ jobs:
           Copy-Item -Force "README.md" "$root/README.md"
           New-Item -ItemType Directory -Force -Path "$root/instance" | Out-Null
 
+          # RDP 网关（Rust）产物：随包带一份，用户不用自己装 Rust
+          $gwDir = "$root/rdp-gateway"
+          New-Item -ItemType Directory -Force -Path $gwDir | Out-Null
+          $gwExe = "rdp-gateway-bin/bastion-rdp-gateway.exe"
+          if (-not (Test-Path $gwExe)) { throw "缺少 RDP 网关产物：$gwExe" }
+          Copy-Item -Force $gwExe "$gwDir/bastion-rdp-gateway.exe"
+          $gwReadme = @"
+          # RDP 网关 / RDP gateway
+
+          `mstsc /v:<堡垒机地址>:4489` 连上来，用**堡垒机账号**登录，选一台你有权限的机器，
+          目标机的桌面就会显示在这个窗口里（支持键盘、鼠标）。
+          Point `mstsc` at this bastion on port 4489, sign in with your bastion account,
+          pick a host you may reach, and its desktop is streamed into that window.
+
+          启动 / Start：`bastion-rdp-gateway.exe`
+            环境变量 / env：RDP_GATEWAY_PORT（默认 4489）、BASTION_INSTANCE_DIR（instance 目录）、
+            BASTION_API_BASE（后端地址，默认 http://127.0.0.1:5000）
+          也可以在「系统设置 → RDP 网关」页面点「启动 / 停止」由后端托管。
+          You can also start/stop it from System settings -> RDP gateway.
+          "@
+          [System.IO.File]::WriteAllText("$gwDir/README.txt", $gwReadme, [System.Text.UTF8Encoding]::new($true))
+
           $commit = (git rev-parse --short HEAD)
           $pyver  = (python -c "import platform;print(platform.python_version())")
           $pybits = (python -c "import struct;print(struct.calcsize('P')*8)")
@@ -391,10 +470,10 @@ jobs:
   # ---------------------------------------------------------------- ③ 发 Release
   release:
     name: 发布 Release
-    needs: [plan, package, installers]
+    needs: [plan, package, installers, rdp-gateway]
     # needs 里只要有一个 job 被 skip（夜间构建不从 installers 取安装包），默认会把这个 job 一起 skip，
     # 所以必须显式放行 skipped；否则夜间构建跑完什么都不发。
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.package.result == 'success' && (needs.installers.result == 'success' || needs.installers.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.package.result == 'success' && needs.rdp-gateway.result == 'success' && (needs.installers.result == 'success' || needs.installers.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: 取出代码（要仓库里的说明模板、脚本与源码）
@@ -420,6 +499,8 @@ jobs:
 
       - name: 归拢附件并算总校验和
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           set -euo pipefail
           find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' \) -exec cp {} release/ \;
