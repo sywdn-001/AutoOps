@@ -216,7 +216,7 @@ const RdpGatewayPage = () => {
               {t('候选路径（逐个检查，第一个存在的就用它）：')}
             </Paragraph>
             <pre style={{ maxHeight: 220, overflow: 'auto', fontSize: 12 }}>
-              {diagnose.candidates
+              {(diagnose.candidates ?? [])
                 .map((item: { exists: boolean; path: string }) => `${item.exists ? '✓' : '·'} ${item.path}`)
                 .join('\n')}
             </pre>

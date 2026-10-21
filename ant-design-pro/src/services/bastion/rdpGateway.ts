@@ -1,10 +1,13 @@
 /**
- * RDP 网关（mstsc 连 4489）的前端接口：状态查询、启停、以及两个设置项。
+ * RDP 网关（mstsc 连 4489）的前端接口：状态查询、启停、诊断。
  *
- * 网关本身是独立进程（`bastion-rdp-gateway`，Rust），这里只调后端的管理接口；
- * 页面在「系统设置 → RDP 网关」。
+ * 注意：本项目的 `request` 返回的是**统一信封**（`{success, data}`），
+ * 必须用 `unwrap()` 解包 —— 否则拿到的是信封本身（`status.listening` 是 undefined、
+ * `diagnose.candidates.map` 直接抛错，页面就崩成「页面出现错误」）。
  */
 import { request } from '@umijs/max';
+import { unwrap } from '@/services/bastion/client';
+import type { ApiData } from '@/services/bastion/types';
 
 export type RdpGatewayStatus = {
   enabled: boolean;
@@ -23,7 +26,7 @@ export type RdpGatewayDiagnose = {
   instancePath: string;
   binary: string;
   binaryExists: boolean;
-  candidates: { path: string; exists: boolean }[];
+  candidates?: { path: string; exists: boolean }[];
   pidFile: string;
   port: number;
   listening: boolean;
@@ -32,12 +35,12 @@ export type RdpGatewayDiagnose = {
 };
 
 export const rdpGatewayApi = {
-  status: async (): Promise<RdpGatewayStatus> =>
-    request<RdpGatewayStatus>('/api/rdp-gateway/status', { method: 'GET' }),
-  start: async (): Promise<{ started: boolean; pid?: number; port: number }> =>
-    request('/api/rdp-gateway/start', { method: 'POST' }),
-  stop: async (): Promise<{ stopped: boolean; pid?: number }> =>
-    request('/api/rdp-gateway/stop', { method: 'POST' }),
-  diagnose: async (): Promise<RdpGatewayDiagnose> =>
-    request<RdpGatewayDiagnose>('/api/rdp-gateway/diagnose', { method: 'GET' }),
+  status: (): Promise<RdpGatewayStatus> =>
+    unwrap(request<ApiData<RdpGatewayStatus>>('/api/rdp-gateway/status')),
+  start: (): Promise<{ started: boolean; pid?: number; port: number }> =>
+    unwrap(request('/api/rdp-gateway/start', { method: 'POST' })),
+  stop: (): Promise<{ stopped: boolean; pid?: number }> =>
+    unwrap(request('/api/rdp-gateway/stop', { method: 'POST' })),
+  diagnose: (): Promise<RdpGatewayDiagnose> =>
+    unwrap(request<ApiData<RdpGatewayDiagnose>>('/api/rdp-gateway/diagnose')),
 };

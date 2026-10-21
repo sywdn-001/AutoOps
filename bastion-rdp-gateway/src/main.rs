@@ -173,6 +173,45 @@ fn scan_to_vk(code: u8, extended: bool) -> u32 {
     }
 }
 
+/// 长文本按宽度折行画（错误信息经常很长，一行会被截掉，用户看不到原因）
+fn draw_wrapped(buf: &mut [u8], x0: u16, y0: u16, text: &str, color: (u8, u8, u8), max_lines: u16) {
+    let per_line = ((WIDTH as usize - x0 as usize) / (9 * SCALE)).max(8);
+    let mut y = y0;
+    let mut line = String::new();
+    let mut lines = 0u16;
+    for word in text.split(' ') {
+        let chunk_len = word.chars().count();
+        if !line.is_empty() && line.chars().count() + 1 + chunk_len > per_line {
+            draw_text(buf, x0, y, &line, color);
+            y += LINE_H - 6;
+            lines += 1;
+            line.clear();
+            if lines >= max_lines {
+                return;
+            }
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+        // 单个「词」就超宽（比如一长串路径）时硬切
+        while line.chars().count() > per_line {
+            let head: String = line.chars().take(per_line).collect();
+            let tail: String = line.chars().skip(per_line).collect();
+            draw_text(buf, x0, y, &head, color);
+            y += LINE_H - 6;
+            lines += 1;
+            if lines >= max_lines {
+                return;
+            }
+            line = tail;
+        }
+    }
+    if !line.is_empty() && lines < max_lines {
+        draw_text(buf, x0, y, &line, color);
+    }
+}
+
 const WHITE: (u8, u8, u8) = (0xe6, 0xed, 0xf3);const DIM: (u8, u8, u8) = (0x94, 0xa3, 0xb8);
 const ACCENT: (u8, u8, u8) = (0x60, 0xa5, 0xfa);
 const WARN: (u8, u8, u8) = (0xfb, 0xbf, 0x24);
@@ -336,7 +375,7 @@ fn render(state: &State) -> Vec<u8> {
                 draw_text(&mut buf, LEFT, y + LINE_H, "Signing in...", WARN);
             }
             if !state.error.is_empty() {
-                draw_text(&mut buf, LEFT, y + LINE_H * 2, &state.error, WARN);
+                draw_wrapped(&mut buf, LEFT, y + LINE_H * 2, &state.error, WARN, 3);
             }
         }
         Screen::Menu => {
@@ -374,7 +413,7 @@ fn render(state: &State) -> Vec<u8> {
                 draw_text(&mut buf, LEFT, 730, "Opening session...", WARN);
             }
             if !state.notice.is_empty() {
-                draw_text(&mut buf, LEFT, 760, &state.notice, WARN);
+                draw_wrapped(&mut buf, LEFT, 730, &state.notice, WARN, 3);
             }
         }
         Screen::Target => {
@@ -393,7 +432,7 @@ fn render(state: &State) -> Vec<u8> {
                 DIM,
             );
             if !state.notice.is_empty() {
-                draw_text(&mut buf, LEFT, 260, &state.notice, WARN);
+                draw_wrapped(&mut buf, LEFT, 640, &state.notice, WARN, 3);
             }
         }
     }
