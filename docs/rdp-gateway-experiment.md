@@ -107,3 +107,27 @@ set RDP_GATEWAY_PORT=4489
 set BASTION_INSTANCE_DIR=..\\bastion-backend\\instance
 cargo run --release          # 或 target\\release\\bastion-rdp-gateway.exe
 `
+
+## 八、2026-10-21 续：登录页 + 选单 + 会话登记（后端已通，画面刷新待修）
+
+**后端（Python，已测）**：新增 `app/api/rdp_gateway.py`：
+
+- `GET /api/rdp-gateway/hosts` —— 按 `accessible_targets(protocols=("rdp",))` 出「主机 + 可登录账号」，
+  与网页 WebRDP 完全同源的权限判定；
+- `POST /api/rdp-gateway/sessions` —— 选中机器后写 `sessions` 表（`source=gateway, protocol=rdp`），
+  并写一条 `rdp_gateway_open` 审计；
+- `tests/test_rdp_gateway_api.py` **4 条用例全绿**（只列 RDP 主机、开记录 + 审计、缺参 400、未登录 401）；
+- 真机验证：建了测试账号 `rdpgw-test`（ops 角色）+ win-75 的授权，`GET /hosts` 返回 1 台
+  （`win-75 192.168.0.75:3389 账号 Administrator`）。
+
+**Rust 网关 v2**：登录页（用户名 / 口令，Tab 切换字段、Enter 登录，调 `/api/auth/login` 换 JWT）
+→ 选单（↑↓ / Enter / 鼠标点击，数据来自 `/api/rdp-gateway/hosts`）→ 选中后调 `/sessions`
+登记会话并回显 sid。编译通过，mstsc 连上后**登录页正常显示**。
+
+**两个现场发现**：
+
+1. mstsc 发来的按键是 **`UnicodePressed/UnicodeReleased`**（不是扫描码 PDU），直接按扫描码处理会
+   完全没反应 —— 已加 unicode 分支（回车 13 / Tab 9 / 退格 8 / 可打印字符）；
+2. **已知问题**：首帧之后客户端不再重绘（输入事件确实收到了 42 条，但画面停在登录页）。
+   下一步：查 display updates 的后续帧 —— 大概率是没显式 `with_bitmap_codecs`，
+   或服务端没有再 poll `next_update`；加一行「帧已发送」的日志即可定位。

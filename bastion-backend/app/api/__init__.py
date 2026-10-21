@@ -24,6 +24,7 @@ def register_blueprints(app) -> None:
     from .policies import bp as policies_bp
     from .policies import rule_bp as policy_rules_bp
     from .rdp import bp as rdp_bp
+    from .rdp_gateway import bp as rdp_gateway_bp
     from .roles import bp as roles_bp
     from .sessions import bp as sessions_bp
     from .settings import bp as settings_bp
@@ -42,6 +43,7 @@ def register_blueprints(app) -> None:
         file_rules_bp,
         files_bp,
         rdp_bp,
+        rdp_gateway_bp,
         sessions_bp,
         audits_bp,
         settings_bp,

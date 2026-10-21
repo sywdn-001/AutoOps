@@ -288,6 +288,7 @@ dependencies = [
  "font8x8",
  "ironrdp-server",
  "rcgen",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
