@@ -17,7 +17,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use font8x8::{UnicodeFonts, BASIC_FONTS};
 use ironrdp_server::{
-    BitmapUpdate, DesktopSize, DisplayUpdate, KeyboardEvent, MouseEvent, PixelFormat, RdpServer,
+    BitmapUpdate, ConnectionHandler, DesktopSize, DisplayUpdate, KeyboardEvent, MouseEvent, PixelFormat,
+    PostConnectionAction, RdpServer,
     RdpServerDisplay, RdpServerDisplayUpdates, RdpServerInputHandler, TlsIdentityCtx,
 };
 use serde_json::Value;
@@ -270,6 +271,17 @@ impl Shared {
         self.version.fetch_add(1, Ordering::SeqCst);
     }
 
+    /// 新连接进来 / 旧连接断开时把所有会话状态清干净。
+    ///
+    /// 本进程的 display/input handler 是**全进程一份**（ironrdp-server 的 builder 只收一次），
+    /// 所以上一轮登录的 username/token/hosts 会留在内存里；新连接如果不清就会直接看到
+    /// 上一个用户的选单、还能点进去连他有权限的机器 —— 这是一个必须堵住的越权。
+    fn reset_for_new_connection(&self) {
+        *self.state.lock().unwrap() = State::default();
+        self.redraw();
+        tracing::info!("新连接：会话状态已清空（未登录）");
+    }
+
     fn login(self: &Arc<Self>) {
         {
             let mut state = self.state.lock().unwrap();
@@ -393,6 +405,30 @@ impl Shared {
             drop(state);
             shared.redraw();
         });
+    }
+}
+
+struct GatewayConnectionHandler {
+    shared: Arc<Shared>,
+}
+
+impl ConnectionHandler for GatewayConnectionHandler {
+    fn on_accept(&mut self, peer: SocketAddr) -> bool {
+        tracing::info!(%peer, "RDP 客户端接入");
+        self.shared.reset_for_new_connection();
+        true
+    }
+
+    fn on_disconnected(
+        &mut self,
+        peer: SocketAddr,
+        duration: Duration,
+        error: Option<&anyhow::Error>,
+    ) -> PostConnectionAction {
+        tracing::info!(%peer, elapsed = ?duration, error = ?error.map(|e| e.to_string()), "RDP 客户端断开");
+        // 断开也清一次：下次连进来绝不继承上一个用户的登录态
+        self.shared.reset_for_new_connection();
+        PostConnectionAction::Continue
     }
 }
 
@@ -614,6 +650,9 @@ async fn main() -> Result<()> {
         .with_tls(acceptor)
         .with_input_handler(GatewayInput { shared: Arc::clone(&shared) })
         .with_display_handler(GatewayDisplay { shared: Arc::clone(&shared) })
+        .with_connection_handler(Some(Box::new(GatewayConnectionHandler {
+            shared: Arc::clone(&shared),
+        })))
         .build();
 
     tracing::info!("RDP 网关已启动：mstsc /v:<本机 IP>:{port}（登录用堡垒机账号）");

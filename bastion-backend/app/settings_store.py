@@ -22,6 +22,9 @@ DEFAULTS: dict[str, str] = {
     # 与 config.AI_MAX_TOOL_ROUNDS（环境变量）同义，但这里是**运行时可改**的那份，
     # 见 app/ai/service.py 的 max_tool_rounds()。
     "ai_max_tool_rounds": "8",
+    # RDP 网关（mstsc 连 4489 选机器）：默认关闭，需要在「系统设置 → RDP 网关」里开
+    "rdp_gateway_enabled": "0",
+    "rdp_gateway_port": "4489",
 }
 
 

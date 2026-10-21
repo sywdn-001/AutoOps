@@ -31,6 +31,8 @@ SETTING_LABELS = {
     "notify_on_deny": "命令被拦截时提示用户",
     "gateway_enabled": "启用 SSH 网关",
     "ai_max_tool_rounds": "AI 任务最大调用轮数",
+    "rdp_gateway_enabled": "启用 RDP 网关（mstsc 连进来选机器）",
+    "rdp_gateway_port": "RDP 网关端口",
 }
 
 INT_KEYS = {
@@ -42,13 +44,15 @@ INT_KEYS = {
     "max_sessions_per_user",
     "default_policy_id",
     "ai_max_tool_rounds",
+    "rdp_gateway_port",
 }
-BOOL_KEYS = {"record_raw_transcript", "notify_on_deny", "gateway_enabled"}
+BOOL_KEYS = {"record_raw_transcript", "notify_on_deny", "gateway_enabled", "rdp_gateway_enabled"}
 # 允许留空的整型配置：默认值本身就是空串，留空表示「未指定」（例如没有默认命令策略）
 OPTIONAL_INT_KEYS = {"default_policy_id"}
 # 整型配置的合法区间：既用来校验（PUT），也下发给前端做输入框的 min/max
 INT_RANGES = {
     "gateway_port": (1, 65535),
+    "rdp_gateway_port": (1, 65535),
     "ai_max_tool_rounds": (1, 50),
 }
 

@@ -14,12 +14,17 @@
 from __future__ import annotations
 
 import logging
+import os
+import socket
+import subprocess
+from pathlib import Path
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 
 from ..access import accessible_targets, serialize_target
 from ..audit import log_event, new_session
-from ..security import load_actor, permission_required
+from ..security import admin_required, load_actor, permission_required
+from ..settings_store import get_int, get_setting
 from ..utils import api_error, api_ok, parse_int
 
 log = logging.getLogger("bastion.api.rdp_gateway")
@@ -134,3 +139,137 @@ def gateway_open_session():
             "accountUsername": account.get("username") or "",
         }
     )
+
+# --------------------------------------------------------------------------- #
+# 网关进程管理：状态 / 启动 / 停止（管理端在「系统设置 → RDP 网关」里用）
+# --------------------------------------------------------------------------- #
+#: 仓库根（app/api/rdp_gateway.py → api → app → bastion-backend → 仓库根）
+REPO_ROOT = Path(__file__).resolve().parents[3]
+GATEWAY_DIR = REPO_ROOT / "bastion-rdp-gateway"
+GATEWAY_BIN = GATEWAY_DIR / "target" / "release" / ("bastion-rdp-gateway.exe" if os.name == "nt" else "bastion-rdp-gateway")
+
+
+def _pid_path() -> Path:
+    return Path(current_app.instance_path) / "rdp-gateway.pid"
+
+
+def _read_pid() -> int | None:
+    try:
+        text = _pid_path().read_text(encoding="utf-8").strip()
+        return int(text) if text else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout
+            return "bastion-rdp-gateway" in out.lower()
+        os.kill(pid, 0)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _port() -> int:
+    value = get_int("rdp_gateway_port", 4489)
+    return value or 4489
+
+
+def _listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+@bp.get("/status")
+@permission_required("rdp:use")
+def gateway_status():
+    """网关是否在跑：以「端口是否在听」为准，pid 只用来停。"""
+    port = _port()
+    listening = _listening(port)
+    pid = _read_pid()
+    return api_ok(
+        {
+            "enabled": str(get_setting("rdp_gateway_enabled", "0")) in ("1", "true", "True"),
+            "port": port,
+            "listening": listening,
+            "pid": pid if _pid_alive(pid) else None,
+            "binary": str(GATEWAY_BIN),
+            "binaryExists": GATEWAY_BIN.exists(),
+            "logFile": str(Path(current_app.instance_path) / "rdp-gateway.log"),
+        }
+    )
+
+
+@bp.post("/start")
+@admin_required
+def gateway_start():
+    """按设置里的端口拉起 Rust 网关进程（已在跑就直接返回）。"""
+    port = _port()
+    if _listening(port):
+        return api_ok({"port": port, "started": False, "message": "网关已经在运行"})
+    if not GATEWAY_BIN.exists():
+        return api_error(
+            f"找不到网关程序：{GATEWAY_BIN}（先在 bastion-rdp-gateway 目录执行 cargo build --release）",
+            400,
+            code="BINARY_MISSING",
+        )
+    log_path = Path(current_app.instance_path) / "rdp-gateway.log"
+    env = dict(os.environ)
+    env["RDP_GATEWAY_PORT"] = str(port)
+    env["BASTION_INSTANCE_DIR"] = current_app.instance_path
+    env.setdefault("RUST_LOG", "info")
+    with open(log_path, "ab") as log_file:
+        proc = subprocess.Popen(  # noqa: S603 - 路径来自本仓库固定位置
+            [str(GATEWAY_BIN)],
+            cwd=str(GATEWAY_DIR),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    _pid_path().write_text(str(proc.pid), encoding="utf-8")
+    log_event(
+        "session",
+        "rdp_gateway_start",
+        message=f"{getattr(load_actor(), 'username', 'admin')} 启动了 RDP 网关（端口 {port}）",
+        actor=load_actor(),
+        ip=(request.remote_addr or ""),
+    )
+    return api_ok({"port": port, "pid": proc.pid, "started": True})
+
+
+@bp.post("/stop")
+@admin_required
+def gateway_stop():
+    pid = _read_pid()
+    if not _pid_alive(pid):
+        _pid_path().unlink(missing_ok=True)
+        return api_ok({"stopped": False, "message": "网关没有在运行"})
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True, timeout=10)
+        else:
+            os.kill(pid, 15)
+    except Exception as exc:  # noqa: BLE001
+        return api_error(f"停止失败：{exc}", 500, code="STOP_FAILED")
+    _pid_path().unlink(missing_ok=True)
+    log_event(
+        "session",
+        "rdp_gateway_stop",
+        message=f"{getattr(load_actor(), 'username', 'admin')} 停止了 RDP 网关（pid {pid}）",
+        actor=load_actor(),
+        ip=(request.remote_addr or ""),
+    )
+    return api_ok({"stopped": True, "pid": pid})

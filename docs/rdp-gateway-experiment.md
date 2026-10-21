@@ -131,3 +131,74 @@ cargo run --release          # 或 target\\release\\bastion-rdp-gateway.exe
 2. **已知问题**：首帧之后客户端不再重绘（输入事件确实收到了 42 条，但画面停在登录页）。
    下一步：查 display updates 的后续帧 —— 大概率是没显式 `with_bitmap_codecs`，
    或服务端没有再 poll `next_update`；加一行「帧已发送」的日志即可定位。
+
+## 九、2026-10-21 晚：修掉「上一个用户的登录态残留」+ 网页端加 RDP 网关设置
+
+### 1. 安全修复：换人连进来必须重新登录
+
+**问题**：`ironrdp-server` 的 display / input handler 只接受**一份**实例（builder 里 move 进去），
+所以我把登录态（username / JWT / hosts）放在 `Shared` 里就等于**全进程共享**：
+上一轮用户断开后状态还在内存里，下一个人连进来直接看到他的选单，还能点进他有权限的机器 ——
+**无授权越权**。
+
+**修法**：实现 `ConnectionHandler`（`on_accept` + `on_disconnected`），两个时机都把
+`Shared` 重置成 `State::default()`（回到未登录的登录页）并重绘：
+
+```rust
+fn on_accept(&mut self, peer: SocketAddr) -> bool {
+    self.shared.reset_for_new_connection();   // 新连接：清空上一轮的 token / hosts
+    true
+}
+fn on_disconnected(&mut self, ...) -> PostConnectionAction {
+    self.shared.reset_for_new_connection();
+    PostConnectionAction::Continue
+}
+```
+
+**现场验证**（网关日志）：
+
+```
+INFO bastion_rdp_gateway: RDP 客户端断开 peer=127.0.0.1:1042 elapsed=49.3s error=None
+INFO bastion_rdp_gateway: 新连接：会话状态已清空（未登录）
+INFO bastion_rdp_gateway: RDP 客户端接入 peer=127.0.0.1:...
+INFO bastion_rdp_gateway: 新连接：会话状态已清空（未登录）
+```
+
+再连进来看到的是**登录页**，不是上一个人的选单。
+
+> 已知边界：目前整个进程只服务一个客户端（多客户端同时连会共享同一份状态）。
+> 生产化时要按连接分配状态（`RdpServer` 每次连接新建 display/input 实例，或用 connection id 分包）。
+
+### 2. 网页端（Flask + 前端）加了 RDP 网关设置
+
+**后端**：
+
+- `app/settings_store.py` 默认值 + `app/api/settings.py` 目录项：`rdp_gateway_enabled`（bool）、
+  `rdp_gateway_port`（int，1–65535），「系统设置 → 参数设置」里自动出现；
+- `GET /api/rdp-gateway/status`（`rdp:use`）：端口是否在听、pid、二进制路径与是否存在、日志路径；
+- `POST /api/rdp-gateway/start`（管理员）：按设置端口拉起 `bastion-rdp-gateway` 进程，写 pid 文件，
+  写 `rdp_gateway_start` 审计；已在跑则幂等返回；
+- `POST /api/rdp-gateway/stop`（管理员）：按 pid 结束进程，写 `rdp_gateway_stop` 审计；
+- `tests/test_rdp_gateway_api.py` 扩到 **8 条全绿**（新增 status / start 幂等 / 二进制缺失 / stop）。
+
+**前端**：新增页面「系统设置 → RDP 网关」（`src/pages/system/rdp-gateway/index.tsx`）：
+
+- 运行状态卡（运行中 / 未运行、监听端口、`mstsc /v:<堡垒机>:<端口>` 命令、二进制与日志路径）；
+- 「启动 / 停止 / 刷新」按钮（`setting:manage` 才显示）；
+- 配置提示：开关与端口在「参数设置」里改，保存后在这里停止→启动生效；
+- 中英双语（词典 +18 条），`tsc --noEmit` 无错、`npm run build` 通过。
+
+**真机验证**：`POST /start` → `started=True pid=15036`，`GET /status` → `listening=True`；
+`GET /api/settings` 里两项都在（`启用 RDP 网关` / `RDP 网关端口`）。
+
+### 3. 还没做的（下一步）
+
+**「选中机器之后把目标机的画面接进来」仍然没有** —— 这一步需要一个 RDP **客户端**：
+
+- crates.io 上的 `ironrdp-client` 只有 `0.1.0` 占位版本，`cargo add` 之后拉进来的 `ironrdp-tls`
+  直接编不过（`a TLS backend must be selected...`），已移除；
+- 正路是用已发布的 `ironrdp-connector`（连接序列 + CredSSP/NLA）+ `ironrdp-session` 0.11
+  （画面解码）+ `ironrdp-tokio`（传输）自己拼一个最小客户端：连目标 3389 → 把解码出来的
+  帧转成网关这侧的 `BitmapUpdate` → 把网关收到的键盘/鼠标按 `ironrdp-ainput` 编码回目标机。
+- 目标机账号口令由 `POST /api/rdp-gateway/sessions` 下发（与网页 WebRDP 同一套「口令集中托管 +
+  审计留痕」的口径：新增 `rdp_credential_reveal` 类审计）。

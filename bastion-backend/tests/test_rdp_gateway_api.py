@@ -78,3 +78,47 @@ def test_gateway_open_session_rejects_missing_host(client, admin_headers):
 def test_gateway_requires_login(client):
     assert client.get("/api/rdp-gateway/hosts").status_code == 401
     assert client.post("/api/rdp-gateway/sessions", json={}).status_code == 401
+
+def test_gateway_status_reports_port_and_listening(client, admin_headers, monkeypatch):
+    from app.api import rdp_gateway as api
+
+    monkeypatch.setattr(api, "_listening", lambda port: True)
+    resp = client.get("/api/rdp-gateway/status", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert data["listening"] is True
+    assert data["port"] >= 1
+    assert "binaryExists" in data
+
+
+def test_gateway_start_is_idempotent_when_already_listening(
+    client, admin_headers, monkeypatch
+):
+    from app.api import rdp_gateway as api
+
+    monkeypatch.setattr(api, "_listening", lambda port: True)
+    resp = client.post("/api/rdp-gateway/start", headers=admin_headers)
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["started"] is False
+
+
+def test_gateway_start_reports_missing_binary(client, admin_headers, monkeypatch):
+    from pathlib import Path
+
+    from app.api import rdp_gateway as api
+
+    monkeypatch.setattr(api, "_listening", lambda port: False)
+    monkeypatch.setattr(api, "GATEWAY_BIN", Path("D:/definitely-missing/gateway.exe"))
+    resp = client.post("/api/rdp-gateway/start", headers=admin_headers)
+    assert resp.status_code == 400
+    assert "找不到网关程序" in resp.get_json()["message"]
+
+
+def test_gateway_stop_reports_not_running(client, admin_headers, monkeypatch):
+    from app.api import rdp_gateway as api
+
+    monkeypatch.setattr(api, "_read_pid", lambda: None)
+    monkeypatch.setattr(api, "_pid_alive", lambda pid: False)
+    resp = client.post("/api/rdp-gateway/stop", headers=admin_headers)
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["stopped"] is False
