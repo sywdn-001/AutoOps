@@ -60,6 +60,32 @@ Clicking "File management" on the terminal toolbar **pops up another dedicated w
 - **Everything leaves a trace**: every operation — **allowed, denied and failed** alike — writes one file audit record (user / host / session number / operation / path / target path / action / risk level / matched rule number and rule text / reason / result / byte count / duration), and is simultaneously counted into the session audit (`protocol=sftp`); failures leave a trace too (for example packaging a non-existent path → 404 plus one record with `result=failure`). Closing the window ends the SFTP session, and the "File records" page can be searched afterwards.
 - **Closing**: clicking "Close" or closing the window ends the session, and the window likewise offers a countdown and a "return to asset list" fallback.
 
+**Option D · RDP gateway (Windows' built-in `mstsc`, no client to install)**
+
+The three options above all live in the browser; when the operator only has Windows' own Remote
+Desktop client, use this:
+
+```
+mstsc /v:<bastion-host>:4489
+```
+
+- **The sign-in page lives inside the session**: connect to 4489 and the gateway draws its own
+  sign-in page; enter your **bastion account** (the same account as the web login). The first
+  connection shows a certificate warning (self-signed), accept it;
+- **The menu only lists hosts you may reach**: after signing in you get that list — arrow keys,
+  `Enter` to connect, or click a row;
+- **The target desktop is streamed into the same window**: the gateway then acts as an RDP client
+  towards the target's 3389 and streams it into this session; keyboard and mouse both work
+  (`Esc` means "back to the menu" and is not forwarded);
+- **The credential never leaves the bastion**: the backend decrypts the target account password and
+  hands it only to the gateway process; using it writes an `rdp_credential_reveal` audit entry, and
+  the session itself is a `source=gateway, protocol=rdp` row in Session records;
+- **Switch and port**: `rdp_gateway_enabled` / `rdp_gateway_port` under System settings → Parameters;
+  the System settings → RDP gateway page shows status, start/stop and diagnostics (the paths and port
+  the backend computed);
+- See [rdp-gateway.en.md](rdp-gateway.en.md) for architecture, configuration, log reading, building
+  it yourself and known limits.
+
 **Option B · SSH gateway**
 
 ```bash
