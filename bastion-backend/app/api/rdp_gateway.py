@@ -19,10 +19,14 @@ import socket
 import subprocess
 from pathlib import Path
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, Response, current_app, request
 
 from ..access import accessible_targets, serialize_target
 from ..audit import log_event, new_session
+from ..crypto import decrypt
+from ..extensions import db
+from ..models import Host, HostAccount, SessionRecord
+from ..rdp import window_bridge
 from ..security import admin_required, load_actor, permission_required
 from ..settings_store import get_int, get_setting
 from ..utils import api_error, api_ok, parse_int
@@ -192,6 +196,30 @@ def _listening(port: int) -> bool:
         return False
 
 
+def _adopt_pid(port: int) -> int | None:
+    """端口在听但没有 pid 文件（比如网关是手动 `cargo run` 起的）时，按端口把 pid 找回来，
+    这样页面上的「停止」也能用。"""
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=8
+        ).stdout
+    except Exception:  # noqa: BLE001
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or "LISTENING" not in line.upper():
+            continue
+        local = parts[1]
+        if local.endswith(f":{port}") and parts[4].isdigit():
+            pid = int(parts[4])
+            try:
+                _pid_path().write_text(str(pid), encoding="utf-8")
+            except OSError:
+                pass
+            return pid
+    return None
+
+
 @bp.get("/status")
 @permission_required("rdp:use")
 def gateway_status():
@@ -199,6 +227,8 @@ def gateway_status():
     port = _port()
     listening = _listening(port)
     pid = _read_pid()
+    if listening and not _pid_alive(pid):
+        pid = _adopt_pid(port)
     return api_ok(
         {
             "enabled": str(get_setting("rdp_gateway_enabled", "0")) in ("1", "true", "True"),
@@ -273,3 +303,127 @@ def gateway_stop():
         ip=(request.remote_addr or ""),
     )
     return api_ok({"stopped": True, "pid": pid})
+
+# --------------------------------------------------------------------------- #
+# 目标机桥：网关选中主机后，这里用 mstsc 连目标机，把画面块 + 输入在两边来回搬
+# （过渡实现，见 app/rdp/window_bridge.py 里的限制说明）
+# --------------------------------------------------------------------------- #
+def _session_or_error(sid: str):
+    record = SessionRecord.query.filter_by(sid=sid).first() if sid else None
+    if record is None:
+        return None, api_error("会话不存在或已结束", 404, code="SESSION_NOT_FOUND")
+    return record, None
+
+
+def _rdp_endpoint_port(host) -> int:
+    """RDP 端点端口：优先主机上登记的 rdp 端点，没有就用 3389（不能用 Host.port，
+    那可能是这台机器的 WinRM/SSH 端口）。"""
+    try:
+        for endpoint in host.protocol_endpoints():
+            if (getattr(endpoint, "protocol", "") or "").lower() == "rdp" and endpoint.port:
+                return int(endpoint.port)
+    except Exception:  # noqa: BLE001
+        pass
+    return 3389
+
+
+@bp.post("/connect")
+@permission_required("rdp:use")
+def gateway_connect_target():
+    """`{sid}` → 用该会话登记的主机 + 账号口令，拉起桥接用的 mstsc。"""
+    actor = load_actor()
+    if actor is None:
+        return api_error("登录状态已失效", 401, code="UNAUTHORIZED")
+    payload = request.get_json(silent=True) or {}
+    sid = str(payload.get("sid") or "")
+    record, error = _session_or_error(sid)
+    if error is not None:
+        return error
+
+    host = db.session.get(Host, record.host_id) if record.host_id else None
+    if host is None:
+        return api_error("会话对应的主机已不存在", 400, code="HOST_MISSING")
+    account = db.session.get(HostAccount, record.account_id) if record.account_id else None
+    if account is None:
+        return api_error("会话对应的账号已不存在", 400, code="ACCOUNT_MISSING")
+
+    try:
+        password = decrypt(account.secret_enc) if account.secret_enc else ""
+    except Exception as exc:  # noqa: BLE001
+        return api_error(f"口令解密失败：{exc}", 500, code="DECRYPT_FAILED")
+
+    log_event(
+        "session",
+        "rdp_credential_reveal",
+        message=f"{actor.username} 的 RDP 网关会话 {sid} 取用了 {host.name} 的账号口令（{account.username}）",
+        target_type="host",
+        target_id=host.id,
+        target_name=host.name,
+        actor=actor,
+        detail={"protocol": "rdp", "source": "gateway-bridge", "account": account.username, "sid": sid},
+        ip=(request.remote_addr or ""),
+    )
+
+    port = _rdp_endpoint_port(host)
+    try:
+        window_bridge.open_bridge(sid, host.address, port, account.username, password)
+    except window_bridge.BridgeError as exc:
+        return api_error(str(exc), 502, code="BRIDGE_FAILED")
+    except Exception as exc:  # noqa: BLE001
+        return api_error(f"桥接失败：{exc}", 500, code="BRIDGE_ERROR")
+    return api_ok({"sid": sid, "host": f"{host.address}:{port}", "width": 1280, "height": 800})
+
+
+@bp.get("/frame")
+@permission_required("rdp:use")
+def gateway_frame():
+    """目标机画面的**变化块**（二进制）：`[u32 n][n × (u16 x,y,w,h + RGBA)]`；没变化回 204。"""
+    sid = str(request.args.get("sid") or "")
+    bridge = window_bridge.bridge_for(sid)
+    if bridge is None:
+        return Response(b"", status=204)
+    try:
+        payload = bridge.frame(full=bool(request.args.get("full")))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("抓帧失败 sid=%s: %s", sid, exc)
+        return Response(b"", status=204)
+    if not payload:
+        return Response(b"", status=204)
+    return Response(payload, status=200, mimetype="application/octet-stream")
+
+
+@bp.post("/input")
+@permission_required("rdp:use")
+def gateway_input():
+    """把网关收到的键盘 / 鼠标事件转给目标机。"""
+    payload = request.get_json(silent=True) or {}
+    sid = str(payload.get("sid") or "")
+    events = payload.get("events") or []
+    bridge = window_bridge.bridge_for(sid)
+    if bridge is None:
+        return api_error("没有进行中的目标机会话", 404, code="NO_BRIDGE")
+    if not isinstance(events, list):
+        return api_error("events 必须是数组", 400, code="INVALID_ARGUMENT")
+    try:
+        bridge.send_input(events)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("转发输入失败 sid=%s: %s", sid, exc)
+        return api_error(f"转发输入失败：{exc}", 500, code="INPUT_FAILED")
+    return api_ok({"forwarded": len(events)})
+
+
+@bp.post("/disconnect")
+@permission_required("rdp:use")
+def gateway_disconnect_target():
+    payload = request.get_json(silent=True) or {}
+    sid = str(payload.get("sid") or "")
+    closed = window_bridge.close_bridge(sid)
+    if closed:
+        log_event(
+            "session",
+            "rdp_gateway_close",
+            message=f"关闭 RDP 网关会话 {sid} 的目标机连接",
+            actor=load_actor(),
+            ip=(request.remote_addr or ""),
+        )
+    return api_ok({"closed": closed})

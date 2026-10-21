@@ -122,3 +122,42 @@ def test_gateway_stop_reports_not_running(client, admin_headers, monkeypatch):
     resp = client.post("/api/rdp-gateway/stop", headers=admin_headers)
     assert resp.status_code == 200
     assert resp.get_json()["data"]["stopped"] is False
+
+def test_frame_without_bridge_is_204(client, admin_headers):
+    resp = client.get("/api/rdp-gateway/frame?sid=nope", headers=admin_headers)
+    assert resp.status_code == 204
+
+
+def test_input_without_bridge_is_404(client, admin_headers):
+    resp = client.post(
+        "/api/rdp-gateway/input", json={"sid": "nope", "events": []}, headers=admin_headers
+    )
+    assert resp.status_code == 404
+
+
+def test_connect_unknown_session_is_404(client, admin_headers):
+    resp = client.post(
+        "/api/rdp-gateway/connect", json={"sid": "does-not-exist"}, headers=admin_headers
+    )
+    assert resp.status_code == 404
+
+
+def test_bridge_tile_diff_only_sends_changed_tiles():
+    """桥的脏块编码：首帧全量，第二帧不变返回 None，改一个块只回那一块。"""
+    from app.rdp.window_bridge import TILE, TargetBridge
+
+    bridge = TargetBridge("127.0.0.1", 3389, "u", "p", width=TILE * 2, height=TILE)
+    first = bytes(TILE * 2 * TILE * 4)
+    payload = bridge._encode_tiles(first, None)
+    assert payload is not None
+    count = int.from_bytes(payload[:4], "little")
+    assert count == 2, "首帧应该回全部 2 个块"
+    assert bridge._encode_tiles(first, first) is None, "没变化不该回包"
+
+    changed = bytearray(first)
+    changed[0] = 255  # 第一个块左上角像素变了
+    payload2 = bridge._encode_tiles(bytes(changed), first)
+    assert payload2 is not None
+    assert int.from_bytes(payload2[:4], "little") == 1, "只有 1 个块变了"
+    # 块头：x=0,y=0,w=TILE,h=TILE
+    assert payload2[4:12] == bytes([0, 0, 0, 0, TILE, 0, TILE, 0])

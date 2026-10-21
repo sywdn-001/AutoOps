@@ -202,3 +202,53 @@ INFO bastion_rdp_gateway: 新连接：会话状态已清空（未登录）
   帧转成网关这侧的 `BitmapUpdate` → 把网关收到的键盘/鼠标按 `ironrdp-ainput` 编码回目标机。
 - 目标机账号口令由 `POST /api/rdp-gateway/sessions` 下发（与网页 WebRDP 同一套「口令集中托管 +
   审计留痕」的口径：新增 `rdp_credential_reveal` 类审计）。
+
+## 十、2026-10-21 深夜：通信加固 / 日志折叠 / 目标机画面桥
+
+### 1. 网关 ↔ Flask 的通信（原来写死 127.0.0.1:5000，现在可配 + 可诊断）
+
+- 地址：`BASTION_API_BASE=http://host:port` 优先，其次 `BASTION_API_PORT`，默认 `127.0.0.1:5000`
+  （`api_addr()` 解析，允许不带 `http://`）；
+- 每次调用都记一条 `debug` 日志：**方法 / 路径 / HTTP 状态码 / 耗时 ms / 响应字节数**；
+- 响应先按 `\r\n\r\n` 拆头，取状态码，**非 200 直接把后端返回的正文前 200 字带进错误信息**
+  （之前只报「响应不是 JSON」，看不出是 401 还是 404）；
+- `frame` 走二进制通道（`http_bytes`），其它接口走 JSON（`http_json`）。
+
+### 2. 日志策略：输入折叠，其余详细
+
+| 日志 | 级别 | 说明 |
+| --- | --- | --- |
+| 单个键盘 / 鼠标事件 | `trace` | 默认看不到；排查时 `RUST_LOG=...=trace` |
+| 键盘 / 鼠标累计 | `info`，每 30 条一行 | 「键盘事件累计（每 30 条汇总一次）」 |
+| 连接接入 / 断开（含对端地址、时长、错误） | `info` | `RDP 客户端接入 peer=...` |
+| 会话状态清空 | `info` | 每连接一次，确认不会串号 |
+| 登录成功 / 失败、选主机、开会话、连目标机 | `info` / `warn` | 带目标名、sid、错误原因 |
+| 后端每次调用 | `debug` | 方法/路径/状态码/耗时/字节数 |
+| 画面泵统计 | `info`，每 30 秒一行 | 键盘数、鼠标数、累计帧数 |
+
+### 3. 目标机画面桥（过渡实现，先把功能跑通）
+
+`app/rdp/window_bridge.py` + `/api/rdp-gateway/{connect,frame,input,disconnect}`：
+
+1. `connect`：按会话登记的主机 + 账号口令（`rdp_credential_reveal` 审计）用 `cmdkey` 存凭据、
+   拉起 `mstsc`（1280×800），**自动关掉「安全警告 / 证书」弹窗**，等真正的 `TscShellContainerClass` 窗口；
+2. `frame`：每 64×64 为一块比对前后帧，**只回变化的块**（`[u32 n][n × (u16 x,y,w,h + RGBA)]`），
+   没变化回 204；`?full=1` 强制回全量（网关重绘用）；
+3. `input`：把网关收到的键盘（VK）/鼠标事件用 `keybd_event` / `mouse_event` 转发给那个 mstsc 窗口；
+4. `disconnect`：关窗口 + 删凭据（`cmdkey /delete`）+ 写 `rdp_gateway_close` 审计。
+
+网关侧（Rust）：`start_target()` 调 `/connect` → 起一个 60ms 的泵：把 `pending_input` POST 到 `/input`、
+GET `/frame` 把脏块贴进 1280×800 帧缓冲 → 推给 mstsc 客户端；`Esc` 回选单并 `/disconnect`。
+
+**已实测（API 层）**：`connect` 6 秒返回、`target=192.168.0.75:3389`；`/frame` 首帧 260 块 ≈ 4.1MB、
+之后每轮只有少量脏块（0.2–2.3MB）；把脏块拼成 PNG 能看到画面内容。
+
+**当前限制（必须说清楚）**：
+
+- 抓帧是「屏幕 BitBlt 该窗口客户区」—— mstsc 用 DirectX 混合渲染，`PrintWindow` 抓出来基本全黑，
+  所以**窗口必须在前台可见**（桥每 1 秒会把 mstsc 顶到前台），这意味着流式期间这台堡垒机上
+  **桌面被占用**，不能当正式实现；
+- 目标机如果只允许一个会话，而我们连上去会把它现有的会话挤掉（实测报「你已断开连接，因为与远程
+  计算机建立了另一个连接」）—— 这不是桥的 bug，是目标机会话策略；
+- 因此「mstsc 里看到目标机桌面」这条完整链路的**现场演示**还没做到，需要一台允许新会话的目标机，
+  或者把桥换成真正的 RDP 客户端（`ironrdp-connector` + `ironrdp-session` + `ironrdp-tokio`）。
