@@ -150,7 +150,42 @@ def gateway_open_session():
 #: 仓库根（app/api/rdp_gateway.py → api → app → bastion-backend → 仓库根）
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GATEWAY_DIR = REPO_ROOT / "bastion-rdp-gateway"
-GATEWAY_BIN = GATEWAY_DIR / "target" / "release" / ("bastion-rdp-gateway.exe" if os.name == "nt" else "bastion-rdp-gateway")
+_BIN_NAME = "bastion-rdp-gateway.exe" if os.name == "nt" else "bastion-rdp-gateway"
+
+
+def _binary_candidates() -> list[Path]:
+    """网关二进制的候选位置：环境变量 > 从本文件逐级往上找 > 当前工作目录往上找。
+
+    只认死一个路径的话，仓库挪个位置、或者从别的目录启动后端，页面就会误报「未编译」。
+    """
+    name = _BIN_NAME
+    candidates: list[Path] = []
+    env = os.environ.get("BASTION_RDP_GATEWAY_BIN")
+    if env:
+        candidates.append(Path(env))
+    for base in [Path(__file__).resolve(), Path.cwd().resolve()]:
+        for parent in [base, *base.parents]:
+            candidates.append(parent / "bastion-rdp-gateway" / "target" / "release" / name)
+            if parent.name.lower() == "autoops":
+                break
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for item in candidates:
+        key = str(item).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def _resolve_binary() -> Path:
+    for candidate in _binary_candidates():
+        if candidate.exists():
+            return candidate
+    return GATEWAY_DIR / "target" / "release" / _BIN_NAME
+
+
+GATEWAY_BIN = _resolve_binary()
 
 
 def _pid_path() -> Path:
@@ -427,3 +462,27 @@ def gateway_disconnect_target():
             ip=(request.remote_addr or ""),
         )
     return api_ok({"closed": closed})
+
+@bp.get("/diagnose")
+@admin_required
+def gateway_diagnose():
+    """页面上的「诊断」：把服务端算出来的路径、端口、进程情况原样摊开，避免「-」说不清。"""
+    port = _port()
+    return api_ok(
+        {
+            "apiVersion": 2,
+            "moduleFile": str(Path(__file__).resolve()),
+            "cwd": os.getcwd(),
+            "instancePath": current_app.instance_path,
+            "binary": str(GATEWAY_BIN),
+            "binaryExists": GATEWAY_BIN.exists(),
+            "candidates": [
+                {"path": str(item), "exists": item.exists()} for item in _binary_candidates()
+            ],
+            "pidFile": str(_pid_path()),
+            "port": port,
+            "listening": _listening(port),
+            "pid": _read_pid(),
+            "enabledSetting": get_setting("rdp_gateway_enabled", "0"),
+        }
+    )

@@ -16,6 +16,21 @@ export type RdpGatewayStatus = {
   logFile: string;
 };
 
+export type RdpGatewayDiagnose = {
+  apiVersion: number;
+  moduleFile: string;
+  cwd: string;
+  instancePath: string;
+  binary: string;
+  binaryExists: boolean;
+  candidates: { path: string; exists: boolean }[];
+  pidFile: string;
+  port: number;
+  listening: boolean;
+  pid?: number | null;
+  enabledSetting: string;
+};
+
 export const rdpGatewayApi = {
   status: async (): Promise<RdpGatewayStatus> =>
     request<RdpGatewayStatus>('/api/rdp-gateway/status', { method: 'GET' }),
@@ -23,4 +38,6 @@ export const rdpGatewayApi = {
     request('/api/rdp-gateway/start', { method: 'POST' }),
   stop: async (): Promise<{ stopped: boolean; pid?: number }> =>
     request('/api/rdp-gateway/stop', { method: 'POST' }),
+  diagnose: async (): Promise<RdpGatewayDiagnose> =>
+    request<RdpGatewayDiagnose>('/api/rdp-gateway/diagnose', { method: 'GET' }),
 };
