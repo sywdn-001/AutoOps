@@ -38,6 +38,7 @@
 - **SSH 网关** — `ssh -p 2222 <堡垒机账号>@<IP>` 登录后是一个受管控的审计 shell，菜单只列有权限的主机，每条命令与输出都被记录。
 - **网页终端（Linux / Windows）** — 浏览器里直连 SSH 与 WinRM，不装本地客户端；WinRM 会话里 `cls` 就地清屏、早期按键不丢。
 - **Windows 远程桌面（WebRDP）** — 浏览器里开 RDP，含老系统（Server 2003 / XP）的强制 SSL 兜底；录像边录边传，窗口被强行关掉也不丢。
+- **RDP 网关（mstsc 直连堡垒机）** — Windows 自带「远程桌面连接」连堡垒机 **4489**，用堡垒机账号登录后，网关在会话里画一个「你有权访问的主机」选单（↑↓ / Enter / 鼠标都能选）；选中后它自己当 RDP 客户端去连目标机，把目标机画面接进这条会话。目标机口令只留在堡垒机进程里，客户端拿不到，取用会写 `rdp_credential_reveal` 审计。详见 [docs/RDP网关.md](docs/RDP网关.md)。
 - **SFTP 文件管理器** — 浏览、上传、下载、重命名、删除、改权限、打包下载，走和终端一样的授权与策略。
 - **AI 运维助手** — 自然语言下指令，按主机端点自动选通道（Linux 走 SSH、Windows 走 WinRM），敏感操作要管理员密码确认，工具调用全过程进审计。
 - **ComputerUse（让 AI 直接操作 Windows 主机）** — 系统设置里分步部署：列华为云镜像的 Python 安装包并先缓存到堡垒机 → 传包静默安装 → `pip install windows-mcp` → 写开机自启 VBS 并启动 MCP → 开 portproxy 与只放行堡垒机的防火墙 → 探活；**部署成功后**，Windows RDP 控制台右侧才会出现可收起的 ComputerUse 侧边栏，AI 经 MCP 看屏幕、点鼠标、跑 PowerShell，每一步都进审计。

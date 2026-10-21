@@ -11,6 +11,15 @@
   the built web UI are all inside this folder. No Python or Node needed on the
   target machine. Just double-click `start-autoops.bat`.
 
+【RDP 网关 / RDP gateway】
+  目录里的 `rdp-gateway\bastion-rdp-gateway.exe` 就是它：Windows 自带的 mstsc 连本机 4489，
+  用堡垒机账号登录后挑一台有权限的机器，目标机画面就显示在这个窗口里。
+  也可以在「系统设置 → RDP 网关」页面里点「启动 / 停止」由后端托管（推荐，能看状态和日志）。
+
+  The bundled `rdp-gateway\bastion-rdp-gateway.exe` is the RDP gateway: point mstsc at port 4489,
+  sign in with a bastion account and pick a host you may reach; its desktop is streamed into that
+  window. You can also start/stop it from System settings -> RDP gateway.
+
 【怎么用 / How to run】
   1. 把整个目录解压到任意位置（路径尽量不要有空格；不要只解压 exe 一个文件）。
   2. 双击 `start-autoops.bat`。

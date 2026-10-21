@@ -219,6 +219,11 @@ export default [
         component: './bastion/gateway',
       },
       {
+        name: 'RDP 网关',
+        path: '/system/rdp-gateway',
+        component: './system/rdp-gateway',
+      },
+      {
         name: 'ComputerUse 部署',
         path: '/system/computer-use',
         component: './bastion/computer-use',

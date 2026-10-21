@@ -164,6 +164,11 @@ class Config:
     GATEWAY_ENABLED = os.environ.get("BASTION_GATEWAY_ENABLED", "1") not in ("0", "false", "False")
     GATEWAY_HOST = os.environ.get("BASTION_GATEWAY_HOST", "0.0.0.0")
     GATEWAY_PORT = int(os.environ.get("BASTION_GATEWAY_PORT", "2222"))
+
+    #: RDP 网关（mstsc 连进来的选单入口，默认 4489）。
+    #: 实验分支只预留配置：RDP 服务端尚未实现，见 docs/rdp-gateway-experiment.md
+    RDP_GATEWAY_ENABLED = os.environ.get("BASTION_RDP_GATEWAY_ENABLED", "0") not in ("0", "false", "False")
+    RDP_GATEWAY_PORT = int(os.environ.get("BASTION_RDP_GATEWAY_PORT", "4489"))
     GATEWAY_HOST_KEY = str(
         os.environ.get("BASTION_GATEWAY_HOST_KEY") or (INSTANCE_DIR / "gateway_host_rsa.key")
     )

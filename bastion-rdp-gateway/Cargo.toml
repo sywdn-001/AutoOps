@@ -1,0 +1,25 @@
+[package]
+name = "bastion-rdp-gateway"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+bytes = "1.12.1"
+env_logger = "0.11.11"
+font8x8 = "0.3.1"
+ironrdp-client = { version = "0.1", default-features = false }
+ironrdp-pdu = "0.9"
+ironrdp-server = { version = "0.13", default-features = false, features = ["helper"] }
+ironrdp-tls = { version = "=0.2.2", default-features = false, features = ["rustls-ring"] }
+rcgen = "0.14.10"
+serde_json = "1"
+smallvec = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[patch.crates-io]
+tokio-rustls = { path = "vendor/tokio-rustls" }
+ironrdp-client = { path = "vendor/ironrdp-client" }

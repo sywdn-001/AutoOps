@@ -42,6 +42,7 @@
 - **SSH gateway** — `ssh -p 2222 <bastion-account>@<host>` drops you into an audited shell that lists only the machines you are allowed to reach, and records every command and its output.
 - **Web terminal (Linux / Windows)** — SSH and WinRM straight from the browser, no local client; `cls` clears locally inside a WinRM session and early keystrokes are not lost.
 - **Windows Remote Desktop (WebRDP)** — open RDP in the browser, including the forced-SSL fallback for legacy systems (Server 2003 / XP); recordings stream while they happen, so a forcibly closed window loses nothing.
+- **RDP gateway (point `mstsc` at the bastion)** — Windows' built-in Remote Desktop client connects to the bastion on **4489**; after signing in with a bastion account the gateway draws a "hosts you may reach" menu *inside the session* (arrow keys, Enter or mouse), then acts as the RDP client towards the target and streams its desktop into that session. The target credential never leaves the bastion process, and using it writes an `rdp_credential_reveal` audit entry. See [rdp-gateway.en.md](rdp-gateway.en.md).
 - **SFTP file manager** — browse, upload, download, rename, delete, chmod and archive, all under the same grants and policies as the terminal.
 - **AI operations assistant** — describe a task in natural language; the channel is picked per host endpoint (Linux → SSH, Windows → WinRM), sensitive actions require the administrator password, and every tool call is audited.
 
@@ -374,6 +375,9 @@ The entry-by-entry verification log (criteria, commands, results and screenshots
 audit pipeline and security notes in [docs/审计与安全.md](../审计与安全.md) (all Chinese).
 
 ## Documentation
+
+> The Chinese document index links every doc; the RDP gateway has a dedicated bilingual pair:
+> [../RDP网关.md](../RDP网关.md) (Chinese) · [rdp-gateway.en.md](rdp-gateway.en.md) (English).
 
 **Start with the illustrated tutorial**: [tutorial.en.md](tutorial.en.md) — bring the service up,
 onboard a host, grant access, open the web terminal, read the audit trail; all 18 steps carry a real

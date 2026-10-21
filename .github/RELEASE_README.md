@@ -44,6 +44,28 @@ WebRDP 远程桌面与录像、SFTP 文件管理器、防篡改审计链、AI �
 两份内容一样，都是**与上面那些压缩包同一次构建**的源码（`git archive` 自构建提交导出，含全部被跟踪的文件）：
 想自己编译，或者想核对「这个包到底是从哪份代码打出来的」，用它们。
 
+## 🖥️ RDP 网关（mstsc 直连堡垒机）
+
+Windows 自带的「远程桌面连接」直接连堡垒机的 **4489** 端口：
+
+```
+mstsc /v:<堡垒机地址>:4489
+```
+
+用**堡垒机账号**登录后，网关会在会话里画一个「你有权访问的主机」选单（↑↓ / Enter / 鼠标都能选），
+选中一台就把它的桌面接进这个窗口 —— 不用装任何客户端，目标机口令只留在堡垒机进程里。
+
+- **随包自带**：解压后的 `rdp-gateway\bastion-rdp-gateway.exe`（也可以在「系统设置 → RDP 网关」里点启动/停止）；
+- **单独下载**：`AutoOps-Bastion-RDP-Gateway-{{VERSION}}-windows-x64.exe`，只想升级网关时拿这个就够。
+
+用法、配置、审计与已知限制见 [docs/RDP网关.md](https://github.com/{{REPO_URL}}/blob/{{VERSION}}/docs/RDP%E7%BD%91%E5%85%B3.md)
+/ [English](https://github.com/{{REPO_URL}}/blob/{{VERSION}}/docs/i18n/rdp-gateway.en.md)。
+
+Point Windows' built-in Remote Desktop client at the bastion on port **4489**: sign in with a bastion
+account, pick a host you may reach, and its desktop is streamed into that window. The gateway ships
+inside the zip (`rdp-gateway\bastion-rdp-gateway.exe`) and is also attached separately as
+`AutoOps-Bastion-RDP-Gateway-{{VERSION}}-windows-x64.exe`.
+
 ## ⚡ 快速开始（Windows / Windows Server，免安装）
 
 1. 下载 **`AutoOps-Bastion-{{VERSION}}-windows-server-x64-py*.zip`**（32 位系统选 `x32` 那个）。
