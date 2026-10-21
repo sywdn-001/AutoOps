@@ -252,3 +252,39 @@ GET `/frame` 把脏块贴进 1280×800 帧缓冲 → 推给 mstsc 客户端；`E
   计算机建立了另一个连接」）—— 这不是桥的 bug，是目标机会话策略；
 - 因此「mstsc 里看到目标机桌面」这条完整链路的**现场演示**还没做到，需要一台允许新会话的目标机，
   或者把桥换成真正的 RDP 客户端（`ironrdp-connector` + `ironrdp-session` + `ironrdp-tokio`）。
+
+## 十一、2026-10-21 深夜：换成真正的 RDP 客户端，mstsc 里能看到目标机桌面了
+
+### 1. 为什么放弃「mstsc 窗口桥」
+
+桥能连上目标机，但抓帧只能靠屏幕 BitBlt（mstsc 是 DirectX 混合渲染，PrintWindow 出全黑），
+而 Windows 不允许后台进程把窗口顶到前台 —— 用户正在看网关窗口时，抓到的就是网关自己。
+换句话说「在网关会话里看目标机画面」和「截屏」天然冲突，这条路走不通。
+
+### 2. 现在的实现（Rust 侧自己当 RDP 客户端）
+
+- 依赖 `ironrdp-client 0.1`（IronRDP 官方的客户端引擎）+ `ironrdp-tls`（`rustls-ring` 后端，
+  避免 aws-lc 在这台机器上编不过）；
+- 上游 client 的 RDCleanPath(WebSocket) 传输需要 `tokio-tungstenite` 的 rustls 特性（会拉回 aws-lc），
+  所以把 crate **vendor 进仓库**（`bastion-rdp-gateway/vendor/ironrdp-client`），只用「直连 TCP+TLS」；
+- `RdpClient::run()` 的 future 不是 `Send`，不能 `tokio::spawn` 到多线程运行时 ——
+  给它单独开一个**单线程运行时**的线程，画面泵再开一个，两者用 mpsc 通道通信；
+- 目标机账号口令由 `POST /api/rdp-gateway/sessions` 下发（写 `rdp_credential_reveal` 审计）；
+- 画面：`RdpOutputEvent::Image` 拿到整屏 `Vec<u32>` → 贴进网关自己的 1280×800 帧缓冲（分辨率不同则最近邻缩放）；
+- 输入：网关收到的扫描码/Unicode/鼠标 → `FastPathInputEvent` → `input_sender()` 发给目标机；
+- `Esc` 回选单并关闭目标机会话。
+
+### 3. 端到端验收（真的跑通了）
+
+1. `mstsc /v:127.0.0.1:4489` → 接受自签证书 → **登录页**；
+2. 输 `rdpgw-test` / `RdpGw2026` → **选单**：`> 1. win-75 (192.168.0.75:3389) account Administrator`；
+3. 回车 → `Streaming win-75 — press Esc to go back` → 几秒后**目标机的 Windows Server 桌面
+   （服务器管理器、Hyper-V、任务栏时间）完整显示在 mstsc 窗口里**；
+4. 点目标机任务栏的「开始」→ 目标机出现「开始」提示，**鼠标输入通了**。
+
+### 4. 顺手修的两个坑
+
+- `open_session` 里有一段**重复的 `Ok(body)` 分支**（旧代码在上面），导致新的 `start_target`
+  永远不执行、屏幕上一直显示旧的 “Session recorded …” —— 这就是之前「选中主机没反应」的根因；
+- `ConfigBuilder::build()` 要求客户端 build/目录/平台/键盘等字段，缺一个就报
+  「构造 RDP 客户端配置失败」（错误被 `anyhow` 吃掉了）—— 已补齐并让错误带上下文。

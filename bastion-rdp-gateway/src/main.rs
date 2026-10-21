@@ -23,6 +23,8 @@ use ironrdp_server::{
 };
 use serde_json::Value;
 
+mod target;
+
 const WIDTH: u16 = 1280;
 const HEIGHT: u16 = 800;
 const SCALE: usize = 2;
@@ -250,8 +252,13 @@ struct State {
     /// 目标机会话
     sid: String,
     target_name: String,
-    /// 待转发给目标机的输入事件
-    pending_input: Vec<Value>,
+    /// 连目标机要用的东西（口令由后端 /sessions 下发，已审计）
+    address: String,
+    port: u16,
+    account_user: String,
+    account_pass: String,
+    /// 真正连目标机的客户端句柄
+    target: Option<target::TargetHandle>,
     /// 键盘/鼠标事件计数（日志里折叠成汇总行）
     key_events: u64,
     mouse_events: u64,
@@ -274,7 +281,11 @@ impl Default for State {
             busy: false,
             sid: String::new(),
             target_name: String::new(),
-            pending_input: Vec::new(),
+            address: String::new(),
+            port: 3389,
+            account_user: String::new(),
+            account_pass: String::new(),
+            target: None,
             key_events: 0,
             mouse_events: 0,
         }
@@ -441,16 +452,19 @@ fn render(state: &State) -> Vec<u8> {
 
 struct Shared {
     state: Mutex<State>,
-    frame: Mutex<Vec<u8>>,
-    version: AtomicU64,
+    frame: Arc<Mutex<Vec<u8>>>,
+    version: Arc<AtomicU64>,
+    /// 起目标机客户端要用的 tokio 句柄（在 tokio 里创建 Shared 时抓一次）
+    rt: tokio::runtime::Handle,
 }
 
 impl Shared {
     fn new() -> Self {
         let shared = Self {
             state: Mutex::new(State::default()),
-            frame: Mutex::new(Vec::new()),
-            version: AtomicU64::new(0),
+            frame: Arc::new(Mutex::new(Vec::new())),
+            version: Arc::new(AtomicU64::new(0)),
+            rt: tokio::runtime::Handle::current(),
         };
         shared.redraw();
         shared
@@ -585,15 +599,13 @@ impl Shared {
             state.busy = false;
             match result {
                 Ok(body) => {
-                    let sid = body["data"]["sid"].as_str().unwrap_or("");
-                    state.notice = format!(
-                        "Session recorded (sid {sid}) — next: stream {} here",
-                        host.name
-                    );
-                }
-                Ok(body) => {
                     let sid = body["data"]["sid"].as_str().unwrap_or("").to_string();
+                    let cred = &body["data"]["credential"];
                     state.sid = sid.clone();
+                    state.address = cred["address"].as_str().unwrap_or("").to_string();
+                    state.port = cred["port"].as_u64().unwrap_or(3389) as u16;
+                    state.account_user = cred["username"].as_str().unwrap_or("").to_string();
+                    state.account_pass = cred["password"].as_str().unwrap_or("").to_string();
                     drop(state);
                     shared.redraw();
                     shared.start_target(&host.name, &sid);
@@ -606,9 +618,10 @@ impl Shared {
         });
     }
 
-    /// 选中主机之后：让后端用 mstsc 连目标机，然后起一个「取帧 + 转发输入」的泵。
+    /// 选中主机之后：用 ironrdp-client 直接连目标机（后端已下发账号口令），
+    /// 目标机画面由 target::start 里的画面泵写进本进程的帧缓冲。
     fn start_target(self: &Arc<Self>, name: &str, sid: &str) {
-        {
+        let (address, port, user, pass) = {
             let mut st = self.state.lock().unwrap();
             if st.busy {
                 return;
@@ -616,25 +629,47 @@ impl Shared {
             st.busy = true;
             st.target_name = name.to_string();
             st.notice = format!("Connecting to {name} ...");
-        }
+            (
+                st.address.clone(),
+                st.port,
+                st.account_user.clone(),
+                st.account_pass.clone(),
+            )
+        };
         self.redraw();
         let shared = Arc::clone(self);
         let name = name.to_string();
         let sid = sid.to_string();
+        let rt = self.rt.clone();
         std::thread::spawn(move || {
-            let token = shared.state.lock().unwrap().token.clone();
-            let payload = serde_json::json!({ "sid": sid }).to_string();
-            let result = http_json("POST", "/api/rdp-gateway/connect", Some(&payload), Some(&token));
+            tracing::info!(target = %name, %address, port, user = %user, "开始连目标机");
+            let spec = target::TargetSpec {
+                host: address.clone(),
+                port,
+                username: user.clone(),
+                password: pass,
+                width: WIDTH,
+                height: HEIGHT,
+            };
+            let frame = Arc::clone(&shared.frame);
+            let version = Arc::clone(&shared.version);
+            let started = std::time::Instant::now();
+            let result = target::start(spec, frame, version, WIDTH, HEIGHT);
             let mut st = shared.state.lock().unwrap();
             st.busy = false;
             match result {
-                Ok(_) => {
+                Ok(handle) => {
                     st.screen = Screen::Target;
                     st.notice.clear();
-                    tracing::info!(target = %name, sid = %sid, "目标机已连上，开始推画面");
+                    st.target = Some(handle);
+                    tracing::info!(
+                        target = %name,
+                        sid = %sid,
+                        ms = started.elapsed().as_millis() as u64,
+                        "目标机已连上，开始推画面"
+                    );
                     drop(st);
                     shared.redraw();
-                    shared.spawn_pump(sid.clone(), token);
                 }
                 Err(err) => {
                     st.notice = format!("连接目标机失败：{err}");
@@ -646,100 +681,19 @@ impl Shared {
         });
     }
 
-    /// 取帧 + 把输入队列发出去，60ms 一轮；离开 Target 屏自动退出。
-    fn spawn_pump(self: &Arc<Self>, sid: String, token: String) {
-        let shared = Arc::clone(self);
-        std::thread::spawn(move || {
-            let mut last_summary = std::time::Instant::now();
-            let mut frames = 0u64;
-            loop {
-                let (events, active, keys, mouses) = {
-                    let mut st = shared.state.lock().unwrap();
-                    let events = std::mem::take(&mut st.pending_input);
-                    (events, st.screen == Screen::Target, st.key_events, st.mouse_events)
-                };
-                if !active {
-                    break;
-                }
-                if !events.is_empty() {
-                    let payload = serde_json::json!({ "sid": sid, "events": events }).to_string();
-                    if let Err(err) =
-                        http_json("POST", "/api/rdp-gateway/input", Some(&payload), Some(&token))
-                    {
-                        tracing::debug!(%err, "转发输入失败");
-                    }
-                }
-                match http_bytes("GET", &format!("/api/rdp-gateway/frame?sid={sid}"), Some(&token)) {
-                    Ok((200, body)) => {
-                        shared.apply_tiles(&body);
-                        frames += 1;
-                    }
-                    Ok((204, _)) => {}
-                    Ok((code, _)) => tracing::warn!(code, "帧接口返回异常"),
-                    Err(err) => tracing::debug!(%err, "取帧失败"),
-                }
-                if last_summary.elapsed() >= Duration::from_secs(30) {
-                    tracing::info!(keys, mouses, frames, "输入与画面汇总（累计）");
-                    last_summary = std::time::Instant::now();
-                }
-                std::thread::sleep(Duration::from_millis(60));
-            }
-            tracing::info!(frames, "画面泵已退出");
-        });
-    }
-
-    /// 把「变化块」贴进帧缓冲：`[u32 n][n × (u16 x,y,w,h + RGBA)]`
-    fn apply_tiles(&self, body: &[u8]) {
-        if body.len() < 4 {
-            return;
-        }
-        let count = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
-        let mut offset = 4usize;
-        let mut frame = self.frame.lock().unwrap();
-        if frame.len() != WIDTH as usize * HEIGHT as usize * 4 {
-            frame.resize(WIDTH as usize * HEIGHT as usize * 4, 0);
-        }
-        for _ in 0..count {
-            if offset + 8 > body.len() {
-                break;
-            }
-            let x = u16::from_le_bytes([body[offset], body[offset + 1]]) as usize;
-            let y = u16::from_le_bytes([body[offset + 2], body[offset + 3]]) as usize;
-            let w = u16::from_le_bytes([body[offset + 4], body[offset + 5]]) as usize;
-            let h = u16::from_le_bytes([body[offset + 6], body[offset + 7]]) as usize;
-            offset += 8;
-            let size = w * h * 4;
-            if offset + size > body.len() || w == 0 || h == 0 {
-                break;
-            }
-            for row in 0..h {
-                let dst_y = y + row;
-                if dst_y >= HEIGHT as usize || x + w > WIDTH as usize {
-                    break;
-                }
-                let dst = (dst_y * WIDTH as usize + x) * 4;
-                if dst + w * 4 > frame.len() {
-                    break;
-                }
-                frame[dst..dst + w * 4]
-                    .copy_from_slice(&body[offset + row * w * 4..offset + (row + 1) * w * 4]);
-            }
-            offset += size;
-        }
-        drop(frame);
-        self.version.fetch_add(1, Ordering::SeqCst);
-    }
-
     fn stop_target(self: &Arc<Self>) {
-        let (sid, token) = {
+        let (sid, token, handle) = {
             let mut st = self.state.lock().unwrap();
             if st.screen != Screen::Target {
                 return;
             }
             st.screen = Screen::Menu;
             st.notice = "已断开目标机".to_string();
-            (st.sid.clone(), st.token.clone())
+            (st.sid.clone(), st.token.clone(), st.target.take())
         };
+        if let Some(handle) = handle {
+            handle.close();
+        }
         tracing::info!(sid = %sid, "离开目标机画面");
         self.redraw();
         std::thread::spawn(move || {
@@ -747,6 +701,7 @@ impl Shared {
             let _ = http_json("POST", "/api/rdp-gateway/disconnect", Some(&payload), Some(&token));
         });
     }
+
 }
 
 struct GatewayConnectionHandler {
@@ -853,14 +808,9 @@ impl RdpServerInputHandler for GatewayInput {
                         }
                     }
                     (Screen::Target, Some(c)) if !c.is_control() => {
-                        let vk = char_to_vk(c);
-                        if vk != 0 {
-                            state
-                                .pending_input
-                                .push(serde_json::json!({"kind": "key", "vk": vk, "down": true}));
-                            state
-                                .pending_input
-                                .push(serde_json::json!({"kind": "key", "vk": vk, "down": false}));
+                        if let Some(handle) = state.target.as_ref() {
+                            handle.send_unicode(c as u16, true);
+                            handle.send_unicode(c as u16, false);
                         }
                     }
                     _ => {}
@@ -931,11 +881,8 @@ impl RdpServerInputHandler for GatewayInput {
                             shared.stop_target();
                             return;
                         }
-                        let vk = scan_to_vk(code, extended);
-                        if vk != 0 {
-                            state
-                                .pending_input
-                                .push(serde_json::json!({"kind": "key", "vk": vk, "down": true}));
+                        if let Some(handle) = state.target.as_ref() {
+                            handle.send_key(code, extended, true);
                         }
                     }
                 }
@@ -953,11 +900,8 @@ impl RdpServerInputHandler for GatewayInput {
                 }
                 let mut state = shared.state.lock().unwrap();
                 if state.screen == Screen::Target {
-                    let vk = scan_to_vk(code, extended);
-                    if vk != 0 {
-                        state
-                            .pending_input
-                            .push(serde_json::json!({"kind": "key", "vk": vk, "down": false}));
+                    if let Some(handle) = state.target.as_ref() {
+                        handle.send_key(code, extended, false);
                     }
                 }
             }
@@ -970,7 +914,13 @@ impl RdpServerInputHandler for GatewayInput {
         let shared = Arc::clone(&self.shared);
         match event {
             MouseEvent::Move { x, y } => {
-                shared.state.lock().unwrap().mouse = (x, y);
+                let mut state = shared.state.lock().unwrap();
+                state.mouse = (x, y);
+                if state.screen == Screen::Target {
+                    if let Some(handle) = state.target.as_ref() {
+                        handle.send_mouse(x, y, target::MouseButton::None, false);
+                    }
+                }
             }
             MouseEvent::LeftPressed => {
                 let mut state = shared.state.lock().unwrap();
@@ -986,9 +936,9 @@ impl RdpServerInputHandler for GatewayInput {
                         }
                     }
                     Screen::Target => {
-                        state
-                            .pending_input
-                            .push(serde_json::json!({"kind": "mouse", "x": x, "y": y, "action": "down"}));
+                        if let Some(handle) = state.target.as_ref() {
+                            handle.send_mouse(x, y, target::MouseButton::Left, true);
+                        }
                         drop(state);
                     }
                     _ => {}
@@ -999,9 +949,9 @@ impl RdpServerInputHandler for GatewayInput {
                 state.mouse_events += 1;
                 let (x, y) = state.mouse;
                 if state.screen == Screen::Target {
-                    state
-                        .pending_input
-                        .push(serde_json::json!({"kind": "mouse", "x": x, "y": y, "action": "up"}));
+                    if let Some(handle) = state.target.as_ref() {
+                        handle.send_mouse(x, y, target::MouseButton::Left, false);
+                    }
                 }
                 let total = state.mouse_events;
                 drop(state);
@@ -1013,9 +963,10 @@ impl RdpServerInputHandler for GatewayInput {
                 let mut state = shared.state.lock().unwrap();
                 let (x, y) = state.mouse;
                 if state.screen == Screen::Target {
-                    state
-                        .pending_input
-                        .push(serde_json::json!({"kind": "mouse", "x": x, "y": y, "action": "right"}));
+                    if let Some(handle) = state.target.as_ref() {
+                        handle.send_mouse(x, y, target::MouseButton::Right, true);
+                        handle.send_mouse(x, y, target::MouseButton::Right, false);
+                    }
                 }
             }
             _ => {}

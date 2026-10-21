@@ -134,6 +134,32 @@ def gateway_open_session():
         },
         ip=client_ip.split(",")[0].strip(),
     )
+    # 目标机连接信息：网关要自己当 RDP 客户端连 3389，需要地址/端口/账号/口令。
+    # 口令下发按项目既有口径写一条 rdp_credential_reveal 审计（谁、何时、取了哪个账号的口令）。
+    host_row = db.session.get(Host, host_id)
+    account_row = db.session.get(HostAccount, int(account.get("id") or 0))
+    password = ""
+    if account_row is not None and account_row.secret_enc:
+        try:
+            password = decrypt(account_row.secret_enc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("会话 %s 解密账号口令失败：%s", record.sid, exc)
+    port = _rdp_endpoint_port(host_row) if host_row is not None else 3389
+    address = (host_row.address if host_row is not None else "") or ""
+    log_event(
+        "session",
+        "rdp_credential_reveal",
+        message=(
+            f"{actor.username} 的 RDP 网关会话 {record.sid} 取用了 "
+            f"{target.get('hostName')} 的账号口令（{account.get('username')}）"
+        ),
+        target_type="host",
+        target_id=host_id,
+        target_name=target.get("hostName") or "",
+        actor=actor,
+        detail={"protocol": "rdp", "source": "gateway-client", "sid": record.sid},
+        ip=client_ip.split(",")[0].strip(),
+    )
     return api_ok(
         {
             "sid": record.sid,
@@ -141,6 +167,12 @@ def gateway_open_session():
             "hostName": target.get("hostName") or "",
             "accountId": int(account.get("id") or 0),
             "accountUsername": account.get("username") or "",
+            "credential": {
+                "address": address,
+                "port": port,
+                "username": account.get("username") or "",
+                "password": password,
+            },
         }
     )
 
