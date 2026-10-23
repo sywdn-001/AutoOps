@@ -104,6 +104,7 @@ function buildApp(antd, runtime) {
     Descriptions,
     Divider,
     Empty,
+    Flex,
     Input,
     Modal,
     Popconfirm,
@@ -148,6 +149,7 @@ function buildApp(antd, runtime) {
     const [logs, setLogs] = React.useState(null);
     const [logsError, setLogsError] = React.useState('');
     const [logsLoading, setLogsLoading] = React.useState(false);
+    const logRef = React.useRef(null);
 
     const loadStatus = React.useCallback(async () => {
       const data = await api('/status');
@@ -204,6 +206,14 @@ function buildApp(antd, runtime) {
     React.useEffect(() => {
       loadLogs();
     }, [loadLogs]);
+
+    React.useEffect(() => {
+      const ref = logRef.current;
+      const el = ref && (ref.resizableTextArea ? ref.resizableTextArea.textArea : ref);
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }, [logs]);
 
     const runAction = React.useCallback(
       async (name, action, successText) => {
@@ -365,36 +375,45 @@ function buildApp(antd, runtime) {
         title: '名称',
         dataIndex: 'hostName',
         key: 'hostName',
+        width: 180,
         render: (value, record) =>
           e(
-            Space,
-            { size: 4 },
-            e(Text, { strong: true }, value || `主机 #${record.hostId}`),
-            record.groupName ? e(Tag, null, record.groupName) : null,
+            Flex,
+            { vertical: true, gap: 2 },
+            e(
+              Text,
+              { strong: true, style: { whiteSpace: 'nowrap' } },
+              value || `主机 #${record.hostId}`,
+            ),
+            record.groupName
+              ? e(Tag, { style: { marginInlineEnd: 0 } }, record.groupName)
+              : null,
           ),
       },
       {
         title: '地址',
         dataIndex: 'address',
         key: 'address',
-        render: (value) => e(Text, { code: true }, value || '—'),
+        width: 150,
+        render: (value) =>
+          e(Text, { code: true, style: { whiteSpace: 'nowrap' } }, value || '—'),
       },
       {
         title: '端口',
         dataIndex: 'port',
         key: 'port',
-        width: 80,
+        width: 70,
       },
       {
         title: '协议',
         key: 'protocol',
-        width: 90,
+        width: 70,
         render: () => e(Tag, { color: 'blue' }, 'RDP'),
       },
       {
         title: '在线',
         key: 'online',
-        width: 90,
+        width: 70,
         render: () =>
           e(
             Tag,
@@ -405,7 +424,7 @@ function buildApp(antd, runtime) {
       {
         title: '登录账号',
         key: 'account',
-        width: 190,
+        width: 170,
         render: (value, record) => {
           const accounts = Array.isArray(record.accounts) ? record.accounts : [];
           if (!accounts.length) return e(Text, { type: 'secondary' }, '未授权账号');
@@ -419,7 +438,7 @@ function buildApp(antd, runtime) {
               : options[0].value;
           return e(Select, {
             size: 'small',
-            style: { minWidth: 150 },
+            style: { minWidth: 130, maxWidth: 160 },
             value: selected,
             options,
             onChange: (next) =>
@@ -432,7 +451,7 @@ function buildApp(antd, runtime) {
       {
         title: '操作',
         key: 'action',
-        width: 90,
+        width: 80,
         render: (value, record) => {
           const hasAccount =
             Array.isArray(record.accounts) && record.accounts.length > 0;
@@ -512,6 +531,7 @@ function buildApp(antd, runtime) {
       {
         key: 'command',
         label: '连接地址',
+        span: 2,
         children: e(
           Space,
           { size: 4, wrap: true },
@@ -528,13 +548,9 @@ function buildApp(antd, runtime) {
         ),
       },
       {
-        key: 'binary',
-        label: '网关程序',
-        children: e(
-          Text,
-          { code: true, ellipsis: { tooltip: binary } },
-          binary || '未找到',
-        ),
+        key: 'localIp',
+        label: '本机地址',
+        children: (status && status.localIp) || '—',
       },
       {
         key: 'pid',
@@ -547,16 +563,31 @@ function buildApp(antd, runtime) {
         children: formatTime(status && status.startedAt),
       },
       {
-        key: 'localIp',
-        label: '本机地址',
-        children: (status && status.localIp) || '—',
+        key: 'version',
+        label: '模块版本',
+        children: (status && status.moduleVersion) || '1.2.0',
+      },
+      {
+        key: 'binary',
+        label: '网关程序',
+        span: 2,
+        children: e(
+          Text,
+          { code: true, ellipsis: { tooltip: binary } },
+          binary || '未找到',
+        ),
       },
       {
         key: 'logFile',
         label: '日志文件',
+        span: 2,
         children: e(
           Text,
-          { code: true, copyable: { text: logFile } },
+          {
+            code: true,
+            copyable: { text: logFile },
+            style: { wordBreak: 'break-all' },
+          },
           logFile || '—',
         ),
       },
@@ -640,64 +671,12 @@ function buildApp(antd, runtime) {
         Card,
         {
           key: 'status',
+          size: 'small',
           title: '网关状态',
           extra: e(
-            Space,
-            { size: 8, wrap: true },
-            e(
-              Popconfirm,
-              {
-                title: '启动 RDP 网关？',
-                description: `将在端口 ${port} 上监听远程桌面连接。`,
-                onConfirm: startGateway,
-                disabled: !isAdmin || running,
-              },
-              e(
-                Button,
-                {
-                  type: 'primary',
-                  disabled: !isAdmin || running,
-                  loading: actionLoading === 'start',
-                },
-                '启动',
-              ),
-            ),
-            e(
-              Popconfirm,
-              {
-                title: '停止 RDP 网关？',
-                description: '正在连接的 mstsc 会话会被断开。',
-                onConfirm: stopGateway,
-                okButtonProps: { danger: true },
-                disabled: !isAdmin || !running,
-              },
-              e(
-                Button,
-                {
-                  danger: true,
-                  disabled: !isAdmin || !running,
-                  loading: actionLoading === 'stop',
-                },
-                '停止',
-              ),
-            ),
-            e(
-              Button,
-              {
-                onClick: () => refresh(false),
-                loading: refreshing,
-              },
-              '刷新',
-            ),
-            e(
-              Button,
-              {
-                disabled: !isAdmin,
-                loading: actionLoading === 'diagnose',
-                onClick: openDiagnose,
-              },
-              '诊断',
-            ),
+            Tag,
+            { color: running ? 'green' : 'default' },
+            running ? '运行中' : '已停止',
           ),
         },
         e(
@@ -745,6 +724,7 @@ function buildApp(antd, runtime) {
         Card,
         {
           key: 'hosts',
+          size: 'small',
           title: '目标机',
           extra: e(
             Space,
@@ -763,7 +743,6 @@ function buildApp(antd, runtime) {
           dataSource: hosts,
           loading: refreshing,
           pagination: false,
-          scroll: { x: 960 },
           locale: {
             emptyText: e(Empty, { description: '当前账号没有可用的 RDP 资产' }),
           },
@@ -777,6 +756,7 @@ function buildApp(antd, runtime) {
         Card,
         {
           key: 'sessions',
+          size: 'small',
           title: '会话',
           extra: sessions.length ? e(Tag, { color: 'blue' }, `${sessions.length} 条`) : null,
         },
@@ -800,6 +780,7 @@ function buildApp(antd, runtime) {
         Card,
         {
           key: 'settings',
+          size: 'small',
           title: '参数设置',
           extra: e(
             Button,
@@ -813,7 +794,7 @@ function buildApp(antd, runtime) {
         },
         e(Descriptions, {
           size: 'small',
-          column: { xs: 1, md: 2 },
+          column: 1,
           items: [
             {
               key: 'enabled',
@@ -836,11 +817,6 @@ function buildApp(antd, runtime) {
                 text: status && status.autoStart ? '已开启' : '已关闭',
               }),
             },
-            {
-              key: 'version',
-              label: '模块版本',
-              children: (status && status.moduleVersion) || '1.1.0',
-            },
           ],
         }),
         e(
@@ -856,6 +832,7 @@ function buildApp(antd, runtime) {
         Card,
         {
           key: 'logs',
+          size: 'small',
           title: '日志',
           extra: e(
             Space,
@@ -883,9 +860,10 @@ function buildApp(antd, runtime) {
             })
           : null,
         e(Input.TextArea, {
+          ref: logRef,
           value: (logs && logs.lines ? logs.lines : []).join('\n'),
           readOnly: true,
-          rows: 10,
+          rows: 12,
           placeholder: '暂无日志；启动网关后这里会显示 gateway.log 的末尾内容。',
           style: { fontFamily: 'Consolas, Menlo, monospace' },
         }),
@@ -898,6 +876,134 @@ function buildApp(antd, runtime) {
         ),
       ),
     );
+
+    const quickCard = e(
+      Card,
+      {
+        key: 'quick',
+        size: 'small',
+        title: '快捷操作',
+      },
+      e(
+        Space,
+        { direction: 'vertical', size: 12, style: { width: '100%' } },
+        e(
+          Space,
+          { wrap: true },
+          e(
+            Popconfirm,
+            {
+              title: '启动 RDP 网关？',
+              description: `将在端口 ${port} 上监听远程桌面连接。`,
+              onConfirm: startGateway,
+              disabled: !isAdmin || running,
+            },
+            e(
+              Button,
+              {
+                type: 'primary',
+                disabled: !isAdmin || running,
+                loading: actionLoading === 'start',
+              },
+              '启动',
+            ),
+          ),
+          e(
+            Popconfirm,
+            {
+              title: '停止 RDP 网关？',
+              description: '正在连接的 mstsc 会话会被断开。',
+              onConfirm: stopGateway,
+              okButtonProps: { danger: true },
+              disabled: !isAdmin || !running,
+            },
+            e(
+              Button,
+              {
+                danger: true,
+                disabled: !isAdmin || !running,
+                loading: actionLoading === 'stop',
+              },
+              '停止',
+            ),
+          ),
+          e(
+            Button,
+            {
+              onClick: () => refresh(false),
+              loading: refreshing,
+            },
+            '刷新',
+          ),
+          e(
+            Button,
+            {
+              disabled: !isAdmin,
+              loading: actionLoading === 'diagnose',
+              onClick: openDiagnose,
+            },
+            '诊断',
+          ),
+        ),
+        e(
+          Button,
+          {
+            block: true,
+            onClick: () => copyText(command, messageApi),
+          },
+          '复制连接地址',
+        ),
+        e(
+          Text,
+          {
+            type: 'secondary',
+            ellipsis: { tooltip: command },
+            style: { maxWidth: '100%' },
+          },
+          command,
+        ),
+      ),
+    );
+
+    const cards = {};
+    const alerts = [];
+    content.forEach((item) => {
+      if (item && ['status', 'hosts', 'sessions', 'settings', 'logs'].includes(item.key)) {
+        cards[item.key] = item;
+      } else {
+        alerts.push(item);
+      }
+    });
+
+    const layout = [
+      ...alerts,
+      cards.status,
+      e(
+        Row,
+        { gutter: [16, 16] },
+        e(
+          Col,
+          { xs: 24, xl: 16 },
+          e(
+            Space,
+            { direction: 'vertical', size: 16, style: { width: '100%' } },
+            cards.hosts,
+            cards.sessions,
+          ),
+        ),
+        e(
+          Col,
+          { xs: 24, xl: 8 },
+          e(
+            Space,
+            { direction: 'vertical', size: 16, style: { width: '100%' } },
+            cards.settings,
+            quickCard,
+          ),
+        ),
+      ),
+      cards.logs,
+    ];
 
     const diagnoseContent = diagnose
       ? e(
@@ -979,7 +1085,7 @@ function buildApp(antd, runtime) {
       e(
         Space,
         { direction: 'vertical', size: 16, style: { width: '100%' } },
-        content,
+        layout,
       ),
       e(
         Modal,

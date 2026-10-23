@@ -106,6 +106,90 @@ export const moduleText = (text: ModuleText | null | undefined, fallback = ''): 
   return (isEnglish() ? en || zh : zh || en) || fallback;
 };
 
+/** upload-check 结果暂存到 localStorage 的 key 前缀；预览窗口靠 hash 里的 token 取用。 */
+export const MODULE_PREVIEW_STORAGE_PREFIX = 'module-preview:';
+
+/** 预览窗口安装成功后写入的信号前缀：主窗口监听 storage 事件刷新列表。 */
+export const MODULE_INSTALLED_STORAGE_PREFIX = 'module-installed:';
+
+export const modulePreviewStorageKey = (token: string): string =>
+  `${MODULE_PREVIEW_STORAGE_PREFIX}${token}`;
+
+export const createModulePreviewToken = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `mp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+export const writeModulePreview = (
+  token: string,
+  preview: ModulePreview,
+): boolean => {
+  try {
+    window.localStorage.setItem(
+      modulePreviewStorageKey(token),
+      JSON.stringify(preview),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const readModulePreview = (token: string): ModulePreview | null => {
+  try {
+    const raw = window.localStorage.getItem(modulePreviewStorageKey(token));
+    return raw ? normalizePreview(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 通知同源的主窗口「这个模块装好了」（storage 事件只在其它窗口写入时触发）。
+ * 写失败不影响安装结果，返回是否写入成功。
+ */
+export const notifyModuleInstalled = (moduleId: string): boolean => {
+  try {
+    window.localStorage.setItem(
+      `${MODULE_INSTALLED_STORAGE_PREFIX}${moduleId}`,
+      String(Date.now()),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** 预览阶段的静态资源地址（后端按 preview token 提供短期有效的 images/web 资源）。 */
+export const modulePreviewAssetUrl = (
+  token: string,
+  path: string,
+): string => {
+  const relative = (path ?? '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/^(\.\/)+/, '');
+  const encoded = relative
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return `/api/modules/preview/${encodeURIComponent(token)}/asset/${encoded}`;
+};
+
+/** 预览图片地址：优先用后端下发的短期 URL，缺失时按 token + 包内路径兜底。 */
+export const modulePreviewImageUrl = (
+  token: string,
+  image: ModuleImage,
+): string => {
+  if (image.url) {
+    return image.url;
+  }
+  return modulePreviewAssetUrl(token, image.path);
+};
+
 /** 把 nav.path 补成最终 URL（后端正常已带 `/m/<id>` 前缀，这里只兜底）。 */
 const normalizeModulePath = (value: unknown, moduleId: string): string => {
   const raw = (asString(value) ?? '').trim().replace(/\\/g, '/');
@@ -228,7 +312,6 @@ const normalizeModule = (raw: unknown): ModuleItem => {
     permissions: asStringArray(record.permissions),
     requires: asStringArray(record.requires),
     reserved: typeof record.reserved === 'boolean' ? record.reserved : undefined,
-    builtin: typeof record.builtin === 'boolean' ? record.builtin : undefined,
     enabled: asFlag(record.enabled),
     loaded: asFlag(record.loaded),
     installedAt: asString(record.installedAt),
@@ -245,6 +328,12 @@ const normalizePreview = (raw: unknown): ModulePreview => {
     ...module,
     installable: record.installable === undefined ? true : asFlag(record.installable),
     issues: asStringArray(record.issues),
+    warnings: asStringArray(record.warnings),
+    readme: asString(record.readme) ?? '',
+    readmeName: asString(record.readmeName) ?? '',
+    fileCount: asNumber(record.fileCount),
+    folders: asStringArray(record.folders),
+    previewToken: asString(record.previewToken),
   };
 };
 
@@ -334,16 +423,10 @@ export const matchModuleNav = <T extends { path: string }>(
 export const moduleApi = {
   /** 已安装模块列表（需要 `setting:view`）。 */
   list: async (): Promise<ModuleItem[]> => {
-    const body = await request<ApiData<unknown>>('/api/modules', {
-      method: 'GET',
-    });
-    // 兼容两种返回形态：带 `{ success, data: [...] }` 信封，或已被解包成数组。
-    const source =
-      asList(body).length > 0
-        ? body
-        : (body as ApiData<unknown> | undefined)?.data;
-    const items = asList(source).map((item) => normalizeModule(item));
-    return items;
+    const raw = await unwrap(
+      request<ApiData<unknown>>('/api/modules', { method: 'GET' }),
+    );
+    return asList(raw).map((item) => normalizeModule(item));
   },
 
   /** 模块详情（需要 `setting:view`；宿主页无权限时改用 `nav()`）。 */
@@ -397,6 +480,25 @@ export const moduleApi = {
           method: 'POST',
           data,
         }),
+      ),
+    );
+  },
+
+  /** 在预览窗口里安装：用 upload-check 产生的 preview token 落盘安装。 */
+  installPreview: async (
+    previewToken: string,
+    ack?: string,
+  ): Promise<ModuleItem> => {
+    return normalizeModule(
+      await unwrap(
+        request<ApiData<unknown>>(
+          `/api/modules/preview/${encodeURIComponent(previewToken)}/install`,
+          {
+            method: 'POST',
+            // 后端用 request.get_json() 读 ack；非实验性模块也显式传空串。
+            data: { ack: ack ?? '' },
+          },
+        ),
       ),
     );
   },

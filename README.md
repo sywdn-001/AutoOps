@@ -324,16 +324,20 @@ AutoOps/
 │   │   ├── rdp/                # WebRDP 网关与录像
 │   │   ├── winrm/              # WinRM 字符会话（Windows 网页终端）
 │   │   ├── ai/                 # AI 运维助手（工具注册 + 模型客户端）
+│   │   ├── modules/            # 扩展模块系统：.mod.ops_ext 安装、注册、ctx 与 autoops.bastion SDK
 │   │   ├── models.py access.py session_service.py policy.py audit.py
 │   │   └── schema_sync.py      # 启动时「只加不减」地补齐表结构
-│   ├── tests/                  # 749 个用例 / 35 个文件
+│   ├── tests/                  # 839 个用例 / 42 个文件
 │   ├── tools/                  # 演示目标机、四套联调脚本、审计链校验、README 配图生成器
 │   └── instance/               # 运行时数据（SQLite、密钥、录像）——已在 .gitignore
 ├── ant-design-pro/             # 前端：Ant Design Pro 6 + Umi Max 4，业务页全部重写
 │   └── src/pages/bastion/      # 堡垒机业务页（资产、终端、文件、远程桌面、审计…）
+├── modules-src/                # 扩展模块源码：hello-bastion / js-demo / rdp-gateway
+│                               # 打包后是仓库根的 *.mod.ops_ext，宿主不预装任何模块
 ├── docs/
 │   ├── 图文教程.md              # 逐步配图的操作教程（中）
 │   ├── 使用手册.md 审计与安全.md 需求对照.md 验证记录.md
+│   ├── modules/                # 扩展模块开发白皮书 + 模块契约（第三方开发看这里）
 │   ├── i18n/                   # 英文：README.en.md、manual.en.md、tutorial.en.md
 │   └── screenshots/            # 60+ 张实测截图（含 tutorial/ 教程配图）
 ├── LICENSE  README.md
@@ -407,6 +411,8 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
+| [docs/modules/WHITEPAPER.md](docs/modules/WHITEPAPER.md) | — | **扩展模块开发白皮书**：包结构、`description.json` 全字段、Python 生命周期与 `ctx`、`autoops.bastion` SDK、两种 Web UI 模式、打包安装卸载、版本兼容、排障与一份全流程走查 |
+| [docs/modules/CONTRACT.md](docs/modules/CONTRACT.md) | — | 模块系统契约（白皮书的权威依据）：包格式、REST 接口、归一化字段、错误码 |
 | [docs/提交PR指南.md](docs/提交PR指南.md) | [pr-guide.en.md](docs/i18n/pr-guide.en.md) | 提 PR 之前看这篇：分支与提交信息、门禁怎么跑、说明怎么写、自检清单 |
 | [docs/提交Issue指南.md](docs/提交Issue指南.md) | [issue-guide.en.md](docs/i18n/issue-guide.en.md) | 提 issue 之前看这篇：模板怎么填、环境与复现步骤写到什么程度 |
 | **[Wiki 使用手册](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | 按主题拆开的 15 篇：安装部署、快速上手、资产与账号、身份与授权、策略、网页终端与文件、远程桌面与录像、SSH 网关、审计中心、AI 助手、系统设置、安全维护、升级备份、FAQ、故障排查 |

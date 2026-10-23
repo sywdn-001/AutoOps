@@ -865,10 +865,8 @@ export type ModuleItem = {
   settings: ModuleSetting[];
   permissions: string[];
   requires: string[];
-  /** 保留 id（core/system/admin/modules/_builtin），不可安装/卸载 */
+  /** 保留 id（core/system/admin/modules），不可安装/卸载 */
   reserved?: boolean;
-  /** 随程序安装的内置模块，不可卸载 */
-  builtin?: boolean;
   enabled: boolean;
   loaded: boolean;
   installedAt?: string;
@@ -884,6 +882,21 @@ export type ModulePreview = ModuleItem & {
   installable?: boolean;
   /** 非致命的预检问题码（MODULE_EXISTS、MODULE_RESERVED_ID 等） */
   issues?: string[];
+  /** 附加提醒（例如实验性模块需要逐字确认），不影响 installable */
+  warnings?: string[];
+  /** 包内 README 全文；没有则空串 */
+  readme?: string;
+  /** 找到的 README 文件名，如 `README.md` */
+  readmeName?: string;
+  /** 包内文件数 */
+  fileCount?: number;
+  /** 包内一级目录，如 `web/`、`modules/` */
+  folders?: string[];
+  /**
+   * 服务端预览 token。后端若在 upload-check 时下发，则安装/图片资源优先用它；
+   * 缺省时使用预览窗口 URL hash 里的客户端 token。
+   */
+  previewToken?: string;
 };
 
 /** `GET /api/modules/nav` 的扁平导航项（按当前账号权限过滤） */

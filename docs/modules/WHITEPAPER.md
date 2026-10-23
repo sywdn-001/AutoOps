@@ -1,9 +1,9 @@
 # AutoOps 扩展模块开发白皮书
 
-> **读者**：想给 AutoOps 堡垒机开发 `.mod.ops_ext` 扩展模块的第三方工程师。  
-> **前置知识**：Python 3.10+、Flask 基础、JavaScript/ES Module 基础。  
-> **权威契约**：[`CONTRACT.md`](./CONTRACT.md) v1。本白皮书是契约的开发者向展开；两者冲突时以契约和后端实现为准。  
-> **配套示例**：[`hello-bastion`](../../modules-src/hello-bastion/)、[`rdp-gateway`](../../modules-src/rdp-gateway/)、[`js-demo`](../../modules-src/js-demo/)（均可直接打包安装；第 12 章以 `hello-bastion` 走查）。  
+> **读者**：想给 AutoOps 堡垒机开发 `.mod.ops_ext` 扩展模块的第三方工程师。<br>
+> **前置知识**：Python 3.10+、Flask 基础、JavaScript/ES Module 基础。<br>
+> **权威契约**：[`CONTRACT.md`](./CONTRACT.md) v1。本白皮书是契约的开发者向展开；两者冲突时以契约和后端实现为准。<br>
+> **配套示例**：[`hello-bastion`](../../modules-src/hello-bastion/)、[`rdp-gateway`](../../modules-src/rdp-gateway/)、[`js-demo`](../../modules-src/js-demo/)（均可直接打包安装；第 12 章以 `hello-bastion` 走查）。<br>
 > **适用宿主**：实现了 `app/modules/` 与 `autoops.bastion` 门面的 AutoOps 版本；模块侧通过 `description.json.minBastionVersion` 声明最低版本。
 
 > ⚠️ **安全边界（务必先读）**
@@ -16,88 +16,103 @@
 
 ## 目录
 
-- [1. 能做什么 / 不能做什么](#sec-1)
-  - [1.1 能做](#sec-1-1)
-  - [1.2 不能做 / 不要做](#sec-1-2)
-  - [1.3 安全模型与责任边界](#sec-1-3)
-- [2. 包结构：`.mod.ops_ext` 里有什么](#sec-2)
-  - [2.1 ZIP 顶层布局](#sec-2-1)
-  - [2.2 安装后的磁盘布局](#sec-2-2)
-  - [2.3 安装期硬校验与体积上限](#sec-2-3)
-  - [2.4 每个目录的用途与禁区](#sec-2-4)
-  - [2.5 最小骨架](#sec-2-5)
-- [3. `description.json` 全字段参考](#sec-3)
-  - [3.1 完整示例](#sec-3-1)
-  - [3.2 字段表](#sec-3-2)
-  - [3.3 id 规则与保留 id](#sec-3-3)
-  - [3.4 官方发行与 `author`](#sec-3-4)
-  - [3.5 标签、实验性与烧杯确认](#sec-3-5)
-  - [3.6 归一化模块对象与 `/api/modules`](#sec-3-6)
-  - [3.7 多语言与 JSON 书写约定](#sec-3-7)
-- [4. Python 扩展：生命周期与 `ctx`](#sec-4)
-  - [4.1 入口约定](#sec-4-1)
-  - [4.2 生命周期钩子](#sec-4-2)
-  - [4.3 `ctx` 成员全表](#sec-4-3)
-  - [4.4 `ctx.route`：注册模块 API](#sec-4-4)
-  - [4.5 `ctx.blueprint`：需要 Flask 原生能力时](#sec-4-5)
-  - [4.6 `ctx.on` / `ctx.emit`：事件](#sec-4-6)
-  - [4.7 设置与私有数据目录](#sec-4-7)
-  - [4.8 后台线程与资源释放](#sec-4-8)
-- [5. `autoops.bastion` SDK](#sec-5)
-  - [5.1 第一原则：碰库/触网全是 `async def`](#sec-5-1)
-  - [5.2 API 全表](#sec-5-2)
-  - [5.3 返回值与数据结构](#sec-5-3)
-  - [5.4 在 Flask 同步视图里正确调用 async](#sec-5-4)
-  - [5.5 凭证：完整示例与安全提醒](#sec-5-5)
-  - [5.6 异常与统一信封](#sec-5-6)
-  - [5.7 审计](#sec-5-7)
-  - [5.8 事件广播](#sec-5-8)
-- [6. Web UI 两种模式：`iframe` 与 `js`](#sec-6)
-  - [6.1 选型对比](#sec-6-1)
-  - [6.2 静态资源与 URL 规则](#sec-6-2)
-  - [6.3 `iframe` 模式完整示例](#sec-6-3)
-  - [6.4 `js` 模式完整示例](#sec-6-4)
-  - [6.5 共享运行时与构建建议](#sec-6-5)
-  - [6.6 UI/安全约定](#sec-6-6)
-- [7. 往「参数设置」加配置项](#sec-7)
-  - [7.1 声明](#sec-7-1)
-  - [7.2 键名、类型与校验](#sec-7-2)
-  - [7.3 读取与写回](#sec-7-3)
-  - [7.4 默认值、卸载与注意事项](#sec-7-4)
-- [8. 调试与排障](#sec-8)
-  - [8.1 日志在哪](#sec-8-1)
-  - [8.2 模块私有数据目录](#sec-8-2)
-  - [8.3 用 curl / PowerShell 直接测 API](#sec-8-3)
-  - [8.4 iframe 页面排障](#sec-8-4)
-  - [8.5 js 模式排障](#sec-8-5)
-  - [8.6 常见错误对照表](#sec-8-6)
-- [9. 打包、安装与卸载](#sec-9)
-  - [9.1 打包前检查](#sec-9-1)
-  - [9.2 `pack_module.py` 用法](#sec-9-2)
-  - [9.3 安装页流程与实验性确认](#sec-9-3)
-  - [9.4 直接调安装 API（自动化场景）](#sec-9-4)
-  - [9.5 安装/启用/禁用/卸载的内部行为](#sec-9-5)
-  - [9.6 供应链：签名与哈希](#sec-9-6)
-- [10. 版本与兼容](#sec-10)
-  - [10.1 `version` 必须是严格 semver](#sec-10-1)
-  - [10.2 `minBastionVersion`](#sec-10-2)
-  - [10.3 升级、降级与卸载](#sec-10-3)
-  - [10.4 兼容性写法建议](#sec-10-4)
-- [11. FAQ 与已知限制](#sec-11)
-- [12. hello-world 全流程走查](#sec-12)
-  - [12.1 源码清单](#sec-12-1)
-  - [12.2 从校验到安装](#sec-12-2)
-  - [12.3 接口实测](#sec-12-3)
-  - [12.4 页面与设置](#sec-12-4)
-  - [12.5 排障与卸载](#sec-12-5)
-  - [12.6 从这个示例继续扩展](#sec-12-6)
-- [附录 A：本白皮书依赖的契约条款](#sec-a)
-- [附录 B：发布前自查清单](#sec-b)
+> **怎么用这份目录**：只写页面看第 2、3、6 章；只写后端能力看第 4、5、7 章；要发布看第 9、10 章与附录 B。第一次接触建议按 1 → 2 → 3 → 4 → 6 → 9 走一遍，第 12 章是一份可以照着对照执行的完整记录。
+
+**第一部分 · 认识与边界**
+
+- [1. 能做什么 / 不能做什么](#sec-1) — 先划边界：模块能挂路由、加设置、开页面、发事件；不能改前端路由，不能把密钥放进免登录的静态资源。
+  - [1.1 能做](#sec-1-1) — 模块能触及的宿主能力清单
+  - [1.2 不能做 / 不要做](#sec-1-2) — 明确禁区，以及为什么现在做不到
+  - [1.3 安全模型与责任边界](#sec-1-3) — 为什么说「模块代码完全可信」
+
+**第二部分 · 写代码**
+
+- [2. 包结构：`.mod.ops_ext` 里有什么](#sec-2) — 一个 ZIP 的顶层布局、安装后的磁盘布局、安装期硬校验（防 Zip Slip、体积与条目上限），以及最小可用骨架。
+  - [2.1 ZIP 顶层布局](#sec-2-1) — 必需的 `description.json` 与 `modules/`，可选的 `web/`、`images/`、`data/`、`bin/`
+  - [2.2 安装后的磁盘布局](#sec-2-2) — `instance/modules/<id>/{package,data,state.json}`
+  - [2.3 安装期硬校验与体积上限](#sec-2-3) — 路径穿越、符号链接、总大小 256MB、条目 20000
+  - [2.4 每个目录的用途与禁区](#sec-2-4) — 哪些目录会被宿主当静态资源公开
+  - [2.5 最小骨架](#sec-2-5) — 只有页面、没有 Python 的模块长什么样
+- [3. `description.json` 全字段参考](#sec-3) — 清单文件的每一个键：必填、选填、默认值，以及宿主在安装与展示时怎么用它。
+  - [3.1 完整示例](#sec-3-1) — 一份把可选字段全部写满的清单
+  - [3.2 字段表](#sec-3-2) — 类型、是否必填、默认值与说明
+  - [3.3 id 规则与保留 id](#sec-3-3) — 正则、长度，以及不能用的 id
+  - [3.4 官方发行与 `author`](#sec-3-4) — `author: "AutoOps"` 如何被判成 official
+  - [3.5 标签、实验性与烧杯确认](#sec-3-5) — 标签配色、实验性标记与逐字确认语
+  - [3.6 归一化模块对象与 `/api/modules`](#sec-3-6) — 宿主回给前端的形状，和清单字段的对应关系
+  - [3.7 多语言与 JSON 书写约定](#sec-3-7) — 双语写法、UTF-8 与 BOM 的坑
+- [4. Python 扩展：生命周期与 `ctx`](#sec-4) — 模块后端代码的入口、钩子、`ctx` 的每个成员，以及它到底能在 Flask 应用里做哪些事。
+  - [4.1 入口约定](#sec-4-1) — `modules/__init__.py` 的 `setup(ctx)`
+  - [4.2 生命周期钩子](#sec-4-2) — install / uninstall / enable / disable
+  - [4.3 `ctx` 成员全表](#sec-4-3) — 属性、方法与返回类型
+  - [4.4 `ctx.route`：注册模块 API](#sec-4-4) — 路由前缀、权限码、统一信封
+  - [4.5 `ctx.blueprint`：需要 Flask 原生能力时](#sec-4-5) — 直接拿 Blueprint 的代价
+  - [4.6 `ctx.on` / `ctx.emit`：事件](#sec-4-6) — 订阅宿主事件、广播自己的事件
+  - [4.7 设置与私有数据目录](#sec-4-7) — `ctx.get_setting`、`ctx.data_dir`
+  - [4.8 后台线程与资源释放](#sec-4-8) — 别泄漏线程与文件句柄
+- [5. `autoops.bastion` SDK](#sec-5) — 宿主能力的正式门面：资产、账号、凭证、会话、审计、策略、SSH，以及它们为什么全是 `async`。
+  - [5.1 第一原则：碰库/触网全是 `async def`](#sec-5-1) — 设计动机与后果
+  - [5.2 API 全表](#sec-5-2) — 按命名空间列出的每个方法
+  - [5.3 返回值与数据结构](#sec-5-3) — dataclass 与 dict 的字段
+  - [5.4 在 Flask 同步视图里正确调用 async](#sec-5-4) — 三种桥接方式与选型
+  - [5.5 凭证：完整示例与安全提醒](#sec-5-5) — `credentials.get` 的用法与脱敏约定
+  - [5.6 异常与统一信封](#sec-5-6) — `ModuleApiError` 与错误码
+  - [5.7 审计](#sec-5-7) — 把关键动作写进审计链
+  - [5.8 事件广播](#sec-5-8) — 让前端知道后台发生了什么
+- [6. Web UI 两种模式：`iframe` 与 `js`](#sec-6) — 模块页面的两种做法、各自的 URL 规则，以及为什么官方示例全部用 `js` 模式。
+  - [6.1 选型对比](#sec-6-1) — 什么时候用 iframe，什么时候必须用 js
+  - [6.2 静态资源与 URL 规则](#sec-6-2) — `/api/modules/<id>/asset/...` 的映射
+  - [6.3 `iframe` 模式完整示例](#sec-6-3) — 最小可行骨架
+  - [6.4 `js` 模式完整示例](#sec-6-4) — 从 `window.AutoOpsSDK` 取运行时
+  - [6.5 共享运行时与构建建议](#sec-6-5) — 不打包 React/antd，怎么写现代代码
+  - [6.6 UI/安全约定](#sec-6-6) — 只用宿主组件库、不要整页刷新
+- [7. 往「参数设置」加配置项](#sec-7) — 让模块的开关出现在宿主「系统设置 → 参数设置」里，并正确读写。
+  - [7.1 声明](#sec-7-1) — `settings[]` 的写法
+  - [7.2 键名、类型与校验](#sec-7-2) — `mod.<id>.<key>` 与 bool/int/string 的边界
+  - [7.3 读取与写回](#sec-7-3) — `ctx.get_setting` 与写回后的生效时机
+  - [7.4 默认值、卸载与注意事项](#sec-7-4) — 缺省值从哪来、卸载时清不清
+
+**第三部分 · 调试与发布**
+
+- [8. 调试与排障](#sec-8) — 出问题时先看哪里：日志、数据目录、接口、页面白屏，以及常见错误对照表。
+  - [8.1 日志在哪](#sec-8-1) — `module.<id>` 记录器与 200 行环形缓冲
+  - [8.2 模块私有数据目录](#sec-8-2) — 可以随便写的地方
+  - [8.3 用 curl / PowerShell 直接测 API](#sec-8-3) — 绕过前端验证后端
+  - [8.4 iframe 页面排障](#sec-8-4) — 白屏、404、权限
+  - [8.5 js 模式排障](#sec-8-5) — SDK 未注入、mount 没注册
+  - [8.6 常见错误对照表](#sec-8-6) — 症状 → 原因 → 处理
+- [9. 打包、安装与卸载](#sec-9) — 从源码目录到 `.mod.ops_ext`，再到安装进实例的完整链路，以及每一步背后的校验。
+  - [9.1 打包前检查](#sec-9-1) — 会被自动剔除的文件
+  - [9.2 `pack_module.py` 用法](#sec-9-2) — `--check`、`-o`、产物命名
+  - [9.3 安装页流程与实验性确认](#sec-9-3) — 选包窗口、预览页与逐字确认
+  - [9.4 直接调安装 API（自动化场景）](#sec-9-4) — `upload-check` 与预览会话安装
+  - [9.5 安装/启用/禁用/卸载的内部行为](#sec-9-5) — 装了什么、删了什么
+  - [9.6 供应链：签名与哈希](#sec-9-6) — 目前能做的校验与还缺什么
+- [10. 版本与兼容](#sec-10) — 版本号规则、宿主版本门槛，以及升级/降级/卸载时会发生什么。
+  - [10.1 `version` 必须是严格 semver](#sec-10-1) — 打包与升级都依赖它
+  - [10.2 `minBastionVersion`](#sec-10-2) — 宿主太老时会发生什么
+  - [10.3 升级、降级与卸载](#sec-10-3) — 重新上传即升级，没有「点一下升」的入口
+  - [10.4 兼容性写法建议](#sec-10-4) — 面向未来宿主写法
+
+**第四部分 · 参考**
+
+- [11. FAQ 与已知限制](#sec-11) — 高频提问，以及当前版本明确做不到的事。
+- [12. hello-world 全流程走查](#sec-12) — 拿 `hello-bastion` 从源码走到安装、实测接口、打开页面、卸载的一份完整记录。
+  - [12.1 源码清单](#sec-12-1) — 一份可对照的源码树，逐项说明
+  - [12.2 从校验到安装](#sec-12-2) — 校验不通过会卡在哪一步
+  - [12.3 接口实测](#sec-12-3) — 用 curl 打通模块 API
+  - [12.4 页面与设置](#sec-12-4) — 页面、导航与参数设置联动
+  - [12.5 排障与卸载](#sec-12-5) — 卸干净，包括数据目录
+  - [12.6 从这个示例继续扩展](#sec-12-6) — 可以接着改哪些地方
+- [附录 A：本白皮书依赖的契约条款](#sec-a) — 每条规则对应的 `CONTRACT.md` 章节。
+- [附录 B：发布前自查清单](#sec-b) — 提交/发布前逐条打勾。
 
 ---
 
 <a id="sec-1"></a>
 ## 1. 能做什么 / 不能做什么
+
+> **发行形态：系统不内置任何模块。** 全新实例安装完成后就是 **0 个模块**；所有能力（包括 `hello-bastion`、`js-demo`、`rdp-gateway` 三个官方示例）都必须由管理员上传 `.mod.ops_ext` 安装。官方示例源码在 `modules-src/`，它只是开发与打包输入，运行时不会被扫描或自动安装；打包产物放在**仓库根目录**，随仓库分发。卸载就是真卸载，重装＝重新上传同一份包。
 
 <a id="sec-1-1"></a>
 ### 1.1 能做
@@ -203,6 +218,8 @@ bastion-backend/instance/modules/<id>/
 | `ctx.data_dir` | `instance/modules/<id>/data` | **唯一**运行期可写目录 |
 | `bin/` 运行路径 | `ctx.package_dir / "bin" / <file>` | 外部可执行文件（如 RDP 网关） |
 | 静态资源 URL | `/api/modules/<id>/asset/<相对路径>` | 只对 `web/`、`images/`、`README.md` 生效 |
+
+> 这个目录只在管理员上传安装后出现；全新实例的 `instance/modules/` 是空的。系统不内置、不预装任何模块，也不会在启动时从 `modules-src/` 补装。
 
 **不要写 `package_dir`**。升级/重装可能替换整个 `package/`；你写进去的文件会丢，且可能破坏包内容。所有状态写 `data_dir`。
 
@@ -1191,7 +1208,7 @@ async def broadcast_refresh():
 <a id="sec-6"></a>
 ## 6. Web UI 两种模式：`iframe` 与 `js`
 
-官方示例 [`hello-bastion`](../../modules-src/hello-bastion)、[`rdp-gateway`](../../modules-src/rdp-gateway) 和 [`js-demo`](../../modules-src/js-demo) **全部使用 `js` 模式**。其中 `hello-bastion` 和 `js-demo` 是最小教学示例，`rdp-gateway` 是带 Python 后端的完整业务模块。
+官方示例 [`hello-bastion`](../../modules-src/hello-bastion)、[`rdp-gateway`](../../modules-src/rdp-gateway) 和 [`js-demo`](../../modules-src/js-demo) **全部使用 `js` 模式**。其中 `hello-bastion` 和 `js-demo` 是最小教学示例，`rdp-gateway` 是带 Python 后端的完整业务模块。三者都不随宿主预装，均以 `.mod.ops_ext` 上传安装；`modules-src/` 只是源码与打包输入。
 
 <a id="sec-6-1"></a>
 ### 6.1 选型对比
@@ -1704,7 +1721,7 @@ def setup(ctx):
 
 - `app/modules/loader.py` 负责 `sys.modules['autoops']` 注入、import 模块、调用 `setup(ctx)`；
 - 加载失败时，异常会收敛到该模块的 `errors[]`，同时 loader 会写日志；后端**不会**因为单个模块 `setup` 抛异常而退出；
-- 启动时 `init_modules(app)` 在 `seed_data` 之后、Socket.IO 事件注册之前执行；它保证永不抛异常。
+- 启动时 `init_modules(app)` 在 `seed_data` 之后、Socket.IO 事件注册之前执行；它保证永不抛异常。它只加载 `instance/modules/` 下已安装且启用的模块；全新空实例直接跳过，**不会**扫描或安装 `modules-src/`。
 
 **看模块状态**：
 
@@ -1855,21 +1872,21 @@ cd D:\Desktop\AutoOps
 # 只校验，不打包
 python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
 
-# 打包（默认输出 modules-dist/；-o 可指定目录）
-python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o modules-dist
+# 打包到仓库根目录（官方包随仓库分发）
+python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
 ```
 
 如果你的当前目录是 `bastion-backend/`，等价命令是：
 
 ```powershell
-python tools\pack_module.py ..\modules-src\hello-bastion -o ..\modules-dist
+python tools\pack_module.py ..\modules-src\hello-bastion -o ..
 ```
 
 产物：
 
 ```text
-modules-dist/<id>-<version>.mod.ops_ext
-# 例：modules-dist/hello-bastion-1.1.0.mod.ops_ext
+<id>-<version>.mod.ops_ext
+# 例：hello-bastion-1.1.0.mod.ops_ext（就在仓库根目录）
 ```
 
 工具行为（契约 §8）：
@@ -1884,6 +1901,8 @@ modules-dist/<id>-<version>.mod.ops_ext
 
 <a id="sec-9-3"></a>
 ### 9.3 安装页流程与实验性确认
+
+> 系统默认是 0 个模块，没有「内置模块」或预装入口；三个官方示例也必须走下面这条上传流程。
 
 1. 管理员登录，进入「系统设置 → 扩展模块」；
 2. 选择/拖入 `.mod.ops_ext`；
@@ -1905,12 +1924,12 @@ modules-dist/<id>-<version>.mod.ops_ext
 # 上传预览：不落盘、不执行
 curl -s -X POST "http://127.0.0.1:5000/api/modules/upload-check" \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@modules-dist/my-module-1.0.0.mod.ops_ext"
+  -F "file=@./my-module-1.0.0.mod.ops_ext"
 
 # 安装：multipart file；实验性模块加 ack
 curl -s -X POST "http://127.0.0.1:5000/api/modules/install" \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@modules-dist/my-module-1.0.0.mod.ops_ext" \
+  -F "file=@./my-module-1.0.0.mod.ops_ext" \
   -F "ack=我知道这是实验性功能，使用不当的话也许会造成系统损毁"
 ```
 
@@ -1932,6 +1951,7 @@ curl -s -X POST "http://127.0.0.1:5000/api/modules/install" \
 - 安装成功后是否默认启用，由宿主策略决定；管理员可以在扩展模块页切换。
 - 禁用后，模块的 `/api/modules/<id>/api/**` 应返回不可用；侧边栏入口消失。
 - 卸载会**删除 `data/`**；先提醒用户备份。
+- 卸载就是真卸载：不保留墓碑、没有 `restore` 接口、没有「一键重装」；要恢复就重新上传同一份 `.mod.ops_ext`。
 - 正在执行的请求/后台线程不会被强行杀死；模块要在 `teardown` 里自己停。
 
 <a id="sec-9-6"></a>
@@ -1943,7 +1963,7 @@ curl -s -X POST "http://127.0.0.1:5000/api/modules/install" \
 2. 发布方提供 SHA-256：
 
 ```powershell
-Get-FileHash modules-dist\my-module-1.0.0.mod.ops_ext -Algorithm SHA256
+Get-FileHash .\my-module-1.0.0.mod.ops_ext -Algorithm SHA256
 ```
 
 3. 安装前比对哈希；企业内网可再做代码审查/沙箱扫描（扫描工具本身不影响宿主运行）；
@@ -2009,7 +2029,7 @@ def setup(ctx):
 1. 通知管理员备份 `bastion-backend/instance/modules/<id>/data/`（或模块自己的导出功能）；
 2. 禁用模块；
 3. 卸载（会删除 `data/`，所以备份必须在前）；
-4. 安装新版本；
+4. 重新上传安装新版本（没有升级入口，也没有墓碑/一键恢复）；
 5. 恢复 `data/`（如果格式兼容）；
 6. 启用并验证 `loaded=true`、`errors=[]`。
 
@@ -2039,76 +2059,76 @@ def setup(ctx):
 <a id="sec-11"></a>
 ## 11. FAQ 与已知限制
 
-**Q1：模块能改宿主导航以外的布局吗？**  
+**Q1：模块能改宿主导航以外的布局吗？**<br>
 不能。契约只提供 `nav[]` 入口和 `/m/<id>/*` 内容区；不能改登录页、顶栏、侧边栏结构。JS 模式虽然同 DOM，但改宿主布局属于未支持行为。
 
-**Q2：能新增权限码吗？**  
+**Q2：能新增权限码吗？**<br>
 不能往宿主核心权限目录（`ALL_PERMISSIONS`）里加。可以在 `description.json.permissions` 声明模块级权限（如 `module:<id>:use`），但是否出现在角色配置页、如何授权由宿主实现决定；在宿主未接入前，非超级管理员可能拿不到该权限。
 
-**Q3：安装页预览会执行 Python 吗？**  
+**Q3：安装页预览会执行 Python 吗？**<br>
 不会。`upload-check` 只解析 `description.json`，不落盘、不 import。安装成功后才加载模块；`setup` 里的错误会体现在 `loaded=false` / `errors[]`。
 
-**Q4：模块崩溃会影响整个堡垒机吗？**  
+**Q4：模块崩溃会影响整个堡垒机吗？**<br>
 契约提供加载失败隔离和请求异常隔离：`setup` 抛异常只让本模块 `loaded=false`；路由异常只让该请求 500。但没有进程级沙箱：死循环、内存耗尽、`os._exit`、阻塞 GIL 仍可能拖垮进程。写健壮的代码，别把未捕获异常丢进后台线程。
 
-**Q5：能 `pip install` 依赖吗？**  
+**Q5：能 `pip install` 依赖吗？**<br>
 不能。安装包不会触发依赖安装。纯 Python 库可 vendoring 到 `modules/`（注意 license/体积）；平台二进制放 `bin/` 并探测；优先只用宿主已有依赖。
 
-**Q6：能用宿主内部模块/数据库吗？**  
+**Q6：能用宿主内部模块/数据库吗？**<br>
 技术上可以（进程内可信代码），但属于非契约行为，升级可能坏。优先 SDK；确需内部能力时，把 import 收敛到一处并做版本探测，且自行承担兼容风险。
 
-**Q7：能新建数据库表吗？**  
+**Q7：能新建数据库表吗？**<br>
 没有迁移机制，不要改宿主 schema。私有状态写 `ctx.data_dir`（JSON/SQLite 文件均可）；需要跨机共享时接外部存储。
 
-**Q8：能跑后台任务/定时器吗？**  
+**Q8：能跑后台任务/定时器吗？**<br>
 契约没有调度器 API。可以自己开线程，但必须在 `teardown` 停止；多 worker 会重复执行；不要在 `setup` 里长阻塞。
 
-**Q9：为什么我的路由默认就要 `module:<id>:use`？**  
+**Q9：为什么我的路由默认就要 `module:<id>:use`？**<br>
 `ctx.route` 的 `permission` 缺省取该模块第一个 nav 权限，再缺省 `module:<id>:use`。想改就在装饰器上传 `permission`，但要确保该权限真的能被授予。
 
-**Q10：SDK 会自动按当前用户授权过滤数据吗？**  
+**Q10：SDK 会自动按当前用户授权过滤数据吗？**<br>
 不会。`credentials.get()`、`hosts.list()`/`get()`、`accounts.list()`、`credentials.list()`、`sessions.list_active()` 当前实现都返回全量；`permission` 只控制「能不能用模块」，不控制「能不能看这台主机」。按资产敏感的接口必须自己在模块侧校验当前用户对 `host_id` 的授权（宿主没有在 SDK 暴露统一的 current-user/授权检查；可参考 §1.3 的说明，谨慎使用宿主内部 `g.actor`/`find_access`，并做版本兼容）。
 
-**Q11：为什么侧边栏看不到模块？**  
+**Q11：为什么侧边栏看不到模块？**<br>
 依次检查：模块 `enabled=true`、`loaded=true`、`errors=[]`；当前账号有 `nav[].permission`；`GET /api/modules/nav` 是否返回该项；前端是否已刷新 `initialState`。
 
-**Q12：为什么参数设置里没有我的项？**  
+**Q12：为什么参数设置里没有我的项？**<br>
 模块未加载或 `settings` 未声明；设置默认值在加载/安装时注册。看 `/api/modules/<id>` 与 `/logs`，重装后刷新页面。
 
-**Q13：静态资源要登录吗？**  
+**Q13：静态资源要登录吗？**<br>
 不要。`/api/modules/<id>/asset/**` 免登录，只允许 `web/`、`images/`、`README.md`。不要放秘密。
 
-**Q14：能返回文件/流/自定义状态码吗？**  
+**Q14：能返回文件/流/自定义状态码吗？**<br>
 `ctx.route` 只适合返回 dict/list/None + `ModuleApiError` 状态码。文件/流/自定义响应走 `ctx.blueprint()` + Flask 原生响应，自己按统一信封约定处理错误。
 
-**Q15：能加 i18n 吗？**  
+**Q15：能加 i18n 吗？**<br>
 iframe 页面完全自己做。JS 模式的 `t` 是宿主词条函数，不保证包含你的模块文案；模块自带字典或直接写中文。`description.json` 的 `name`/`title`/`label` 支持 `{zh,en}`。
 
-**Q16：能访问外网吗？**  
+**Q16：能访问外网吗？**<br>
 能，没有网络沙箱。请自行处理超时、代理、TLS、失败重试，并注意数据外发合规。
 
-**Q17：能发 Socket.IO 事件吗？**  
+**Q17：能发 Socket.IO 事件吗？**<br>
 能。`ctx.emit(topic, payload)` 与 `bastion.events.emit(topic, payload)` 当前都会广播 `module:<id>:<topic>`，topic 不能含冒号、最长 64 字符。模块前端如何订阅没有标准 SDK；v1 建议轮询自己的 API。
 
-**Q18：`requires` 会自动安装依赖吗？**  
+**Q18：`requires` 会自动安装依赖吗？**<br>
 契约只定义了声明字段，没有定义自动安装/排序/启用语义。不要假设依赖一定存在；`setup` 里探测并降级，或把依赖模块写进部署文档。
 
-**Q19：模块 id 能改吗？**  
+**Q19：模块 id 能改吗？**<br>
 不要。id 决定 URL、数据目录、设置键、权限码；改了等同新模块，旧数据和授权全丢。
 
-**Q20：卸载会删什么？**  
+**Q20：卸载会删什么？**<br>
 `package/`、`state.json`、`data/`；当前实现还会删除 `SystemSetting` 里的 `mod.<id>.*`，但契约未明文。卸载前备份 `data/` 与需要的设置值，并告知用户。
 
-**Q21：为什么安装成功但 `loaded=false`？**  
+**Q21：为什么安装成功但 `loaded=false`？**<br>
 `setup` 抛异常、`import` 失败、依赖缺失、`autoops` 门面版本不匹配。看 `/api/modules/<id>` 的 `errors[]` 与 `/logs`。
 
-**Q22：能改宿主已有接口行为吗？**  
+**Q22：能改宿主已有接口行为吗？**<br>
 技术上能（monkeypatch），但不要。那会让升级、审计、安全边界全部失控；用模块自己的路由前缀。
 
-**Q23：模块前端能拿到当前用户信息吗？**  
+**Q23：模块前端能拿到当前用户信息吗？**<br>
 契约没有给前端模块专用 SDK；iframe 可以调宿主 `/api/auth/me`（带 JWT），js 模式用 `sdk.request('/api/auth/me')`。注意这依赖宿主接口稳定性。
 
-**Q24：开发时前端 8000、后端 5000，跨域吗？**  
+**Q24：开发时前端 8000、后端 5000，跨域吗？**<br>
 开发环境通常由 Umi 代理 `/api`；生产同源。若你直接访问后端端口，iframe 与 API 可能不同源，token/fetch 都会失败；以宿主实际部署方式为准。
 
 ---
@@ -2152,6 +2172,8 @@ modules-src/hello-bastion/
 <a id="sec-12-2"></a>
 ### 12.2 从校验到安装
 
+全新实例初始是 **0 个模块**；`hello-bastion` 也一样，要从源码打包、再上传安装，不会因为仓库里有 `modules-src/` 就自动出现。
+
 **Step 1：语法/JSON 校验**（不需要宿主环境）：
 
 ```powershell
@@ -2172,19 +2194,19 @@ python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
 **Step 3：打包**：
 
 ```powershell
-python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o modules-dist
+python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
 ```
 
-预期产物：
+预期产物（仓库根目录）：
 
 ```text
-modules-dist/hello-bastion-1.1.0.mod.ops_ext
+hello-bastion-1.1.0.mod.ops_ext
 ```
 
 **Step 4：安装**：
 
 1. 管理员登录前端；
-2. 「系统设置 → 扩展模块」上传；
+2. 「系统设置 → 扩展模块」上传仓库根目录的 `hello-bastion-1.1.0.mod.ops_ext`；
 3. 看到演示图/名称/版本/标签；
 4. 因为 `experimental: true`，手敲确认语；
 5. 安装成功，模块列表出现 `hello-bastion`，`loaded=true`。

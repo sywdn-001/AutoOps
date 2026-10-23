@@ -1,16 +1,15 @@
 /**
  * 扩展模块管理页：`/system/modules`。
  *
- * 流程：选择/拖入 `.mod.ops_ext` → `upload-check` 预览 → 实验性模块还要手敲风险确认语
- * → `install`。列表里的启用/卸载会同时刷新侧边栏（`@@initialState.moduleNav`），
- * 不需要用户手动刷新页面。
+ * 安装流程：选择 `.mod.ops_ext` → 同步打开独立预览窗口 → upload-check 结果写入
+ * localStorage 后由预览窗口展示详情并完成安装（含实验性确认语）。主窗口不再弹
+ * 安装预览 Modal，只通过 storage 事件刷新列表/侧边栏。列表里的启用/卸载也会
+ * 同时刷新侧边栏（`@@initialState.moduleNav`），不需要用户手动刷新页面。
  */
 import {
   DeleteOutlined,
   ExperimentOutlined,
-  FileImageOutlined,
   FileTextOutlined,
-  InboxOutlined,
   ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -22,7 +21,6 @@ import {
   App,
   Button,
   Card,
-  Descriptions,
   Empty,
   Flex,
   Input,
@@ -35,24 +33,19 @@ import {
   Tag,
   Tooltip,
   Typography,
-  Upload,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { t } from '@/i18n';
 import { resolveModuleIcon } from '@/modules/icons';
 import {
-  EXPERIMENTAL_ACK_PHRASE,
+  MODULE_INSTALLED_STORAGE_PREFIX,
   moduleApi,
   moduleText,
 } from '@/services/bastion/modules';
-import type {
-  ModuleItem,
-  ModulePreview,
-  ModuleText,
-} from '@/services/bastion/types';
+import type { ModuleItem, ModuleText } from '@/services/bastion/types';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 const TAG_LABELS: Record<string, string> = {
   experimental: '实验性',
@@ -78,12 +71,6 @@ const TAG_COLORS: Record<string, string> = {
   storage: 'green',
   file: 'green',
   ai: 'purple',
-};
-
-const ISSUE_LABELS: Record<string, string> = {
-  MODULE_EXISTS: '同名模块已安装，请先卸载旧版本',
-  MODULE_RESERVED_ID: '模块 id 是系统保留 id，不能安装',
-  EXPERIMENTAL_NOT_ACKED: '需要确认实验性功能风险',
 };
 
 const backendMessage = (error: unknown, fallback: string): string => {
@@ -129,12 +116,7 @@ const tagLabel = (tag: string): string => {
 const tagColor = (tag: string): string =>
   TAG_COLORS[tag.trim().toLowerCase()] ?? 'default';
 
-const issueText = (issue: string): string => {
-  const label = ISSUE_LABELS[issue.trim().toUpperCase()];
-  return label ? t(label) : issue;
-};
-
-const renderTags = (item: ModuleItem | ModulePreview) => {
+const renderTags = (item: { tags: string[]; experimental: boolean }) => {
   const tags = [...item.tags];
   if (
     item.experimental &&
@@ -179,16 +161,6 @@ const ModuleManagerPage = () => {
   const [keyword, setKeyword] = useState('');
   const [togglingId, setTogglingId] = useState('');
   const [removingId, setRemovingId] = useState('');
-
-  const [installOpen, setInstallOpen] = useState(false);
-  const [pickedFile, setPickedFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ModulePreview | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [checkError, setCheckError] = useState('');
-  const [installing, setInstalling] = useState(false);
-
-  const [ackOpen, setAckOpen] = useState(false);
-  const [ack, setAck] = useState('');
 
   const [logItem, setLogItem] = useState<ModuleItem | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
@@ -245,66 +217,46 @@ const ModuleManagerPage = () => {
     });
   }, [items, keyword]);
 
-  const resetInstall = useCallback(() => {
-    setPickedFile(null);
-    setPreview(null);
-    setCheckError('');
-    setChecking(false);
-    setAck('');
-    setAckOpen(false);
-  }, []);
-
-  const openInstall = () => {
-    resetInstall();
-    setInstallOpen(true);
-  };
-
-  const handlePick = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.mod.ops_ext')) {
-      message.error(t('请选择 .mod.ops_ext 扩展包'));
+  /**
+   * 点击「安装扩展模块」：只做一件事 —— 在用户手势里同步打开预览窗口。
+   *
+   * 选文件必须在窗口内部完成：`window.open()` 会消耗掉此次点击的「瞬时用户激活」，
+   * 同一手势里紧跟着的 `input.click()` 拉不起文件选择器（实测浏览器直接忽略），
+   * 这就是「弹出窗口但没有文件对话框」的原因。窗口里的按钮是一次新的手势，才能拉起选择器。
+   */
+  const handleInstallClick = () => {
+    if (!canAdmin) {
+      message.error(t('只有管理员可以安装扩展模块'));
       return;
     }
-    setPickedFile(file);
-    setPreview(null);
-    setCheckError('');
-    setChecking(true);
-    try {
-      setPreview(await moduleApi.uploadCheck(file));
-    } catch (error) {
-      setCheckError(
-        backendMessage(error, t('扩展包校验失败，请确认文件完整后重试')),
-      );
-    } finally {
-      setChecking(false);
+    const win = window.open(
+      `${window.location.origin}/module-preview#pick`,
+      '_blank',
+      'width=1040,height=820',
+    );
+    if (!win) {
+      message.warning(t('浏览器拦截了弹窗，请允许本站弹窗后重试'));
     }
   };
 
-  const doInstall = async () => {
-    if (!pickedFile || !preview) {
-      return;
-    }
-    setInstalling(true);
-    try {
-      await moduleApi.install(
-        pickedFile,
-        preview.experimental ? ack.trim() : undefined,
-      );
+  // 预览窗口安装成功后会写入 module-installed:<id>；storage 事件只在其它窗口写入时触发，
+  // 因此这里正好接收“弹窗装好了”的信号，刷新列表与侧边栏。
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key?.startsWith(MODULE_INSTALLED_STORAGE_PREFIX)) {
+        return;
+      }
+      const moduleId = event.key.slice(MODULE_INSTALLED_STORAGE_PREFIX.length);
+      void refreshAfterChange();
       message.success(
-        t('扩展模块「{0}」安装成功', {
-          0: renderModuleTitle(preview.name, preview.id),
-        }),
+        moduleId
+          ? t('扩展模块「{0}」安装成功', { 0: moduleId })
+          : t('扩展模块安装成功'),
       );
-      setInstallOpen(false);
-      resetInstall();
-      await refreshAfterChange();
-    } catch (error) {
-      message.error(
-        backendMessage(error, t('安装失败，请检查扩展包或后端日志')),
-      );
-    } finally {
-      setInstalling(false);
-    }
-  };
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [message, refreshAfterChange]);
 
   const handleToggle = async (item: ModuleItem, checked: boolean) => {
     setTogglingId(item.id);
@@ -359,21 +311,6 @@ const ModuleManagerPage = () => {
     }
   };
 
-  const installDisabled =
-    !preview || checking || installing || preview.installable === false;
-
-  const handleInstallClick = () => {
-    if (!preview || installDisabled) {
-      return;
-    }
-    if (preview.experimental) {
-      setAck('');
-      setAckOpen(true);
-      return;
-    }
-    void doInstall();
-  };
-
   const columns: TableColumnsType<ModuleItem> = [
     {
       title: t('模块'),
@@ -388,7 +325,6 @@ const ModuleManagerPage = () => {
           <Space direction="vertical" size={2}>
             <Space size={8} wrap>
               <Text strong>{renderModuleTitle(item.name, item.id)}</Text>
-              {item.builtin ? <Tag>{t('内置')}</Tag> : null}
             </Space>
             <Text type="secondary" code>
               {item.id}
@@ -498,28 +434,18 @@ const ModuleManagerPage = () => {
             okText={t('卸载')}
             cancelText={t('取消')}
             okButtonProps={{ danger: true }}
-            disabled={
-              !canAdmin || Boolean(item.builtin) || Boolean(item.reserved)
-            }
+            disabled={!canAdmin || Boolean(item.reserved)}
             onConfirm={() => void handleRemove(item)}
           >
             <Tooltip
-              title={
-                item.builtin
-                  ? t('内置模块不可卸载')
-                  : item.reserved
-                    ? t('系统保留模块不可卸载')
-                    : undefined
-              }
+              title={item.reserved ? t('系统保留模块不可卸载') : undefined}
             >
               <Button
                 type="link"
                 size="small"
                 danger
                 icon={<DeleteOutlined />}
-                disabled={
-                  !canAdmin || Boolean(item.builtin) || Boolean(item.reserved)
-                }
+                disabled={!canAdmin || Boolean(item.reserved)}
                 loading={removingId === item.id}
               >
                 {t('卸载')}
@@ -534,9 +460,7 @@ const ModuleManagerPage = () => {
   return (
     <PageContainer
       title={t('扩展模块')}
-      subTitle={t(
-        '安装、启用、卸载以 .mod.ops_ext 打包的扩展功能；实验性模块需要确认风险后使用',
-      )}
+      subTitle={t('安装、启用、卸载以 .mod.ops_ext 打包的扩展功能')}
       extra={
         <Space wrap>
           <Button
@@ -546,18 +470,14 @@ const ModuleManagerPage = () => {
           >
             {t('刷新')}
           </Button>
-          <Tooltip
-            title={canAdmin ? undefined : t('只有管理员可以安装扩展模块')}
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            disabled={!canAdmin}
+            onClick={handleInstallClick}
           >
-            <Button
-              type="primary"
-              icon={<UploadOutlined />}
-              disabled={!canAdmin}
-              onClick={openInstall}
-            >
-              {t('安装扩展模块')}
-            </Button>
-          </Tooltip>
+            {t('安装扩展模块')}
+          </Button>
         </Space>
       }
     >
@@ -572,16 +492,6 @@ const ModuleManagerPage = () => {
               {t('重试')}
             </Button>
           }
-        />
-      ) : null}
-      {!canAdmin ? (
-        <Alert
-          type="info"
-          showIcon
-          message={t(
-            '当前账号只能查看扩展模块，安装、启用与卸载需要管理员权限',
-          )}
-          style={{ marginBottom: 16 }}
         />
       ) : null}
 
@@ -617,262 +527,6 @@ const ModuleManagerPage = () => {
           }}
         />
       </Card>
-
-      <Modal
-        title={t('安装扩展模块')}
-        open={installOpen}
-        width={760}
-        destroyOnHidden
-        maskClosable={false}
-        onCancel={() => {
-          setInstallOpen(false);
-          resetInstall();
-        }}
-        footer={[
-          <Button
-            key="cancel"
-            onClick={() => {
-              setInstallOpen(false);
-              resetInstall();
-            }}
-          >
-            {t('取消')}
-          </Button>,
-          <Button
-            key="install"
-            type="primary"
-            loading={installing}
-            disabled={installDisabled}
-            onClick={handleInstallClick}
-          >
-            {t('安装')}
-          </Button>,
-        ]}
-      >
-        {!preview && !checking ? (
-          <Upload.Dragger
-            accept=".mod.ops_ext"
-            multiple={false}
-            maxCount={1}
-            fileList={[]}
-            showUploadList={false}
-            disabled={checking || installing}
-            beforeUpload={(file) => {
-              void handlePick(file);
-              return Upload.LIST_IGNORE;
-            }}
-          >
-            <p className="ant-upload-drag-icon">
-              <InboxOutlined />
-            </p>
-            <p className="ant-upload-text">
-              {t('点击或拖拽 .mod.ops_ext 扩展包到这里')}
-            </p>
-            <p className="ant-upload-hint">
-              {t(
-                '上传后只会解析 description.json 做安装前预览，不会执行模块代码',
-              )}
-            </p>
-          </Upload.Dragger>
-        ) : null}
-
-        {checking ? (
-          <Flex justify="center" align="center" style={{ padding: '32px 0' }}>
-            <Spin />
-            <Text style={{ marginLeft: 12 }}>{t('正在校验扩展包…')}</Text>
-          </Flex>
-        ) : null}
-
-        {checkError ? (
-          <Alert
-            type="error"
-            showIcon
-            message={t('扩展包校验未通过')}
-            description={checkError}
-            style={{ marginTop: 16 }}
-          />
-        ) : null}
-
-        {preview ? (
-          <div>
-            <Flex justify="space-between" align="flex-start" gap={16} wrap>
-              <Space direction="vertical" size={4}>
-                <Space size={8} wrap>
-                  <Text strong style={{ fontSize: 16 }}>
-                    {renderModuleTitle(preview.name, preview.id)}
-                  </Text>
-                  <Tag>{`v${preview.version || '?'}`}</Tag>
-                  {preview.experimental ? (
-                    <Tag color="magenta" icon={<ExperimentOutlined />}>
-                      {t('实验性')}
-                    </Tag>
-                  ) : null}
-                  {preview.official ? (
-                    <Tag color="gold">{t('官方')}</Tag>
-                  ) : null}
-                </Space>
-                <Text type="secondary" code>
-                  {preview.id}
-                </Text>
-              </Space>
-              <Button
-                size="small"
-                onClick={() => {
-                  setPickedFile(null);
-                  setPreview(null);
-                  setCheckError('');
-                }}
-              >
-                {t('重新选择')}
-              </Button>
-            </Flex>
-
-            <Descriptions
-              size="small"
-              column={2}
-              style={{ marginTop: 16 }}
-              items={[
-                {
-                  key: 'author',
-                  label: t('作者'),
-                  children: preview.author || '-',
-                },
-                {
-                  key: 'license',
-                  label: t('许可证'),
-                  children: preview.license || '-',
-                },
-                {
-                  key: 'minBastionVersion',
-                  label: t('最低堡垒机版本'),
-                  children: preview.minBastionVersion || '-',
-                },
-                {
-                  key: 'size',
-                  label: t('包体积'),
-                  children: formatBytes(preview.size),
-                },
-              ]}
-            />
-
-            {preview.description ? (
-              <Paragraph style={{ marginTop: 12, marginBottom: 0 }}>
-                {moduleText(preview.description)}
-              </Paragraph>
-            ) : null}
-
-            <div style={{ marginTop: 12 }}>{renderTags(preview)}</div>
-
-            {preview.images.length > 0 ? (
-              <div style={{ marginTop: 16 }}>
-                <Text type="secondary">
-                  {t('包内截图（安装前只解析描述文件，暂不能预览图片）')}
-                </Text>
-                <Flex gap={8} wrap style={{ marginTop: 8 }}>
-                  {preview.images.map((image) => (
-                    <Flex
-                      key={image.path}
-                      vertical
-                      align="center"
-                      justify="center"
-                      gap={4}
-                      style={{
-                        width: 148,
-                        padding: '16px 8px',
-                        border: '1px dashed #d9d9d9',
-                        borderRadius: 8,
-                      }}
-                    >
-                      <FileImageOutlined
-                        style={{ fontSize: 22, color: '#bfbfbf' }}
-                      />
-                      <Text
-                        type="secondary"
-                        style={{ fontSize: 12, textAlign: 'center' }}
-                      >
-                        {image.path.split('/').pop() || image.path}
-                      </Text>
-                    </Flex>
-                  ))}
-                </Flex>
-              </div>
-            ) : null}
-
-            {preview.issues && preview.issues.length > 0 ? (
-              <Alert
-                type={preview.installable === false ? 'error' : 'warning'}
-                showIcon
-                style={{ marginTop: 16 }}
-                message={
-                  preview.installable === false
-                    ? t('这个扩展包不能安装')
-                    : t('安装前检查发现问题')
-                }
-                description={
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    {preview.issues.map((issue) => (
-                      <li key={issue}>{issueText(issue)}</li>
-                    ))}
-                  </ul>
-                }
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </Modal>
-
-      <Modal
-        title={t('确认安装实验性模块')}
-        open={ackOpen}
-        destroyOnHidden
-        maskClosable={false}
-        okText={t('安装')}
-        cancelText={t('取消')}
-        confirmLoading={installing}
-        okButtonProps={{
-          danger: true,
-          disabled: ack.trim() !== EXPERIMENTAL_ACK_PHRASE,
-        }}
-        onOk={() => void doInstall()}
-        onCancel={() => setAckOpen(false)}
-      >
-        <Alert
-          type="error"
-          showIcon
-          message={t('这是实验性功能')}
-          description={t(
-            '实验性模块可能修改系统行为，使用不当也许会造成系统损毁。请确认你了解并愿意承担风险。',
-          )}
-          style={{ marginBottom: 16 }}
-        />
-        <Paragraph style={{ marginBottom: 8 }}>
-          {t('请逐字输入下面的确认语（不支持粘贴）：')}
-        </Paragraph>
-        <Paragraph
-          style={{
-            padding: '8px 12px',
-            background: 'rgba(0, 0, 0, 0.04)',
-            borderRadius: 6,
-            marginBottom: 16,
-          }}
-        >
-          <Text strong>{EXPERIMENTAL_ACK_PHRASE}</Text>
-        </Paragraph>
-        <Input.TextArea
-          value={ack}
-          autoSize={{ minRows: 2, maxRows: 4 }}
-          placeholder={t('在这里逐字输入确认语')}
-          status={
-            ack && ack.trim() !== EXPERIMENTAL_ACK_PHRASE ? 'error' : undefined
-          }
-          onPaste={(event) => event.preventDefault()}
-          onDrop={(event) => event.preventDefault()}
-          onChange={(event) => setAck(event.target.value)}
-        />
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t('首尾空白会被忽略，但文字必须与上方完全一致。')}
-        </Text>
-      </Modal>
 
       <Modal
         title={

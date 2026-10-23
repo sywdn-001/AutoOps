@@ -73,7 +73,7 @@ def gateway(tmp_path, package_bytes):
     response = client.post(
         "/api/modules/install",
         data={
-            "file": (io.BytesIO(package_bytes), "rdp-gateway-1.1.0.mod.ops_ext"),
+            "file": (io.BytesIO(package_bytes), "rdp-gateway-1.2.0.mod.ops_ext"),
             "ack": ACK,
         },
         headers=headers,

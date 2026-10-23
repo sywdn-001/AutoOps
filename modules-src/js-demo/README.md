@@ -54,7 +54,7 @@ window.AutoOpsModules['js-demo'] = { mount, unmount };
 在仓库根目录执行：
 
 ```powershell
-python bastion-backend\tools\pack_module.py modules-src\js-demo -o modules-dist
+python bastion-backend\tools\pack_module.py modules-src\js-demo -o .
 ```
 
 只校验：
@@ -66,17 +66,21 @@ python bastion-backend\tools\pack_module.py modules-src\js-demo --check
 产物名由 `description.json` 的 `id` 和 `version` 决定：
 
 ```text
-modules-dist/js-demo-1.0.0.mod.ops_ext
+js-demo-1.0.0.mod.ops_ext
 ```
+
+产物输出到仓库根目录。系统不内置任何模块，`modules-src/` 只是源码和打包输入，运行时不会自动安装。
 
 如果改了 `version`，文件名会跟着变；不要手工重命名来伪装版本。
 
 ## 安装与打开
 
 1. 用管理员登录；
-2. 「系统设置 → 扩展模块」上传 `js-demo-1.0.0.mod.ops_ext`；
+2. 「系统设置 → 扩展模块」上传仓库根目录的 `js-demo-1.0.0.mod.ops_ext`；
 3. 它不是实验性模块，不需要烧杯确认；
 4. 侧边栏出现「JS 模式示例」，进入后 URL 是 `/m/js-demo/ui`。
+
+卸载就是真卸载，没有墓碑或一键重装；要恢复就重新上传同一份包。
 
 模块 API 默认要求 `module:js-demo:use` 权限。当前后端的角色接口只接受静态 `ALL_PERMISSIONS` 中的权限码，模块权限还没有合并进角色目录，因此**非超级管理员暂时无法在角色页获得该权限**；先用超级管理员验证（这与 `hello-bastion` README 中的说明一致）。
 

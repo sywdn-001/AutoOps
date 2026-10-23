@@ -1,6 +1,6 @@
 # RDP 网关 · RDP Gateway
 
-> 官方扩展模块（`id: rdp-gateway`，`experimental: true`）——把原本内置在宿主里的实验性 RDP 网关解耦成可独立安装、启停、配置和卸载的 `.mod.ops_ext` 组件包。
+> 官方扩展模块（`id: rdp-gateway`，`experimental: true`）——把实验性 RDP 网关解耦成可独立安装、启停、配置和卸载的 `.mod.ops_ext` 组件包。系统不内置任何模块，本模块也要由管理员上传安装。
 
 用户在 Windows 上直接用 `mstsc` 连接堡垒机，登录后选择自己**有访问授权**的 RDP 主机，所有会话写入 `SessionRecord` 与审计流水。网关本体是一个独立的 Rust 进程（`bastion-rdp-gateway.exe`），由本模块负责生命周期；宿主只承担登录、资产授权、会话记录和审计。
 
@@ -33,9 +33,19 @@ rdp-gateway/
 └── README.md
 ```
 
+## 打包
+
+在仓库根目录执行：
+
+```powershell
+python bastion-backend\tools\pack_module.py modules-src\rdp-gateway -o .
+```
+
+产物是仓库根目录的 `rdp-gateway-1.2.1.mod.ops_ext`。`modules-src/` 只是源码和打包输入，系统不会在运行时扫描或自动安装。
+
 ## 安装
 
-在「系统设置 → 扩展模块」页面上传 `modules-dist/rdp-gateway-1.1.0.mod.ops_ext`；因为是实验性模块，弹窗会要求逐字确认：
+在「系统设置 → 扩展模块」页面上传仓库根目录的 `rdp-gateway-1.2.1.mod.ops_ext`；因为是实验性模块，弹窗会要求逐字确认：
 
 ```
 我知道这是实验性功能，使用不当的话也许会造成系统损毁
@@ -46,7 +56,7 @@ rdp-gateway/
 ```bash
 curl -X POST http://127.0.0.1:5000/api/modules/install \
   -H "Authorization: Bearer <admin-token>" \
-  -F "file=@modules-dist/rdp-gateway-1.1.0.mod.ops_ext" \
+  -F "file=@rdp-gateway-1.2.1.mod.ops_ext" \
   -F "ack=我知道这是实验性功能，使用不当的话也许会造成系统损毁"
 ```
 
@@ -120,7 +130,7 @@ copy target\release\bastion-rdp-gateway.exe ..\modules-src\rdp-gateway\bin\
 
 ## 卸载
 
-在模块页面「停用」会先停网关进程、关闭所有浏览器画面桥；「卸载」删除模块目录与 `mod.rdp-gateway.*` 设置。卸载不会删除 `data/gateway.log`，便于事后排查。
+在模块页面「停用」会先停网关进程、关闭所有浏览器画面桥；「卸载」删除模块目录（含 `data/gateway.log`）与 `mod.rdp-gateway.*` 设置。卸载就是真卸载，没有墓碑或一键重装；需要留日志就先导出，需要恢复就重新上传同一份包。
 
 ## 已知限制
 

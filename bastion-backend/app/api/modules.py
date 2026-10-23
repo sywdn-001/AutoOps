@@ -23,7 +23,7 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 from .. import audit as audit_service
 from ..security import admin_required, login_required, permission_required
 from ..utils import api_error, api_ok
-from ..modules import loader, spec
+from ..modules import loader, preview, spec
 from ..modules.context import ModuleApiError
 from ..modules.permissions import has_module_permission
 from ..modules.registry import registry
@@ -215,15 +215,73 @@ def install_module():
             shutil.rmtree(workdir, ignore_errors=True)
 
 
+@modules_bp.post("/preview/<token>/install")
+@admin_required
+def install_from_preview(token: str):
+    """在预览窗口里直接安装：包已经随 upload-check 留在预览目录里了。"""
+    meta = preview.read_meta(token)
+    path = preview.package_path(token)
+    if meta is None or path is None:
+        return api_error(
+            "安装预览已过期，请重新选择模块包", 410, "MODULE_PREVIEW_EXPIRED"
+        )
+    body = request.get_json(silent=True) or {}
+    ack = str(body.get("ack") or "").strip()
+    module_id = ""
+    try:
+        archive = spec.parse_archive(str(path))
+        description = spec.validate_parsed(archive, app_version=_app_version())
+        if description["experimental"] and ack != EXPERIMENTAL_ACK:
+            raise spec.ModulePackageError(
+                "实验性模块需要逐字确认风险提示后才能安装",
+                code="EXPERIMENTAL_NOT_ACKED",
+                status=400,
+            )
+        module_id = description["id"]
+        if registry.get(module_id) is not None or registry.store.exists(module_id):
+            raise spec.ModulePackageError(
+                f"模块 {module_id} 已安装", code="MODULE_EXISTS", status=409
+            )
+        state = registry.store.install_archive(archive, description)
+        try:
+            record = registry.add_installed(description, state)
+        except Exception:
+            registry.rollback_install(module_id)
+            raise
+    except spec.ModulePackageError as exc:
+        return _package_error(exc)
+    except Exception:  # noqa: BLE001
+        logger.exception("预览窗口安装扩展模块失败")
+        return api_error("模块安装失败", 500, "MODULE_INSTALL_FAILED")
+    preview.discard(token)
+    _audit(
+        "install",
+        module_id=module_id,
+        message=f"安装扩展模块 {module_id} {description['version']}",
+        detail={
+            "version": description["version"],
+            "experimental": description["experimental"],
+            "via": "preview",
+        },
+    )
+    return api_ok(_module_payload(record), "模块安装成功")
+
+
 @modules_bp.post("/upload-check")
 @admin_required
 def upload_check():
     """只解析/校验，不落模块目录、不执行代码。"""
     workdir = None
+    extras: dict = {}
+    session: dict = {"token": "", "images": []}
     try:
         workdir, path = _save_upload()
         archive = spec.parse_archive(path)
         description = spec.validate_parsed(archive, app_version=_app_version())
+        # 临时目录在 finally 里就删掉了，README 必须趁现在读。
+        extras = _preview_package_info(archive)
+        # 预览窗口要显示截图、并且支持在窗口里直接安装，所以先把包留一份。
+        session = preview.create(archive, description, path)
     except spec.ModulePackageError as exc:
         return _package_error(exc)
     except Exception:  # noqa: BLE001
@@ -243,10 +301,62 @@ def upload_check():
     if description["experimental"]:
         warnings.append("这是实验性模块，安装时需要逐字确认风险提示")
     payload = _module_payload_preview(description)
+    payload.update(extras)
+    # 包内截图给出可访问的 URL，预览窗口才能真的把图渲染出来。
+    found = {item["path"]: item for item in session["images"]}
+    merged: list[dict] = []
+    for item in description.get("images", []):
+        path = item["path"]
+        merged.append({**item, **found.get(path, {})})
+    for path, item in found.items():
+        if all(entry["path"] != path for entry in merged):
+            merged.append(dict(item))
+    payload["images"] = merged
+    payload["previewToken"] = session["token"]
     payload["installable"] = not issues
     payload["issues"] = issues + warnings
     payload["warnings"] = warnings
     return api_ok(payload, "模块包校验通过")
+
+
+_README_NAMES = ("readme.md", "readme.markdown", "readme.txt")
+_README_LIMIT = 20000
+
+
+def _preview_package_info(archive: spec.ParsedArchive) -> dict:
+    """预览窗口要展示的包内信息：README 正文、体积、文件概况。
+
+    只从 ZIP 中央目录与 README 文本里取，**不执行**模块代码。
+    """
+    files = [entry for entry in archive.entries if not entry.is_dir]
+    folders = sorted(
+        {
+            entry.name.split("/", 1)[0] + "/"
+            for entry in files
+            if "/" in entry.name
+        }
+    )
+    readme = ""
+    readme_name = ""
+    try:
+        with archive.open_zip() as zf:
+            for name in zf.namelist():
+                if name.endswith("/"):
+                    continue
+                if name.rsplit("/", 1)[-1].lower() in _README_NAMES:
+                    with zf.open(name) as handle:
+                        readme = handle.read(_README_LIMIT).decode("utf-8", "replace")
+                    readme_name = name
+                    break
+    except Exception:  # noqa: BLE001 - README 读不出来不影响预览
+        logger.warning("读取模块包 README 失败", exc_info=True)
+    return {
+        "readme": readme,
+        "readmeName": readme_name,
+        "size": archive.total_size,
+        "fileCount": len(files),
+        "folders": folders,
+    }
 
 
 def _module_payload_preview(description: dict) -> dict:
@@ -318,7 +428,12 @@ def uninstall_module(module_id: str):
     except OSError:
         logger.exception("删除模块目录失败：%s", module_id)
         return api_error("删除模块目录失败", 500, "MODULE_UNINSTALL_FAILED")
-    _audit("uninstall", module_id=module_id, message=f"卸载扩展模块 {module_id}")
+    _audit(
+        "uninstall",
+        module_id=module_id,
+        message=f"卸载扩展模块 {module_id}",
+        detail={"version": record.description.get("version", "")},
+    )
     return api_ok(_module_payload(record), "模块已卸载")
 
 
@@ -352,6 +467,17 @@ def module_asset(module_id: str, rel: str):
     response = send_from_directory(str(package_dir), relative, conditional=True)
     # 模块升级会换文件，不能让浏览器缓存旧页面。
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
+@modules_bp.get("/preview/<token>/asset/<path:rel>")
+def module_preview_asset(token: str, rel: str):
+    """预览窗口里的截图；token 短期有效，所以不要求登录。"""
+    target = preview.asset_file(token, rel)
+    if target is None:
+        abort(404)
+    response = send_from_directory(str(target.parent), target.name, conditional=True)
+    response.headers["Cache-Control"] = "private, max-age=600"
     return response
 
 
