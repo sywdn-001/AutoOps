@@ -342,6 +342,12 @@ def create_app(config_object=None, *, create_tables: bool = True, seed: bool = T
         if seed:
             seed_data(app)
 
+        # 扩展模块放在种子数据之后：模块设置项要能被 settings_store 看到，
+        # 而模块加载失败只记录到各自 errors[]，绝不能让应用起不来。
+        from .modules import init_modules
+
+        init_modules(app)
+
     # 注册 WebSocket 事件（必须在 socketio.init_app 之后：init_app 会重建 server，
     # 事件处理器必须重新挂到当前 server 上，否则同进程内第二个 app 收不到任何事件）
     from .webterm import events as _webterm_events  # noqa: F401

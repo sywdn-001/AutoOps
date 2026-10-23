@@ -446,6 +446,14 @@ export type SettingItem = {
   /** 整型配置的合法区间（后端下发，用于输入框 min/max；后端仍会独立校验） */
   min?: number;
   max?: number;
+  /** 模块设置项：归属模块 id；全局参数不下发该字段 */
+  moduleId?: string;
+  /** 模块设置项：`module`；全局参数不下发该字段 */
+  scope?: 'module' | string;
+  /** 模块设置项的分组显示名（模块中文名优先，缺省英文名/id；后端暂不下发双语） */
+  group?: string;
+  /** 模块 description.json 里的原始配置键（下发 key 已带 `mod.<id>.` 前缀） */
+  rawKey?: string;
 };
 
 export type SettingsPayload = {
@@ -787,4 +795,99 @@ export type RdpRecordingUploadState = {
   duplicate?: boolean;
   /** 这次请求带上去的序号（回显，方便前端对账） */
   seq?: number;
+};
+
+// ---------------------------------------------------------------- 扩展模块域
+
+/** 模块里可双语显示的文本。归一化后通常是 `{zh,en}`，也兼容后端直接给字符串。 */
+export type ModuleText = string | { zh?: string; en?: string };
+
+export type ModuleImage = {
+  /** 包内相对路径，如 `images/demo-1.png` */
+  path: string;
+  /** 可访问 URL；`upload-check` 阶段不落盘，没有该字段 */
+  url?: string;
+};
+
+export type ModuleNavType = 'iframe' | 'js';
+
+export type ModuleNavItem = {
+  /** 归属模块 id；`detail().nav[]` 与 `/api/modules/nav` 都会带 */
+  moduleId?: string;
+  /** 模块双语名；用于菜单/标题兜底 */
+  moduleName?: ModuleText;
+  key: string;
+  title: ModuleText;
+  /** 最终 URL，形如 `/m/<id>/<rel>`（后端已带模块前缀） */
+  path: string;
+  /** 包内相对入口，缺省回退模块 `entry.web` */
+  entry?: string;
+  type: ModuleNavType;
+  icon?: string;
+  permission?: string;
+  loaded?: boolean;
+};
+
+export type ModuleSettingType = 'bool' | 'int' | 'string';
+
+export type ModuleSetting = {
+  /** 已加 `mod.<id>.` 前缀的 SystemSetting key */
+  key: string;
+  /** description.json 里的原始配置键 */
+  rawKey?: string;
+  label: ModuleText;
+  type: ModuleSettingType;
+  default?: string;
+  min?: number | null;
+  max?: number | null;
+  description?: ModuleText;
+  group?: string;
+};
+
+export type ModuleItem = {
+  id: string;
+  name: ModuleText;
+  version: string;
+  author: string;
+  /** author === 'AutoOps'（忽略大小写/首尾空格） */
+  official: boolean;
+  description: ModuleText;
+  tags: string[];
+  experimental: boolean;
+  icon?: string;
+  license?: string;
+  homepage?: string;
+  minBastionVersion?: string;
+  images: ModuleImage[];
+  /** 包内入口（后端归一化时增补） */
+  entry?: { web?: string };
+  nav: ModuleNavItem[];
+  settings: ModuleSetting[];
+  permissions: string[];
+  requires: string[];
+  /** 保留 id（core/system/admin/modules/_builtin），不可安装/卸载 */
+  reserved?: boolean;
+  /** 随程序安装的内置模块，不可卸载 */
+  builtin?: boolean;
+  enabled: boolean;
+  loaded: boolean;
+  installedAt?: string;
+  updatedAt?: string;
+  /** 包体积（字节） */
+  size: number;
+  errors: string[];
+};
+
+/** `POST /api/modules/upload-check` 的预览：归一化 description + 可安装性 */
+export type ModulePreview = ModuleItem & {
+  /** 后端预检结论；false 时安装按钮应禁用（如已存在/保留 id） */
+  installable?: boolean;
+  /** 非致命的预检问题码（MODULE_EXISTS、MODULE_RESERVED_ID 等） */
+  issues?: string[];
+};
+
+/** `GET /api/modules/nav` 的扁平导航项（按当前账号权限过滤） */
+export type ModuleNavEntry = ModuleNavItem & {
+  moduleId: string;
+  moduleName: ModuleText;
 };

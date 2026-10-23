@@ -1,0 +1,89 @@
+{
+  "id": "hello-bastion",
+  "name": {
+    "zh": "Hello Bastion",
+    "en": "Hello Bastion"
+  },
+  "version": "1.1.0",
+  "author": "AutoOps",
+  "description": {
+    "zh": "AutoOps 扩展模块示例：展示导航注入、模块设置、js 模式页面与异步 SDK 调用。",
+    "en": "AutoOps extension sample: nav entry, module settings, js-mode UI and async SDK calls."
+  },
+  "tags": [
+    "experimental",
+    "monitor"
+  ],
+  "experimental": true,
+  "icon": "ExperimentOutlined",
+  "homepage": "https://github.com/sywdn-001/AutoOps",
+  "license": "MIT",
+  "minBastionVersion": "1.0.0",
+  "images": [
+    "images/demo-1.png"
+  ],
+  "entry": {
+    "web": "web/index.js"
+  },
+  "nav": [
+    {
+      "key": "stats",
+      "title": {
+        "zh": "Hello Bastion",
+        "en": "Hello Bastion"
+      },
+      "path": "/",
+      "entry": "web/index.js",
+      "type": "js",
+      "icon": "ExperimentOutlined",
+      "permission": "module:hello-bastion:use"
+    }
+  ],
+  "settings": [
+    {
+      "key": "show_greeting",
+      "label": {
+        "zh": "显示问候语",
+        "en": "Show greeting"
+      },
+      "type": "bool",
+      "default": "1",
+      "description": {
+        "zh": "关闭后示例页不再显示问候语，但统计接口仍会返回该设置值。",
+        "en": "When off, the sample page hides the greeting but the stats API still returns the value."
+      }
+    },
+    {
+      "key": "refresh_seconds",
+      "label": {
+        "zh": "自动刷新间隔（秒）",
+        "en": "Auto refresh interval (seconds)"
+      },
+      "type": "int",
+      "default": "30",
+      "min": 5,
+      "max": 600,
+      "description": {
+        "zh": "示例页轮询 /stats 的间隔，范围 5-600 秒。",
+        "en": "Polling interval for /stats, 5-600 seconds."
+      }
+    },
+    {
+      "key": "greeting_text",
+      "label": {
+        "zh": "问候语",
+        "en": "Greeting text"
+      },
+      "type": "string",
+      "default": "Hello, Bastion!",
+      "description": {
+        "zh": "显示在示例页头部的文本。",
+        "en": "Text shown in the sample page header."
+      }
+    }
+  ],
+  "permissions": [
+    "module:hello-bastion:use"
+  ],
+  "requires": []
+}

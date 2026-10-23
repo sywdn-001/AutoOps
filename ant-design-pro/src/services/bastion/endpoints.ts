@@ -988,3 +988,14 @@ export const fileAuditApi = {
       request<ApiData<PurgeResult>>('/api/audits/files/delete', { method: 'POST', data: payload }),
     ),
 };
+
+// ---------------------------------------------------------------- 扩展模块域
+// 实现在 ./modules.ts：模块对象、导航项要做容错归一化，单独成文件避免 endpoints.ts 继续膨胀。
+export {
+  EXPERIMENTAL_ACK_PHRASE,
+  matchModuleNav,
+  moduleApi,
+  moduleAssetUrl,
+  moduleErrorStatus,
+  moduleText,
+} from './modules';

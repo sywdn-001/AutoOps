@@ -1,0 +1,41 @@
+{
+  "id": "js-demo",
+  "name": {
+    "zh": "JS 模式示例",
+    "en": "JS Mode Demo"
+  },
+  "version": "1.0.0",
+  "author": "AutoOps",
+  "description": {
+    "zh": "演示 js 模式扩展：不打包 React/antd，直接复用宿主注入的 window.AutoOpsSDK。",
+    "en": "Demonstrates js-mode extensions by reusing the host-injected window.AutoOpsSDK instead of bundling React/antd."
+  },
+  "tags": [
+    "demo",
+    "ui"
+  ],
+  "experimental": false,
+  "icon": "CodeOutlined",
+  "license": "MIT",
+  "homepage": "",
+  "minBastionVersion": "1.0.0",
+  "entry": {
+    "web": "web/index.js"
+  },
+  "nav": [
+    {
+      "key": "ui",
+      "title": {
+        "zh": "JS 模式示例",
+        "en": "JS Mode Demo"
+      },
+      "path": "/ui",
+      "entry": "web/index.js",
+      "type": "js",
+      "icon": "CodeOutlined"
+    }
+  ],
+  "permissions": [
+    "module:js-demo:use"
+  ]
+}

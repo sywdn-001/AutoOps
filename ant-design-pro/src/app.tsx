@@ -6,7 +6,10 @@
  * `footerRender: false` —— 页面底部不显示版权与标语）；③ `request` 统一处理后端信封
  * （`{success,message,data}`）的错误提示与 401 跳登录。
  */
-import type { Settings as LayoutSettings } from '@ant-design/pro-components';
+import type {
+  Settings as LayoutSettings,
+  MenuDataItem,
+} from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link } from '@umijs/max';
@@ -25,11 +28,44 @@ import {
   OfflineBanner,
 } from '@/components';
 import { t, translateMenuData } from '@/i18n';
+import { resolveModuleIcon } from '@/modules/icons';
 import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import { moduleApi, moduleText } from '@/services/bastion/modules';
+import type { ModuleNavEntry } from '@/services/bastion/types';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
 
 const loginPath = '/user/login';
+
+/**
+ * 拉模块导航。未登录 / 无权限 / 后端模块服务不可用时静默返回空数组：
+ * 扩展模块只是附加能力，绝不能因为它挂了导致首页打不开。
+ */
+const loadModuleNav = async (): Promise<ModuleNavEntry[]> => {
+  try {
+    return await moduleApi.nav();
+  } catch (_error) {
+    return [];
+  }
+};
+
+/** 模块 nav 项 → ProLayout 菜单项（插在「系统设置」之前）。 */
+const buildModuleMenuData = (nav: ModuleNavEntry[]): MenuDataItem[] => {
+  const seen = new Set<string>();
+  const menus: MenuDataItem[] = [];
+  for (const item of nav) {
+    if (!item.path || seen.has(item.path)) {
+      continue;
+    }
+    seen.add(item.path);
+    menus.push({
+      path: item.path,
+      name: moduleText(item.title ?? item.moduleName, item.key),
+      icon: resolveModuleIcon(item.icon),
+    });
+  }
+  return menus;
+};
 
 /**
  * @see https://umijs.org/docs/api/runtime-config#getinitialstate
@@ -40,6 +76,10 @@ export async function getInitialState(): Promise<{
   loading?: boolean;
   fetchUserInfo?: () => Promise<API.CurrentUser | undefined>;
   settingDrawerOpen?: boolean;
+  /** 当前账号可见的扩展模块导航（登录后才拉） */
+  moduleNav?: ModuleNavEntry[];
+  /** 与 `moduleNav` 同值：契约 §7 里叫 modules，页面按这个字段消费 */
+  modules?: ModuleNavEntry[];
 }> {
   const fetchUserInfo = async () => {
     try {
@@ -63,9 +103,12 @@ export async function getInitialState(): Promise<{
     )
   ) {
     const currentUser = await fetchUserInfo();
+    const moduleNav = currentUser ? await loadModuleNav() : [];
     return {
       fetchUserInfo,
       currentUser,
+      modules: moduleNav,
+      moduleNav,
       settings: defaultSettings as Partial<LayoutSettings>,
       settingDrawerOpen: false,
     };
@@ -85,7 +128,21 @@ export const layout: RunTimeLayoutConfig = ({
   return {
     // 菜单/面包屑的中文名在路由里是字面量（见 config/routes.ts 的说明），
     // 这里统一过一遍 t()，切到英文时整棵菜单一起变。
-    menuDataRender: (menuData) => translateMenuData(menuData),
+    // 扩展模块菜单按契约 §7 插在「系统设置」分组之前。
+    menuDataRender: (menuData) => {
+      const moduleMenus = buildModuleMenuData(initialState?.moduleNav ?? []);
+      if (moduleMenus.length === 0) {
+        return translateMenuData(menuData);
+      }
+      const merged = [...menuData];
+      const systemIndex = merged.findIndex((item) => item.path === '/system');
+      merged.splice(
+        systemIndex < 0 ? merged.length : systemIndex,
+        0,
+        ...moduleMenus,
+      );
+      return translateMenuData(merged);
+    },
     menuItemRender: (item, dom) => {
       if (item.path) {
         return (

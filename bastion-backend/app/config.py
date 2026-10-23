@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 
@@ -101,6 +102,15 @@ class Config:
     TRANSCRIPT_DIR = TRANSCRIPT_DIR
     RDP_RECORDING_DIR = RDP_RECORDING_DIR
 
+    #: 后端版本；模块的 ``minBastionVersion`` 与前端展示都读这里。
+    APP_VERSION = os.environ.get("BASTION_APP_VERSION", "1.0.0")
+    #: 已安装扩展模块的根目录（每个模块一个子目录，文件系统即真相）。
+    MODULES_DIR = Path(os.environ.get("BASTION_MODULES_DIR") or (INSTANCE_DIR / "modules"))
+    #: 随仓库分发、启动时自动安装的内置模块源码目录；空串表示关闭内置扫描。
+    MODULES_SRC_DIR = os.environ.get(
+        "BASTION_MODULES_SRC", str(BASE_DIR.parent / "modules-src")
+    )
+
     # --- 会话与签名 -----------------------------------------------------
     SECRET_KEY = os.environ.get("BASTION_SECRET_KEY") or _get_or_create(
         INSTANCE_DIR / "secret.key", _new_secret
@@ -165,10 +175,6 @@ class Config:
     GATEWAY_HOST = os.environ.get("BASTION_GATEWAY_HOST", "0.0.0.0")
     GATEWAY_PORT = int(os.environ.get("BASTION_GATEWAY_PORT", "2222"))
 
-    #: RDP 网关（mstsc 连进来的选单入口，默认 4489）。
-    #: 实验分支只预留配置：RDP 服务端尚未实现，见 docs/rdp-gateway-experiment.md
-    RDP_GATEWAY_ENABLED = os.environ.get("BASTION_RDP_GATEWAY_ENABLED", "0") not in ("0", "false", "False")
-    RDP_GATEWAY_PORT = int(os.environ.get("BASTION_RDP_GATEWAY_PORT", "4489"))
     GATEWAY_HOST_KEY = str(
         os.environ.get("BASTION_GATEWAY_HOST_KEY") or (INSTANCE_DIR / "gateway_host_rsa.key")
     )
@@ -232,3 +238,7 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"check_same_thread": False}}
     WTF_CSRF_ENABLED = False
+    # 测试默认不碰真实 instance/modules，也不自动安装仓库里的内置模块；
+    # 需要模块的用例在测试内用 tmp_path 覆盖这两个值。
+    MODULES_DIR = Path(tempfile.mkdtemp(prefix="bastion-test-modules-"))
+    MODULES_SRC_DIR = ""

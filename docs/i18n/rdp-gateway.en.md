@@ -7,6 +7,12 @@
 >
 > 中文版 / Chinese: [../RDP网关.md](../RDP网关.md)
 
+> **Module note**: the RDP gateway is now an official extension module (`rdp-gateway`, packaged as
+> `.mod.ops_ext`). The host no longer ships the `/api/rdp-gateway/*` blueprint or the old
+> "System settings → RDP gateway" page. The gateway process is supervised by the module, the module
+> API prefix is `/api/modules/rdp-gateway/api`, and the module page is mounted by the host under
+> "Extension modules".
+
 ---
 
 ## 1. What problem it solves
@@ -27,8 +33,8 @@ Windows' own `mstsc`, or policy forbids browser extensions. The RDP gateway exis
 mstsc ──TLS (RDP)──► bastion-rdp-gateway:4489 ──RDP (TLS+NLA)──► target host :3389
                           │
                           ├─ sign-in page: bastion credentials → JWT (POST /api/auth/login)
-                          ├─ menu:          GET  /api/rdp-gateway/hosts (same authorization as the web UI)
-                          └─ select:        POST /api/rdp-gateway/sessions → address/port/account/password (audited)
+                          ├─ menu:          GET  /api/modules/rdp-gateway/api/hosts (same authorization as the web UI)
+                          └─ select:        POST /api/modules/rdp-gateway/api/sessions → address/port/account/password (audited)
 ```
 
 - **Server side**: `bastion-rdp-gateway/` (Rust, `ironrdp-server` 0.13). To `mstsc` it *is* an RDP
@@ -43,10 +49,12 @@ mstsc ──TLS (RDP)──► bastion-rdp-gateway:4489 ──RDP (TLS+NLA)─�
 
 ## 3. Using it (three steps)
 
-1. **Start the gateway** (either way)
+1. **Install and start the module** (either way)
 
    ```powershell
-   # (1) System settings → RDP gateway → click "Start" (recommended: status and logs in the UI)
+   # (1) Upload modules-dist\rdp-gateway-<version>.mod.ops_ext under
+   #     "System settings → Extension modules", tick the experimental confirmation and enable it;
+   #     then open "Extension modules → RDP gateway" and click "Start" (recommended: status and logs in the UI)
    # (2) from a shell:
    cd bastion-rdp-gateway
    $env:RDP_GATEWAY_PORT = "4489"
@@ -88,11 +96,13 @@ mstsc ──TLS (RDP)──► bastion-rdp-gateway:4489 ──RDP (TLS+NLA)─�
 
 | Location | Key / variable | Default | Meaning |
 | --- | --- | --- | --- |
-| System settings → Parameters | `rdp_gateway_enabled` | off | whether the RDP gateway is enabled |
-| System settings → Parameters | `rdp_gateway_port` | 4489 | listening port |
+| Module page → module settings | `mod.rdp-gateway.enabled` | off | whether the RDP gateway is enabled |
+| Module page → module settings | `mod.rdp-gateway.port` | 4489 | listening port |
+| Module page → module settings | `mod.rdp-gateway.autoStart` | off | start the gateway process when the module is enabled |
 | Gateway process | `RDP_GATEWAY_PORT` | 4489 | same, for command-line starts |
 | Gateway process | `BASTION_INSTANCE_DIR` | `../bastion-backend/instance` | where certificate/logs live |
 | Gateway process | `BASTION_API_BASE` | `http://127.0.0.1:5000` | backend address (`BASTION_API_PORT` also works) |
+| Gateway process | `BASTION_API_PREFIX` | `/api/modules/rdp-gateway/api` | module API prefix (injected by the module) |
 | Gateway process | `RUST_LOG` | `info` | log level; use `trace` to see individual key/mouse events |
 
 After changing the port, stop and start the gateway so it re-binds.
@@ -116,7 +126,8 @@ After changing the port, stop and start the gateway so it re-binds.
 - Backend calls: `debug`, including method/path/HTTP status/duration/bytes;
 - Frame pump: one line every 30 s (keys, mouse events, frames).
 
-Log file: `bastion-backend/instance/rdp-gateway.log` (when started from the UI).
+Log file: `bastion-backend/instance/modules/rdp-gateway/data/gateway.log` (when started from the
+module page; the page's log panel and `GET /api/modules/rdp-gateway/api/logs` read it directly).
 
 ## 8. Building it yourself
 

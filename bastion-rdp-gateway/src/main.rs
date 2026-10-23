@@ -33,8 +33,31 @@ const LEFT: u16 = 60;
 const MENU_TOP: u16 = 260;
 const API_HOST: &str = "127.0.0.1";
 const API_PORT: u16 = 5000;
+/// 旧版网关三个后端调用所在的固定前缀。模块化之后由 `BASTION_API_PREFIX` 整体替换。
+const LEGACY_GATEWAY_PREFIX: &str = "/api/rdp-gateway";
+
+static API_PREFIX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 网关后端调用的路径前缀。
+///
+/// 默认就是历史值 `/api/rdp-gateway`，单独运行网关时行为完全不变；装进扩展模块后
+/// 由模块注入 `BASTION_API_PREFIX=/api/modules/rdp-gateway/api`，三个网关调用
+/// （选机器、建会话、断开）就会改走模块自己的路由。登录接口 `POST /api/auth/login`
+/// 不属于网关前缀，始终走宿主原路径。
+fn api_prefix() -> &'static str {
+    API_PREFIX
+        .get_or_init(|| {
+            std::env::var("BASTION_API_PREFIX")
+                .ok()
+                .map(|value| value.trim().trim_end_matches('/').to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| LEGACY_GATEWAY_PREFIX.to_string())
+        })
+        .as_str()
+}
 
 /// 后端地址：`BASTION_API_BASE=http://host:port` 优先，其次 `BASTION_API_PORT`，最后默认 127.0.0.1:5000。
+/// 注意 `BASTION_API_BASE` 只负责 host:port，路径前缀走 `BASTION_API_PREFIX`。
 /// 网关和 Flask 不一定同机同端口，所以必须可配，不能写死。
 fn api_addr() -> SocketAddr {
     if let Ok(base) = std::env::var("BASTION_API_BASE") {
@@ -62,6 +85,11 @@ fn http_raw(
 ) -> Result<(u16, Vec<u8>), String> {
     let addr = api_addr();
     let started = std::time::Instant::now();
+    // 只有三个网关调用带旧前缀 `/api/rdp-gateway`；登录等其它请求原样放行。
+    let path = match path.strip_prefix(LEGACY_GATEWAY_PREFIX) {
+        Some(rest) => format!("{}{}", api_prefix(), rest),
+        None => path.to_string(),
+    };
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
         .map_err(|e| format!("连不上后端 {addr}：{e}"))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
