@@ -214,14 +214,15 @@ export default [
         component: './bastion/settings',
       },
       {
+        name: '扩展模块',
+        path: '/system/modules',
+        access: 'canSettingView',
+        component: './bastion/modules',
+      },
+      {
         name: 'SSH 网关',
         path: '/system/gateway',
         component: './bastion/gateway',
-      },
-      {
-        name: 'RDP 网关',
-        path: '/system/rdp-gateway',
-        component: './system/rdp-gateway',
       },
       {
         name: 'ComputerUse 部署',
@@ -248,6 +249,14 @@ export default [
         component: './bastion/account',
       },
     ],
+  },
+  {
+    // 扩展模块自带的页面：/m/<模块 id>/<模块内路径>。菜单项是运行时从 /api/modules/nav
+    // 插进来的，所以这里 hideInMenu；必须在 404 通配路由之前。
+    path: '/m/:moduleId/*',
+    name: '扩展模块',
+    hideInMenu: true,
+    component: './bastion/modules/host',
   },
   {
     path: '/',

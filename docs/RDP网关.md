@@ -10,6 +10,10 @@
 
 英文版 / English: [i18n/rdp-gateway.en.md](i18n/rdp-gateway.en.md)
 
+> **模块化说明**：RDP 网关已从宿主解耦为官方扩展模块 `rdp-gateway`（`.mod.ops_ext`），
+> 宿主不再内置 `/api/rdp-gateway/*` 蓝图与「系统设置 → RDP 网关」页面。网关进程由模块托管，
+> 模块 API 前缀是 `/api/modules/rdp-gateway/api`，模块页面由宿主在「扩展模块」菜单中加载。
+
 ---
 
 ## 一、它解决什么问题
@@ -30,8 +34,8 @@
 mstsc ──TLS(RDP)──► bastion-rdp-gateway:4489 ──RDP(TLS+NLA)──► 目标机 3389
                           │
                           ├─ 登录页：用堡垒机账号口令换 JWT（POST /api/auth/login）
-                          ├─ 选单：GET  /api/rdp-gateway/hosts（与网页端同一套授权判定）
-                          └─ 选中：POST /api/rdp-gateway/sessions → 拿目标机地址/端口/账号/口令（写审计）
+                          ├─ 选单：GET  /api/modules/rdp-gateway/api/hosts（与网页端同一套授权判定）
+                          └─ 选中：POST /api/modules/rdp-gateway/api/sessions → 拿目标机地址/端口/账号/口令（写审计）
 ```
 
 - **服务端**：`bastion-rdp-gateway/`（Rust，`ironrdp-server` 0.13）—— 对 `mstsc` 来说它就是一台
@@ -43,10 +47,11 @@ mstsc ──TLS(RDP)──► bastion-rdp-gateway:4489 ──RDP(TLS+NLA)──�
 
 ## 三、用起来（三步）
 
-1. **启动网关**（任选一种）
+1. **安装并启动模块**（任选一种）
 
    ```powershell
-   # ① 系统设置 → RDP 网关 → 点「启动」（推荐，由后端托管、能看状态/日志）
+   # ① 在「系统设置 → 扩展模块」上传 modules-dist\rdp-gateway-<版本>.mod.ops_ext，
+   #    勾选实验性确认并启用；打开「扩展模块 → RDP 网关」页面点「启动」（推荐，能看状态/日志）
    # ② 命令行：
    cd bastion-rdp-gateway
    $env:RDP_GATEWAY_PORT = "4489"
@@ -86,11 +91,13 @@ mstsc ──TLS(RDP)──► bastion-rdp-gateway:4489 ──RDP(TLS+NLA)──�
 
 | 位置 | 键 / 环境变量 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| 系统设置 → 参数设置 | `rdp_gateway_enabled` | 关 | 是否启用 RDP 网关（页面上的开关提示） |
-| 系统设置 → 参数设置 | `rdp_gateway_port` | 4489 | 网关监听端口 |
+| 模块页面 → 模块设置 | `mod.rdp-gateway.enabled` | 关 | 是否启用 RDP 网关（模块设置） |
+| 模块页面 → 模块设置 | `mod.rdp-gateway.port` | 4489 | 网关监听端口 |
+| 模块页面 → 模块设置 | `mod.rdp-gateway.autoStart` | 关 | 模块启用时自动拉起网关进程 |
 | 网关进程 | `RDP_GATEWAY_PORT` | 4489 | 同上，命令行启动时用 |
 | 网关进程 | `BASTION_INSTANCE_DIR` | `../bastion-backend/instance` | 证书/日志所在目录 |
 | 网关进程 | `BASTION_API_BASE` | `http://127.0.0.1:5000` | 后端地址（也支持 `BASTION_API_PORT`） |
+| 网关进程 | `BASTION_API_PREFIX` | `/api/modules/rdp-gateway/api` | 模块 API 前缀（由模块启动时注入） |
 | 网关进程 | `RUST_LOG` | `info` | 日志级别；排查键盘/鼠标细节时用 `trace` |
 
 改完端口记得「停止 → 启动」让网关重新绑定。
@@ -113,7 +120,8 @@ mstsc ──TLS(RDP)──► bastion-rdp-gateway:4489 ──RDP(TLS+NLA)──�
 - 后端调用：`debug` 级别，带方法/路径/HTTP 状态码/耗时/字节数；
 - 画面泵：30 秒一行（键盘数、鼠标数、累计帧数）。
 
-日志文件：`bastion-backend/instance/rdp-gateway.log`（由页面「启动」托管时写这里）。
+日志文件：`bastion-backend/instance/modules/rdp-gateway/data/gateway.log`（由模块页面「启动」托管时写这里；
+模块页面的「日志」面板和 `GET /api/modules/rdp-gateway/api/logs` 都能直接读）。
 
 ## 八、自己编译
 

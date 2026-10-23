@@ -10,7 +10,16 @@ from ..audit import log_event
 from ..extensions import db
 from ..models import CommandPolicy, CommandRule, Role, SessionRecord, SystemSetting
 from ..security import admin_required, permission_required
-from ..settings_store import DEFAULTS, all_settings, ensure_defaults, update_settings
+from ..settings_store import (
+    BOOL_KEYS,
+    DEFAULTS,
+    all_defaults,
+    all_settings,
+    default_meta,
+    ensure_defaults,
+    is_bool_key,
+    update_settings,
+)
 from ..ssh_client import default_client_version
 from ..utils import api_error, api_ok, parse_bool, parse_int
 
@@ -31,8 +40,6 @@ SETTING_LABELS = {
     "notify_on_deny": "命令被拦截时提示用户",
     "gateway_enabled": "启用 SSH 网关",
     "ai_max_tool_rounds": "AI 任务最大调用轮数",
-    "rdp_gateway_enabled": "启用 RDP 网关（mstsc 连进来选机器）",
-    "rdp_gateway_port": "RDP 网关端口",
 }
 
 INT_KEYS = {
@@ -44,34 +51,76 @@ INT_KEYS = {
     "max_sessions_per_user",
     "default_policy_id",
     "ai_max_tool_rounds",
-    "rdp_gateway_port",
 }
-BOOL_KEYS = {"record_raw_transcript", "notify_on_deny", "gateway_enabled", "rdp_gateway_enabled"}
 # 允许留空的整型配置：默认值本身就是空串，留空表示「未指定」（例如没有默认命令策略）
 OPTIONAL_INT_KEYS = {"default_policy_id"}
 # 整型配置的合法区间：既用来校验（PUT），也下发给前端做输入框的 min/max
 INT_RANGES = {
     "gateway_port": (1, 65535),
-    "rdp_gateway_port": (1, 65535),
     "ai_max_tool_rounds": (1, 50),
 }
+
+
+def _label(key: str) -> str:
+    meta = default_meta(key)
+    if meta:
+        label = meta.get("label") or {}
+        return label.get("zh") or label.get("en") or meta.get("rawKey") or key
+    return SETTING_LABELS.get(key, key)
+
+
+def _kind(key: str) -> str:
+    """配置项类型：int / bool / string。模块设置以 description.json 的声明为准。"""
+    meta = default_meta(key)
+    if meta:
+        return meta.get("type") or "string"
+    if key in INT_KEYS:
+        return "int"
+    if is_bool_key(key):
+        return "bool"
+    return "string"
+
+
+def _bounds(key: str):
+    """整型配置的合法区间（也用来下发前端 min/max）。"""
+    meta = default_meta(key)
+    if meta:
+        if (meta.get("type") or "") != "int":
+            return None, None
+        lo, hi = meta.get("min"), meta.get("max")
+        return (lo, hi) if lo is not None and hi is not None else (None, None)
+    return INT_RANGES.get(key, (None, None))
+
+
+def _extra(key: str) -> dict:
+    """模块设置才有 group/scope，核心设置保持原有字段，避免前端改动过大。"""
+    meta = default_meta(key)
+    if not meta:
+        return {}
+    return {
+        "scope": "module",
+        "moduleId": meta.get("moduleId"),
+        "group": meta.get("group") or meta.get("moduleId") or "",
+    }
 
 
 def _payload() -> dict:
     stored = all_settings()
     items = []
-    for key, default in DEFAULTS.items():
-        value = stored.get(key, default)
+    for key, default in all_defaults().items():
+        kind = _kind(key)
         item = {
             "key": key,
-            "label": SETTING_LABELS.get(key, key),
-            "value": value,
+            "label": _label(key),
+            "value": stored.get(key, default),
             "default": default,
-            "type": "int" if key in INT_KEYS else ("bool" if key in BOOL_KEYS else "string"),
+            "type": kind,
         }
-        if key in INT_RANGES:
+        lo, hi = _bounds(key)
+        if kind == "int" and lo is not None and hi is not None:
             # 下发区间，前端 InputNumber 直接照它设 min/max（后端仍然独立校验一遍）
-            item["min"], item["max"] = INT_RANGES[key]
+            item["min"], item["max"] = lo, hi
+        item.update(_extra(key))
         items.append(item)
     return {"items": items, "values": {item["key"]: item["value"] for item in items}}
 
@@ -87,21 +136,24 @@ def get_settings():
 def put_settings():
     payload = request.get_json(silent=True) or {}
     values = payload.get("values") if isinstance(payload.get("values"), dict) else payload
+    known = all_defaults()
     cleaned: dict = {}
     for key, value in (values or {}).items():
-        if key not in DEFAULTS:
+        if key not in known:
             continue
-        if key in INT_KEYS:
+        kind = _kind(key)
+        label = _label(key)
+        if kind == "int":
             if key in OPTIONAL_INT_KEYS and str(value if value is not None else "").strip() == "":
                 cleaned[key] = ""
                 continue
             number = parse_int(value)
             if number is None:
-                return api_error(f"「{SETTING_LABELS.get(key, key)}」必须是整数", 400, code="INVALID_ARGUMENT")
-            bounds = INT_RANGES.get(key)
-            if bounds and not (bounds[0] <= number <= bounds[1]):
+                return api_error(f"「{label}」必须是整数", 400, code="INVALID_ARGUMENT")
+            lo, hi = _bounds(key)
+            if lo is not None and hi is not None and not (lo <= number <= hi):
                 return api_error(
-                    f"「{SETTING_LABELS.get(key, key)}」必须在 {bounds[0]}-{bounds[1]} 之间",
+                    f"「{label}」必须在 {lo}-{hi} 之间",
                     400,
                     code="INVALID_ARGUMENT",
                 )
@@ -109,7 +161,8 @@ def put_settings():
                 if number and db.session.get(CommandPolicy, number) is None:
                     return api_error("指定的默认策略不存在", 400, code="INVALID_ARGUMENT")
             cleaned[key] = number
-        elif key in BOOL_KEYS:
+        elif kind == "bool":
+            # 归一化成 True/False，真正落库的 "1"/"0" 由 settings_store 统一负责
             cleaned[key] = parse_bool(value)
         else:
             cleaned[key] = str(value or "").strip()
@@ -129,8 +182,9 @@ def put_settings():
 @admin_required
 def reset_settings():
     payload = request.get_json(silent=True) or {}
-    keys = payload.get("keys") or list(DEFAULTS.keys())
-    values = {key: DEFAULTS[key] for key in keys if key in DEFAULTS}
+    known = all_defaults()
+    keys = payload.get("keys") or list(known.keys())
+    values = {key: known[key] for key in keys if key in known}
     changed = update_settings(values)
     log_event("setting", "reset_settings", message=f"恢复默认设置：{', '.join(changed)}")
     return api_ok(_payload(), "已恢复默认值")

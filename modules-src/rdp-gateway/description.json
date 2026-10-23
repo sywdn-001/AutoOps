@@ -1,0 +1,90 @@
+{
+  "id": "rdp-gateway",
+  "name": {
+    "zh": "RDP 网关",
+    "en": "RDP Gateway"
+  },
+  "version": "1.1.0",
+  "author": "AutoOps",
+  "description": {
+    "zh": "实验性 RDP 网关：把 Windows mstsc 直接接到堡垒机，登录后选择有权限的主机并建立会话记录。由官方从宿主内置功能解耦成扩展模块，可独立启停、配置端口与查看日志。",
+    "en": "Experimental RDP gateway: point Windows mstsc at the bastion, sign in, pick an authorized host and open an audited session. Extracted from the host into an official extension module with its own lifecycle, port setting and logs."
+  },
+  "tags": [
+    "experimental",
+    "network",
+    "rdp"
+  ],
+  "experimental": true,
+  "icon": "DesktopOutlined",
+  "homepage": "https://github.com/sywdn-001/AutoOps",
+  "license": "MIT",
+  "minBastionVersion": "1.0.0",
+  "images": [
+    "images/demo-1.png"
+  ],
+  "entry": {
+    "web": "web/index.js"
+  },
+  "nav": [
+    {
+      "key": "gateway",
+      "title": {
+        "zh": "RDP 网关",
+        "en": "RDP Gateway"
+      },
+      "path": "/rdp-gateway",
+      "entry": "web/index.js",
+      "type": "js",
+      "icon": "DesktopOutlined",
+      "permission": "rdp:use"
+    }
+  ],
+  "settings": [
+    {
+      "key": "enabled",
+      "label": {
+        "zh": "启用 RDP 网关",
+        "en": "Enable RDP gateway"
+      },
+      "type": "bool",
+      "default": "1",
+      "description": {
+        "zh": "关闭后模块仍安装，但会立即停止网关进程并拒绝再次启动。",
+        "en": "When off the module stays installed, but the gateway process is stopped and cannot be started."
+      }
+    },
+    {
+      "key": "port",
+      "label": {
+        "zh": "监听端口",
+        "en": "Listen port"
+      },
+      "type": "int",
+      "default": 4489,
+      "min": 1,
+      "max": 65535,
+      "description": {
+        "zh": "mstsc 连接的端口，默认 4489；修改后需要重新启动网关才生效。",
+        "en": "Port mstsc connects to (default 4489). Restart the gateway after changing it."
+      }
+    },
+    {
+      "key": "autoStart",
+      "label": {
+        "zh": "开机自动启动",
+        "en": "Start automatically"
+      },
+      "type": "bool",
+      "default": "0",
+      "description": {
+        "zh": "模块随宿主启动/启用时自动拉起网关进程；关闭后需在页面手动启动。",
+        "en": "Start the gateway process automatically when the module is loaded or enabled; otherwise start it manually from the page."
+      }
+    }
+  ],
+  "permissions": [
+    "rdp:use"
+  ],
+  "requires": []
+}

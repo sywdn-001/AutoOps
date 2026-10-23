@@ -61,6 +61,9 @@ ALL_PERMISSIONS = [
     "computeruse:view",
     "computeruse:deploy",
     "computeruse:use",
+    # 扩展模块：view 看列表/设置/日志，manage 预留给模块管理页（安装/启停仍走 admin）
+    "module:view",
+    "module:manage",
 ]
 
 

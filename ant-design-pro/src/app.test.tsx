@@ -23,6 +23,8 @@ const mockQueryCurrentUser = vi.fn();
 vi.mock('@umijs/max', () => ({
   history: mockHistory,
   Link: ({ children }: any) => children,
+  // app.tsx 会间接引入扩展模块服务层（@/services/bastion/client -> request）
+  request: vi.fn(),
 }));
 
 vi.mock('@/services/ant-design-pro/api', () => ({

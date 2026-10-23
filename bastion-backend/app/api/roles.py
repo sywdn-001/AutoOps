@@ -7,6 +7,7 @@ from flask import Blueprint, request
 from ..audit import log_event
 from ..extensions import db
 from ..models import Role, User
+from ..modules.permissions import is_module_permission, module_permission_catalog
 from ..security import ALL_PERMISSIONS, admin_required, permission_required
 from ..utils import api_error, api_list, api_ok, page_args, parse_bool
 
@@ -113,15 +114,25 @@ def role_options():
 @bp.get("/permissions")
 @permission_required("role:view", "user:view")
 def permission_catalog():
-    return api_ok(
-        [
+    groups = [
+        {
+            "group": group["group"],
+            "items": [{"code": code, "label": label} for code, label in group["items"]],
+        }
+        for group in PERMISSION_GROUPS
+    ]
+    module_items = module_permission_catalog()
+    if module_items:
+        groups.append(
             {
-                "group": group["group"],
-                "items": [{"code": code, "label": label} for code, label in group["items"]],
+                "group": "扩展模块",
+                "items": [
+                    {"code": code, "label": label}
+                    for code, label in module_items
+                ],
             }
-            for group in PERMISSION_GROUPS
-        ]
-    )
+        )
+    return api_ok(groups)
 
 
 @bp.get("/<int:role_id>")
@@ -208,7 +219,7 @@ def _sanitize_permissions(value) -> list[str]:
     result = []
     for item in value or []:
         code = str(item).strip()
-        if code == "*" or code in ALL_PERMISSIONS:
+        if code == "*" or code in ALL_PERMISSIONS or is_module_permission(code):
             if code not in result:
                 result.append(code)
     return result

@@ -80,9 +80,10 @@ mstsc /v:<bastion-host>:4489
 - **The credential never leaves the bastion**: the backend decrypts the target account password and
   hands it only to the gateway process; using it writes an `rdp_credential_reveal` audit entry, and
   the session itself is a `source=gateway, protocol=rdp` row in Session records;
-- **Switch and port**: `rdp_gateway_enabled` / `rdp_gateway_port` under System settings → Parameters;
-  the System settings → RDP gateway page shows status, start/stop and diagnostics (the paths and port
-  the backend computed);
+- **Install and switch**: the RDP gateway is now an official extension module — install
+  `rdp-gateway-<version>.mod.ops_ext` under System settings → Extension modules and enable it; the
+  switch and port live in the module page's module settings (`mod.rdp-gateway.enabled` /
+  `mod.rdp-gateway.port`), which also shows status, start/stop, diagnostics and logs;
 - See [rdp-gateway.en.md](rdp-gateway.en.md) for architecture, configuration, log reading, building
   it yourself and known limits.
 

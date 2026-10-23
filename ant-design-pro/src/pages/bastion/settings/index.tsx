@@ -35,9 +35,17 @@ const { Text, Paragraph } = Typography;
 /** 表单控件的取值类型（Switch 是 boolean，InputNumber 是 number，Input 是 string） */
 type FormValue = string | number | boolean | undefined;
 
+/** 布尔串归一化：后端历史上会落下 "True"/"false" 这类大小写混杂的值，一律按真值表判 */
+const isTruthy = (raw: unknown): boolean =>
+  ['1', 'true', 'yes', 'on', 'y', 't'].includes(
+    String(raw ?? '')
+      .trim()
+      .toLowerCase(),
+  );
+
 /** 后端字符串值 → 表单控件值 */
 const toFormValue = (item: SettingItem, raw: string): FormValue => {
-  if (item.type === 'bool') return raw === '1' || raw === 'true';
+  if (item.type === 'bool') return isTruthy(raw);
   if (item.type === 'int') {
     const parsed = Number.parseInt(raw, 10);
     return Number.isNaN(parsed) ? undefined : parsed;
@@ -178,6 +186,59 @@ const Settings: React.FC = () => {
     return <Input allowClear />;
   };
 
+  // 模块设置项按后端下发的 group（模块显示名）分组；group 缺失时退回 moduleId。
+  // 其余项（没有 scope/group）保持原来的「全局参数」卡片。
+  const coreItems = items.filter(
+    (item) => item.scope !== 'module' && !item.group,
+  );
+  const moduleGroups: Array<{
+    key: string;
+    title: string;
+    items: SettingItem[];
+  }> = [];
+  const groupIndex = new Map<string, number>();
+  for (const item of items) {
+    if (item.scope !== 'module' && !item.group) {
+      continue;
+    }
+    const key = item.moduleId || item.group || 'module';
+    const index = groupIndex.get(key);
+    if (index === undefined) {
+      groupIndex.set(key, moduleGroups.length);
+      moduleGroups.push({
+        key,
+        title: item.group || item.moduleId || t('模块设置'),
+        items: [item],
+      });
+    } else {
+      moduleGroups[index].items.push(item);
+    }
+  }
+
+  const renderSettingItem = (item: SettingItem) => (
+    <Col key={item.key} xs={24} lg={12}>
+      <Form.Item
+        name={item.key}
+        label={t(item.label || item.key)}
+        valuePropName={item.type === 'bool' ? 'checked' : 'value'}
+        extra={
+          <Space size={12} wrap>
+            <Text type="secondary">
+              {t('配置项')} <Text code>{item.key}</Text>
+            </Text>
+            <Text type="secondary">
+              {t('默认： {0}', {
+                0: item.default === '' ? t('（空）') : item.default,
+              })}
+            </Text>
+          </Space>
+        }
+      >
+        {renderControl(item)}
+      </Form.Item>
+    </Col>
+  );
+
   const manageTip = canManage
     ? undefined
     : t('当前账号没有「设置管理」权限，仅可查看');
@@ -226,48 +287,39 @@ const Settings: React.FC = () => {
         </Space>
       }
     >
-      <Card title={t('全局参数')} style={{ marginBottom: 16 }}>
-        <Spin spinning={loading && items.length === 0}>
-          {items.length ? (
-            <Form form={form} layout="vertical">
-              <Row gutter={16}>
-                {items.map((item) => (
-                  <Col key={item.key} xs={24} lg={12}>
-                    <Form.Item
-                      name={item.key}
-                      label={t(item.label || item.key)}
-                      valuePropName={item.type === 'bool' ? 'checked' : 'value'}
-                      extra={
-                        <Space size={12} wrap>
-                          <Text type="secondary">
-                            {t('配置项')} <Text code>{item.key}</Text>
-                          </Text>
-                          <Text type="secondary">
-                            {t('默认： {0}', {
-                              0:
-                                item.default === ''
-                                  ? t('（空）')
-                                  : item.default,
-                            })}
-                          </Text>
-                        </Space>
-                      }
-                    >
-                      {renderControl(item)}
-                    </Form.Item>
-                  </Col>
-                ))}
-              </Row>
-            </Form>
-          ) : (
+      <Spin spinning={loading && items.length === 0}>
+        {items.length ? (
+          <Form form={form} layout="vertical">
+            <Card title={t('全局参数')} style={{ marginBottom: 16 }}>
+              {coreItems.length ? (
+                <Row gutter={16}>{coreItems.map(renderSettingItem)}</Row>
+              ) : (
+                <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  {t('后端没有下发全局参数。')}
+                </Paragraph>
+              )}
+            </Card>
+            {moduleGroups.map((group) => (
+              <Card
+                key={group.key}
+                title={group.title}
+                style={{ marginBottom: 16 }}
+                extra={<Text type="secondary">{t('扩展模块设置')}</Text>}
+              >
+                <Row gutter={16}>{group.items.map(renderSettingItem)}</Row>
+              </Card>
+            ))}
+          </Form>
+        ) : (
+          <Card title={t('全局参数')} style={{ marginBottom: 16 }}>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
               {loading
                 ? t('正在加载设置项…')
                 : t('后端未下发任何设置项，请点击「刷新」重试。')}
             </Paragraph>
-          )}
-        </Spin>
-      </Card>
+          </Card>
+        )}
+      </Spin>
 
       <Card title={t('维护操作')}>
         <Space orientation="vertical" size={16} style={{ width: '100%' }}>

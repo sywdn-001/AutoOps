@@ -23,6 +23,9 @@ bastion-backend/build/
 修改.md
 img/
 
+# ── 工作记忆 / 交接资料：含账号密码、SSH 私钥等敏感信息，绝不能入库 ──
+工作记忆/
+
 # ── 临时文件 / 日志 / 缓存 ──
 *.log
 *.zip
@@ -35,3 +38,16 @@ Thumbs.db
 
 # 首页横幅图：暂时不在 README 里用，用 `python -m tools.make_banner` 可随时重新生成
 docs/images/
+
+# RDP 网关二进制：约 14MB，发布/本地打包时由 cargo build --release 生成后拷入；
+# 模块包需要它，但不把它提交进 git（modules-dist/*.mod.ops_ext 会包含该文件）。
+modules-src/rdp-gateway/bin/
+
+# 本地实机验收截图（.verify/*.png），只在开发机上留证，不进版本库
+.verify/
+
+# 模块打包产物：由 `python bastion-backend/tools/pack_module.py modules-src/<id>` 重新生成
+modules-dist/
+
+# 本地报错截图（用户现场反馈的临时截图），不入版本库
+报错图片/
