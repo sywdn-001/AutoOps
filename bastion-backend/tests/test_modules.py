@@ -97,7 +97,9 @@ def _description(**overrides):
     return data
 
 
-def _zip_bytes(description: dict | None = None, files: dict[str, str] | None = None) -> bytes:
+def _zip_bytes(
+    description: dict | None = None, files: dict[str, str | bytes] | None = None
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         if description is not None:
@@ -131,7 +133,7 @@ def _install(client, headers, payload: bytes, filename="hello-mod-1.0.0.mod.ops_
 def mod_app(app, tmp_path):
     """把模块根目录指到本用例的 tmp_path，并重新扫描。"""
     app.config["MODULES_DIR"] = str(tmp_path / "modules")
-    app.config["MODULES_SRC_DIR"] = ""
+    app.config["MODULE_PREVIEW_DIR"] = str(tmp_path / "module-previews")
     app.config["APP_VERSION"] = "1.0.0"
     with app.app_context():
         init_modules(app)
@@ -206,6 +208,55 @@ def test_install_invalid_packages_leave_no_residue(
     root = Path(mod_app.config["MODULES_DIR"])
     assert not (root / MODULE_ID).exists()
     assert not (root.parent / "evil.txt").exists()
+
+
+def test_replace_tree_retries_when_directory_is_busy(tmp_path, monkeypatch):
+    """Windows 上刚写完的 exe 会被短暂占用，改名要能退避重试自愈。"""
+    import errno
+    import os as os_module
+
+    from app.modules import store as store_module
+
+    source = tmp_path / ".installing-demo"
+    source.mkdir()
+    (source / "big.exe").write_bytes(b"x" * 1024)
+    dest = tmp_path / "demo"
+
+    real_replace = os_module.replace
+    calls = {"count": 0}
+
+    def flaky_replace(src, dst):
+        calls["count"] += 1
+        if calls["count"] <= 2:
+            error = OSError(errno.EACCES, "拒绝访问")
+            error.winerror = 5
+            raise error
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(store_module.os, "replace", flaky_replace)
+    monkeypatch.setattr(store_module.time, "sleep", lambda _seconds: None)
+
+    store_module.replace_tree(source, dest)
+
+    assert calls["count"] == 3
+    assert (dest / "big.exe").is_file()
+    assert not source.exists()
+
+
+def test_replace_tree_gives_up_on_other_errors(tmp_path, monkeypatch):
+    """非占用类错误（如目标已存在）必须原样抛出，不能被重试吞掉。"""
+    from app.modules import store as store_module
+
+    source = tmp_path / ".installing-demo"
+    source.mkdir()
+
+    def always_fail(_src, _dst):
+        raise OSError(13, "拒绝访问")
+
+    monkeypatch.setattr(store_module.os, "replace", always_fail)
+
+    with pytest.raises(OSError):
+        store_module.replace_tree(source, tmp_path / "demo")
 
 
 def test_install_rollback_when_registration_fails(
@@ -575,21 +626,15 @@ def test_pure_frontend_module_is_available(mod_client, mod_admin_headers):
     assert api.status_code == 404
 
 
-def test_builtin_package_is_installed_on_startup(mod_app, tmp_path):
-    """契约 §3：modules-src/<id>/*.mod.ops_ext 启动时复制进模块根目录。"""
-    source = tmp_path / "builtin-src" / MODULE_ID
-    source.mkdir(parents=True)
-    (source / f"{MODULE_ID}-1.0.0.mod.ops_ext").write_bytes(_package())
-    mod_app.config["MODULES_SRC_DIR"] = str(source.parent)
-
+def test_startup_installs_no_module(mod_app, tmp_path):
+    """系统不内置任何模块：启动扫描不会凭空装出模块来。"""
+    assert Path(mod_app.config["MODULES_DIR"]).is_dir() is False or not any(
+        Path(mod_app.config["MODULES_DIR"]).iterdir()
+    )
     with mod_app.app_context():
         init_modules(mod_app)
-        record = registry.get(MODULE_ID)
-
-    assert record is not None
-    assert record.builtin is True
-    assert record.loaded is not None
-    assert (Path(mod_app.config["MODULES_DIR"]) / MODULE_ID / "state.json").is_file()
+        assert registry.all() == []
+        assert registry.get(MODULE_ID) is None
 
 
 def test_enable_load_failure_keeps_module_disabled(
@@ -644,3 +689,159 @@ def test_pack_tool_produces_installable_archive(tmp_path):
     assert spec.validate(output)["id"] == MODULE_ID
 
     assert pack_module.main([str(source), "--check"]) == 0
+
+
+def test_upload_check_returns_readme_and_package_info(mod_client, mod_admin_headers):
+    """安装预览窗口要展示 README 正文、体积与文件概况。"""
+    payload = _package(files={"README.md": "# 测试模块\n\n这里是功能说明。\n"})
+    response = mod_client.post(
+        "/api/modules/upload-check",
+        data={"file": (io.BytesIO(payload), "hello.mod.ops_ext")},
+        headers=mod_admin_headers,
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = _data(response)
+    assert data["readmeName"] == "README.md"
+    assert "这里是功能说明" in data["readme"]
+    assert data["size"] > 0
+    assert data["fileCount"] >= 3
+    assert "web/" in data["folders"]
+    assert "modules/" in data["folders"]
+
+
+# ---------------------------------------------------------------------------
+# 安装前预览会话（截图 + 在预览窗口里直接安装）
+# ---------------------------------------------------------------------------
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"preview-image-payload"
+
+
+def _preview_files(**extra) -> dict[str, str | bytes]:
+    files: dict[str, str | bytes] = {
+        "modules/__init__.py": MODULE_CODE,
+        "web/index.html": "<h1>hi</h1>",
+        "images/demo-1.png": _PNG_BYTES,
+        "README.md": "# hello-mod\n\n截图：\n\n![demo](images/demo-1.png)\n",
+    }
+    files.update(extra)
+    return files
+
+
+def _upload_check(client, headers, payload: bytes):
+    return client.post(
+        "/api/modules/upload-check",
+        data={"file": (io.BytesIO(payload), "hello-mod-1.0.0.mod.ops_ext")},
+        headers=headers,
+        content_type="multipart/form-data",
+    )
+
+
+def test_upload_check_serves_preview_images(mod_client, mod_admin_headers):
+    payload = _zip_bytes(
+        _description(images=[{"path": "images/demo-1.png"}]), _preview_files()
+    )
+    response = _upload_check(mod_client, mod_admin_headers, payload)
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = _data(response)
+    token = data["previewToken"]
+    assert len(token) == 32
+    assert data["installable"] is True
+    url = f"/api/modules/preview/{token}/asset/images/demo-1.png"
+    assert data["images"][0]["path"] == "images/demo-1.png"
+    assert data["images"][0]["url"] == url
+
+    # 预览窗口是免登录打开的，截图的 URL 不能要求 token 头。
+    asset = mod_client.get(url)
+    assert asset.status_code == 200
+    assert asset.data == _PNG_BYTES
+
+    # 预览目录里的包与元数据不能被当成静态资源读到。
+    assert mod_client.get(f"/api/modules/preview/{token}/asset/meta.json").status_code == 404
+    assert (
+        mod_client.get(
+            f"/api/modules/preview/{token}/asset/package.mod.ops_ext"
+        ).status_code
+        == 404
+    )
+
+
+def test_install_from_preview_window(mod_client, mod_admin_headers, mod_app):
+    payload = _zip_bytes(_description(), _preview_files())
+    token = _data(_upload_check(mod_client, mod_admin_headers, payload))["previewToken"]
+
+    installed = mod_client.post(
+        f"/api/modules/preview/{token}/install", json={}, headers=mod_admin_headers
+    )
+    assert installed.status_code == 200, installed.get_data(as_text=True)
+    body = _data(installed)
+    assert body["id"] == MODULE_ID
+    assert body["loaded"] is True
+    assert (Path(mod_app.config["MODULES_DIR"]) / MODULE_ID / "state.json").is_file()
+
+    # 安装成功后会话被清掉，重复点安装只能拿到「预览已过期」。
+    again = mod_client.post(
+        f"/api/modules/preview/{token}/install", json={}, headers=mod_admin_headers
+    )
+    assert again.status_code == 410
+    assert again.get_json()["code"] == "MODULE_PREVIEW_EXPIRED"
+    assert not (Path(mod_app.config["MODULE_PREVIEW_DIR"]) / token).exists()
+
+
+def test_install_from_preview_requires_exact_ack(mod_client, mod_admin_headers):
+    payload = _zip_bytes(
+        _description(experimental=True, tags=["experimental"]), _preview_files()
+    )
+    token = _data(_upload_check(mod_client, mod_admin_headers, payload))["previewToken"]
+
+    partial = mod_client.post(
+        f"/api/modules/preview/{token}/install",
+        json={"ack": "我知道这是实验性功能"},
+        headers=mod_admin_headers,
+    )
+    assert partial.status_code == 400
+    assert partial.get_json()["code"] == "EXPERIMENTAL_NOT_ACKED"
+
+    exact = mod_client.post(
+        f"/api/modules/preview/{token}/install",
+        json={"ack": "我知道这是实验性功能，使用不当的话也许会造成系统损毁"},
+        headers=mod_admin_headers,
+    )
+    assert exact.status_code == 200, exact.get_data(as_text=True)
+
+
+def test_preview_session_expires(mod_client, mod_admin_headers, mod_app):
+    payload = _zip_bytes(_description(), _preview_files())
+    token = _data(_upload_check(mod_client, mod_admin_headers, payload))["previewToken"]
+    meta_path = Path(mod_app.config["MODULE_PREVIEW_DIR"]) / token / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["createdAt"] = 1
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    expired = mod_client.post(
+        f"/api/modules/preview/{token}/install", json={}, headers=mod_admin_headers
+    )
+    assert expired.status_code == 410
+    assert (
+        mod_client.get(
+            f"/api/modules/preview/{token}/asset/images/demo-1.png"
+        ).status_code
+        == 404
+    )
+
+
+def test_zero_modules_state_is_healthy(mod_client, mod_admin_headers, mod_app):
+    """一个模块都不装时（系统不内置任何模块），列表/导航/安装都要正常。"""
+    assert _data(mod_client.get("/api/modules", headers=mod_admin_headers)) == []
+    assert _data(mod_client.get("/api/modules/nav", headers=mod_admin_headers)) == []
+
+    # 装一个、再卸载，回到零模块状态；重启扫描也不会自己长出来。
+    response = _install(mod_client, mod_admin_headers, _package())
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert len(_data(mod_client.get("/api/modules", headers=mod_admin_headers))) == 1
+
+    removed = mod_client.delete(f"/api/modules/{MODULE_ID}", headers=mod_admin_headers)
+    assert removed.status_code == 200
+    with mod_app.app_context():
+        init_modules(mod_app)
+    assert _data(mod_client.get("/api/modules", headers=mod_admin_headers)) == []
+    assert _data(mod_client.get("/api/modules/nav", headers=mod_admin_headers)) == []

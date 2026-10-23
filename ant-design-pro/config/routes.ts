@@ -259,6 +259,12 @@ export default [
     component: './bastion/modules/host',
   },
   {
+    // 安装前的模块详情页：由安装页 window.open 打开，独立布局，不走主框架。
+    path: '/module-preview',
+    layout: false,
+    component: './bastion/modules/preview',
+  },
+  {
     path: '/',
     redirect: '/dashboard',
   },

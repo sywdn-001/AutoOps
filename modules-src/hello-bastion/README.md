@@ -184,7 +184,7 @@ return {
 在仓库根目录执行（打包工具由 `bastion-backend/tools/pack_module.py` 提供，见白皮书第 9 章）：
 
 ```powershell
-python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o modules-dist
+python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
 ```
 
 只校验、不打包：
@@ -196,8 +196,10 @@ python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
 预期产物：
 
 ```text
-modules-dist/hello-bastion-1.1.0.mod.ops_ext
+hello-bastion-1.1.0.mod.ops_ext
 ```
+
+产物输出到仓库根目录，随仓库分发；系统不会在启动时扫描 `modules-src/` 自动安装它。
 
 `description.json` 里的 `id` / `version` 才是权威，文件名不参与校验。打包工具会排除 `__pycache__`、`*.pyc`、`.git`、`node_modules`、`.DS_Store`，并在打包后重新校验一次 ZIP。
 
@@ -236,9 +238,11 @@ Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/modules/hello-bastion/api/cred
 
 ## 安装与打开
 
+系统不内置任何模块，全新实例是 0 个模块；本示例也要先打包再上传，不能从 `modules-src/` 直接加载。
+
 1. 以管理员账号登录堡垒机前端；
 2. 打开「系统设置 → 扩展模块」；
-3. 上传 `modules-dist/hello-bastion-1.1.0.mod.ops_ext`；
+3. 上传仓库根目录的 `hello-bastion-1.1.0.mod.ops_ext`；
 4. 安装页会先调用 `upload-check` 展示 `description.json` 预览（名称、版本、作者、标签、演示图）；
 5. 因为它是实验性模块，弹窗要求**手工敲**一遍确认语（粘贴不算）：
    `我知道这是实验性功能，使用不当的话也许会造成系统损毁`
@@ -257,23 +261,23 @@ bastion-backend/instance/modules/hello-bastion/
 
 ## 常见问题
 
-**页面显示「登录状态已失效」**  
+**页面显示「登录状态已失效」**<br>
 `bastion_token` 不存在或已过期。重新登录后从侧边栏进入；`js` 模式下宿主的 `request` 可能已按全局策略跳登录。
 
-**页面显示「当前账号没有使用该模块的权限」**  
+**页面显示「当前账号没有使用该模块的权限」**<br>
 模块 API 默认要求 `module:hello-bastion:use`。当前后端的角色接口只接受 `ALL_PERMISSIONS` 里的静态权限码，模块权限还没有合并进角色目录，所以**非超级管理员暂时无法在角色配置页获得该权限**；先用超级管理员验证，等宿主补齐模块权限目录后再授权（见白皮书附录 A 第 8 条）。
 
-**`/stats` 返回 500**  
+**`/stats` 返回 500**<br>
 看模块日志：`GET /api/modules/hello-bastion/logs`（需 `setting:view`），或后端控制台里 `module.hello-bastion` 这个 logger 的输出。最常见原因是宿主模块实现还没把 `autoops.bastion` 门面装好。
 
-**`credentials-sample` 返回 404**  
+**`credentials-sample` 返回 404**<br>
 `host_id` 不存在，或当前登录账号看不到该资产。先用 `/api/hosts` 或资产页确认 ID；`account_id` 留空会走 SDK 的默认账号逻辑。
 
-**页面空白或一直转圈**  
+**页面空白或一直转圈**<br>
 看浏览器 Console 与 Network：入口脚本是 `/api/modules/hello-bastion/asset/web/index.js`；确认 `window.AutoOpsSDK` 已注入，且 `mount()` 没有抛错。`window.AutoOpsModules['hello-bastion']` 必须注册。
 
-**卸载再装会丢数据吗**  
-会。卸载会删除 `instance/modules/hello-bastion/data/`。示例只在里面写了一个标记文件，没有真实数据，但正式模块要按这个行为设计。
+**卸载再装会丢数据吗**<br>
+会。卸载会删除 `instance/modules/hello-bastion/data/`，也不保留墓碑或恢复入口；重新安装就是把同一份 `.mod.ops_ext` 再上传一次。示例只在里面写了一个标记文件，没有真实数据，但正式模块要按这个行为设计。
 
 ## 安全边界
 

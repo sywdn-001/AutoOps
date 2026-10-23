@@ -13,6 +13,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -33,6 +34,14 @@ _IGNORED_NAMES = frozenset({"__pycache__", ".git", "node_modules", ".DS_Store"})
 _IGNORED_SUFFIXES = (".pyc", ".pyo")
 
 _STAGING_PREFIXES = (".installing-", ".updating-")
+
+#: 目录改名的重试参数。Windows 上刚写出的 exe 会被杀软 / 资源管理器的
+#: 写入通知短暂占用，``os.replace`` 抛 ``WinError 5``（拒绝访问）或
+#: ``WinError 32``（共享冲突），退避重试即可自愈。
+_REPLACE_ATTEMPTS = 6
+_REPLACE_BACKOFF = 0.2
+_REPLACE_MAX_DELAY = 2.0
+_REPLACE_WINERRORS = frozenset({5, 32})
 
 
 def is_ignored_name(name: str) -> bool:
@@ -82,6 +91,33 @@ def remove_tree(path: Path) -> None:
             logger.warning("删除模块临时文件失败：%s", failed_path)
 
     shutil.rmtree(path, onerror=_onerror)
+
+
+def replace_tree(source: Path, dest: Path) -> None:
+    """把临时目录整体改名到最终位置，占用时退避重试。
+
+    模块包里可能带几十 MB 的可执行文件（如内置 ``rdp-gateway`` 的
+    14MB 网关），刚写完的那一瞬间常被杀软、索引服务或资源管理器的
+    写入通知短暂占用；此时 ``os.replace`` 会失败，稍等即可成功。
+    """
+    delay = _REPLACE_BACKOFF
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            os.replace(source, dest)
+            return
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            last = attempt == _REPLACE_ATTEMPTS
+            if winerror not in _REPLACE_WINERRORS or last:
+                raise
+            logger.warning(
+                "模块目录改名被占用（第 %d 次），%.1fs 后重试：%s",
+                attempt,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, _REPLACE_MAX_DELAY)
 
 
 def _write_json_atomic(path: Path, payload: dict) -> None:
@@ -187,7 +223,6 @@ class ModuleStore:
             "enabled": raw.get("enabled") is not False,
             "installedAt": installed_at,
             "updatedAt": updated_at,
-            "builtin": bool(raw.get("builtin")),
             "version": str(raw.get("version") or ""),
         }
 
@@ -196,7 +231,6 @@ class ModuleStore:
             "enabled": bool(state.get("enabled", True)),
             "installedAt": state.get("installedAt") or utc_now_iso(),
             "updatedAt": state.get("updatedAt") or utc_now_iso(),
-            "builtin": bool(state.get("builtin")),
             "version": str(state.get("version") or ""),
         }
         _write_json_atomic(self.state_path(module_id), payload)
@@ -269,8 +303,6 @@ class ModuleStore:
         self,
         archive: ParsedArchive,
         description: dict,
-        *,
-        builtin: bool = False,
     ) -> dict:
         """从已校验的 ZIP 安装。返回写入后的 state。"""
         module_id = description["id"]
@@ -293,7 +325,6 @@ class ModuleStore:
                 "enabled": True,
                 "installedAt": utc_now_iso(),
                 "updatedAt": utc_now_iso(),
-                "builtin": builtin,
                 "version": description["version"],
             }
             _write_json_atomic(staging / STATE_FILE, state)
@@ -302,7 +333,7 @@ class ModuleStore:
                 raise ModulePackageError(
                     f"模块 {module_id} 已安装", code="MODULE_EXISTS", status=409
                 )
-            os.replace(staging, dest)
+            replace_tree(staging, dest)
             return state
         except ModulePackageError:
             remove_tree(staging)
@@ -318,10 +349,8 @@ class ModuleStore:
         self,
         source: str | os.PathLike,
         description: dict,
-        *,
-        builtin: bool = True,
     ) -> dict:
-        """从源码目录安装（内置模块扫描用，打包/解压环节可省）。"""
+        """从源码目录安装（开发调试用，省掉打包/解压环节）。"""
         module_id = description["id"]
         root = self.ensure()
         dest = root / module_id
@@ -360,7 +389,6 @@ class ModuleStore:
                 "enabled": True,
                 "installedAt": utc_now_iso(),
                 "updatedAt": utc_now_iso(),
-                "builtin": builtin,
                 "version": description["version"],
             }
             _write_json_atomic(staging / STATE_FILE, state)
@@ -369,14 +397,14 @@ class ModuleStore:
                 raise ModulePackageError(
                     f"模块 {module_id} 已安装", code="MODULE_EXISTS", status=409
                 )
-            os.replace(staging, dest)
+            replace_tree(staging, dest)
             return state
         except ModulePackageError:
             remove_tree(staging)
             raise
         except OSError as exc:
             remove_tree(staging)
-            raise ModulePackageError(f"安装内置模块失败：{exc}") from exc
+            raise ModulePackageError(f"安装模块失败：{exc}") from exc
 
     def uninstall(self, module_id: str) -> bool:
         """删除模块目录；返回是否真的删了东西。"""

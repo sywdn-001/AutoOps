@@ -106,9 +106,9 @@ class Config:
     APP_VERSION = os.environ.get("BASTION_APP_VERSION", "1.0.0")
     #: 已安装扩展模块的根目录（每个模块一个子目录，文件系统即真相）。
     MODULES_DIR = Path(os.environ.get("BASTION_MODULES_DIR") or (INSTANCE_DIR / "modules"))
-    #: 随仓库分发、启动时自动安装的内置模块源码目录；空串表示关闭内置扫描。
-    MODULES_SRC_DIR = os.environ.get(
-        "BASTION_MODULES_SRC", str(BASE_DIR.parent / "modules-src")
+    #: 安装前预览会话目录（upload-check 之后把包和截图暂存在这里，TTL 30 分钟）。
+    MODULE_PREVIEW_DIR = Path(
+        os.environ.get("BASTION_MODULE_PREVIEW_DIR") or (INSTANCE_DIR / "module-previews")
     )
 
     # --- 会话与签名 -----------------------------------------------------
@@ -238,7 +238,6 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"check_same_thread": False}}
     WTF_CSRF_ENABLED = False
-    # 测试默认不碰真实 instance/modules，也不自动安装仓库里的内置模块；
-    # 需要模块的用例在测试内用 tmp_path 覆盖这两个值。
+    # 测试默认不碰真实 instance/modules；需要模块的用例在测试内用 tmp_path 覆盖。
     MODULES_DIR = Path(tempfile.mkdtemp(prefix="bastion-test-modules-"))
-    MODULES_SRC_DIR = ""
+    MODULE_PREVIEW_DIR = Path(tempfile.mkdtemp(prefix="bastion-test-module-previews-"))

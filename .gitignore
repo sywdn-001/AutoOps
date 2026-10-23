@@ -48,6 +48,8 @@ modules-src/rdp-gateway/bin/
 
 # 模块打包产物：由 `python bastion-backend/tools/pack_module.py modules-src/<id>` 重新生成
 modules-dist/
+# 官方模块包直接生成在仓库根目录（含 14MB exe），同样不入库
+/*.mod.ops_ext
 
 # 本地报错截图（用户现场反馈的临时截图），不入版本库
 报错图片/

@@ -86,10 +86,6 @@ class ModuleRecord:
             return True
         return self.enabled and not self.python_entry
 
-    @property
-    def builtin(self) -> bool:
-        return bool(self.state.get("builtin"))
-
     def to_dict(self, app_version: str = "") -> dict:
         description = self.description
         module_id = self.id
@@ -125,7 +121,6 @@ class ModuleRecord:
             "updatedAt": self.state.get("updatedAt", ""),
             "size": int(self.size),
             "errors": list(self.errors),
-            "builtin": self.builtin,
         }
 
 
