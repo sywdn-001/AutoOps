@@ -25,8 +25,8 @@
 | [使用手册.md](使用手册.md) | [manual.en.md](i18n/manual.en.md) | 按页面/场景逐条说明：管理员怎么配、运维人员几种接入方式、审计员看什么、AI 助手两种入口 |
 | [使用手册.md · 一·八·补·二](使用手册.md#一八补二computeruse让-ai-直接操作一台-windows-主机) | [manual.en.md · I·VIII·supplement·II](i18n/manual.en.md#iviiisupplementiicomputeruse-letting-the-ai-operate-a-windows-host-directly) | **ComputerUse 专章**：这是什么、四个入口、准备条件（目标机 Windows + WinRM + Python 3.13+）、四步向导、八个阶段（含放行防火墙）、侧边栏怎么用、安全与审计、常见问题与限制 |
 | [RDP网关.md](RDP网关.md) | [rdp-gateway.en.md](i18n/rdp-gateway.en.md) | **用 Windows 自带 mstsc 连堡垒机 4489**：登录页 → 「有权访问的主机」选单 → 目标机画面接进同一窗口；含架构、配置项、审计动作、日志读法、自己编译的两个坑、已知限制与实机验收记录 |
-| [modules/WHITEPAPER.md](modules/WHITEPAPER.md) | — | **扩展模块开发白皮书**（给第三方开发者）：`.mod.ops_ext` 包结构、`description.json` 全字段、`setup(ctx)` 生命周期与 `ctx` 全表、`autoops.bastion` SDK、`iframe` / `js` 两种 Web UI、参数设置、打包安装卸载、版本兼容、调试排障，末尾一份 `hello-bastion` 全流程走查 |
-| [modules/CONTRACT.md](modules/CONTRACT.md) | — | 模块系统契约：包格式与安装期校验、文件系统布局、`/api/modules` 全部接口与错误码、归一化字段、前端约定。白皮书与实现冲突时以契约和后端代码为准 |
+| [modules/WHITEPAPER.md](modules/WHITEPAPER.md) | [whitepaper.en.md](i18n/whitepaper.en.md) | **扩展模块开发白皮书**（给第三方开发者）：`.mod.ops_ext` 包结构、`description.json` 全字段、`setup(ctx)` 生命周期与 `ctx` 全表、`autoops.bastion` SDK、`iframe` / `js` 两种 Web UI、参数设置、打包安装卸载、版本兼容、调试排障，末尾一份 `hello-bastion` 全流程走查 |
+| [modules/CONTRACT.md](modules/CONTRACT.md) | [contract.en.md](i18n/contract.en.md) | 模块系统契约：包格式与安装期校验、文件系统布局、`/api/modules` 全部接口与错误码、归一化字段、前端约定。白皮书与实现冲突时以契约和后端代码为准 |
 | [审计与安全.md](审计与安全.md) | — | 审计数据流、哈希链与验签、凭据与密钥的处理、威胁模型与「超级管理员准入例外」 |
 | [需求对照.md](需求对照.md) | — | 四条原始需求 + 扩展需求，逐条对应到实现位置与验证证据 |
 | [验证记录.md](验证记录.md) | — | 门禁与真机联调的实测流水：每条判据、命令、实际输出与截图取证 |
@@ -47,7 +47,7 @@
 | --- | --- |
 | `screenshots/` | 60+ 张实测截图：`docs/验证记录.md` 的取证图 + 根 README 的界面图 + 教程配图 |
 | `screenshots/tutorial/` | `图文教程.md` / `tutorial.en.md` 的 18 步配图（`01-login.png` … `18-ai-console.png`） |
-| `i18n/` | 英文文档：`README.en.md`（仓库介绍）、`manual.en.md`（使用手册）、`tutorial.en.md`（图文教程）、`issue-guide.en.md`（issue 指南）、`pr-guide.en.md`（PR 指南） |
+| `i18n/` | 英文文档：`README.en.md`（仓库介绍）、`manual.en.md`（使用手册）、`tutorial.en.md`（图文教程）、`whitepaper.en.md`（扩展模块开发白皮书）、`contract.en.md`（模块系统契约）、`issue-guide.en.md`（issue 指南）、`pr-guide.en.md`（PR 指南） |
 
 ---
 

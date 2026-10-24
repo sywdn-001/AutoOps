@@ -4,7 +4,8 @@
 > **前置知识**：Python 3.10+、Flask 基础、JavaScript/ES Module 基础。<br>
 > **权威契约**：[`CONTRACT.md`](./CONTRACT.md) v1。本白皮书是契约的开发者向展开；两者冲突时以契约和后端实现为准。<br>
 > **配套示例**：[`hello-bastion`](../../modules-src/hello-bastion/)、[`rdp-gateway`](../../modules-src/rdp-gateway/)、[`js-demo`](../../modules-src/js-demo/)（均可直接打包安装；第 12 章以 `hello-bastion` 走查）。<br>
-> **适用宿主**：实现了 `app/modules/` 与 `autoops.bastion` 门面的 AutoOps 版本；模块侧通过 `description.json.minBastionVersion` 声明最低版本。
+> **适用宿主**：实现了 `app/modules/` 与 `autoops.bastion` 门面的 AutoOps 版本；模块侧通过 `description.json.minBastionVersion` 声明最低版本。<br>
+> **English**: [Extension Module Developer Whitepaper](../i18n/whitepaper.en.md)
 
 > ⚠️ **安全边界（务必先读）**
 >
