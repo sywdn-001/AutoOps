@@ -29,6 +29,22 @@ def _app_version() -> str:
     return os.environ.get("BASTION_APP_VERSION", "1.0.0")
 
 
+def _force_utf8_stdout() -> None:
+    """把标准输出/错误切到 UTF-8。
+
+    Windows 的英文控制台默认是 cp1252，打一行「模块：hello-bastion 1.1.1」就会抛
+    ``UnicodeEncodeError`` 直接退出（CI 的 windows-latest 就是这样，中文 Windows 反而看不出来）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):  # 控制台被重定向到奇怪的对象时不要因此失败
+            pass
+
+
 def _default_output_dir() -> Path:
     # 仓库根目录的 modules-dist/，与 docs/modules/CONTRACT.md §8 一致。
     return BACKEND_DIR.parent / "modules-dist"
@@ -53,6 +69,7 @@ def _validate_zip(path: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_stdout()
     parser = argparse.ArgumentParser(
         description="打包 AutoOps 扩展模块（.mod.ops_ext）"
     )

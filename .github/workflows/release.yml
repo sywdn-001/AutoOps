@@ -247,6 +247,11 @@ jobs:
     name: 打包扩展模块
     needs: [plan, rdp-gateway]
     runs-on: windows-latest
+    # 英文版 Windows runner 的控制台默认是 cp1252，Python 打中文会 UnicodeEncodeError 直接退出；
+    # 强制 UTF-8（pack_module.py 自己也切了 stdout，这里是第二道保险）。
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
     steps:
       - name: 取出代码
         uses: actions/checkout@v4
