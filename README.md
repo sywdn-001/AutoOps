@@ -411,8 +411,8 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
-| [docs/modules/WHITEPAPER.md](docs/modules/WHITEPAPER.md) | — | **扩展模块开发白皮书**：包结构、`description.json` 全字段、Python 生命周期与 `ctx`、`autoops.bastion` SDK、两种 Web UI 模式、打包安装卸载、版本兼容、排障与一份全流程走查 |
-| [docs/modules/CONTRACT.md](docs/modules/CONTRACT.md) | — | 模块系统契约（白皮书的权威依据）：包格式、REST 接口、归一化字段、错误码 |
+| [docs/modules/WHITEPAPER.md](docs/modules/WHITEPAPER.md) | [whitepaper.en.md](docs/i18n/whitepaper.en.md) | **扩展模块开发白皮书**：包结构、`description.json` 全字段、Python 生命周期与 `ctx`、`autoops.bastion` SDK、两种 Web UI 模式、打包安装卸载、版本兼容、排障与一份全流程走查 |
+| [docs/modules/CONTRACT.md](docs/modules/CONTRACT.md) | [contract.en.md](docs/i18n/contract.en.md) | 模块系统契约（白皮书的权威依据）：包格式、REST 接口、归一化字段、错误码 |
 | [docs/提交PR指南.md](docs/提交PR指南.md) | [pr-guide.en.md](docs/i18n/pr-guide.en.md) | 提 PR 之前看这篇：分支与提交信息、门禁怎么跑、说明怎么写、自检清单 |
 | [docs/提交Issue指南.md](docs/提交Issue指南.md) | [issue-guide.en.md](docs/i18n/issue-guide.en.md) | 提 issue 之前看这篇：模板怎么填、环境与复现步骤写到什么程度 |
 | **[Wiki 使用手册](https://github.com/sywdn-001/AutoOps/wiki)** | 中英同页 | 按主题拆开的 15 篇：安装部署、快速上手、资产与账号、身份与授权、策略、网页终端与文件、远程桌面与录像、SSH 网关、审计中心、AI 助手、系统设置、安全维护、升级备份、FAQ、故障排查 |
