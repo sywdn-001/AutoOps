@@ -56,7 +56,7 @@ mstsc /v:<堡垒机地址>:4489
 选中一台就把它的桌面接进这个窗口 —— 不用装任何客户端，目标机口令只留在堡垒机进程里。
 
 - **随包自带**：解压后的 `rdp-gateway\bastion-rdp-gateway.exe`（也可以在「系统设置 → RDP 网关」里点启动/停止）；
-- **单独下载**：`AutoOps-Bastion-RDP-Gateway-{{VERSION}}-windows-x64.exe`，只想升级网关时拿这个就够。
+- **单独下载**：`bastion-rdp-gateway.exe`，只想升级网关时拿这个就够。
 
 用法、配置、审计与已知限制见 [docs/RDP网关.md](https://github.com/{{REPO_URL}}/blob/{{VERSION}}/docs/RDP%E7%BD%91%E5%85%B3.md)
 / [English](https://github.com/{{REPO_URL}}/blob/{{VERSION}}/docs/i18n/rdp-gateway.en.md)。
@@ -64,7 +64,26 @@ mstsc /v:<堡垒机地址>:4489
 Point Windows' built-in Remote Desktop client at the bastion on port **4489**: sign in with a bastion
 account, pick a host you may reach, and its desktop is streamed into that window. The gateway ships
 inside the zip (`rdp-gateway\bastion-rdp-gateway.exe`) and is also attached separately as
-`AutoOps-Bastion-RDP-Gateway-{{VERSION}}-windows-x64.exe`.
+`bastion-rdp-gateway.exe`.
+
+## 🧩 扩展模块（`.mod.ops_ext`）
+
+堡垒机本身**不预装任何模块**：全新实例装好就是一个模块都没有的干净状态，想要什么能力都得自己装。
+这次把仓库里的三个官方示例模块也打成了包，直接挂在这个 Release 上：
+
+- `hello-bastion-*.mod.ops_ext` —— 侧边栏入口、模块设置、异步调用宿主 SDK 的最小示例；
+- `js-demo-*.mod.ops_ext` —— 最小的 js 模式页面（纯 `React.createElement` + 宿主 antd，无构建链）；
+- `rdp-gateway-*.mod.ops_ext` —— 把上面那个 RDP 网关做成可装卸的扩展包（**包内自带 exe**，装上就能用）。
+
+装法：用管理员登录 → 「系统设置 → 扩展模块 → 安装扩展模块」→ 选包上传 → 弹出的窗口里看清功能说明
+再点安装（实验性模块要**逐字手敲**确认语，不允许粘贴）。卸载就是真卸载，想再要就重新上传同一个包。
+
+The bastion ships with **no bundled modules at all** — a fresh install has zero modules. The three
+official sample modules are attached here as packages: `hello-bastion-*`, `js-demo-*` and
+`rdp-gateway-*` (the last one bundles the gateway exe, so it works right after installing).
+Install them from **System settings → Extension modules → Install**; experimental ones ask you to
+retype the risk notice by hand. Uninstalling really removes the files — upload the same package again
+to get it back.
 
 ## ⚡ 快速开始（Windows / Windows Server，免安装）
 

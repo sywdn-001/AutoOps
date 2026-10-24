@@ -3,7 +3,8 @@
 
 做四件事：
   1. 扫 `--assets-dir`，按文件名认出每个附件是什么（两个 onedir 压缩包、
-     Python 的 x64/x32 安装包、Node 的 x64 安装包、`*-Source-Code.tar.gz` /
+     Python 的 x64/x32 安装包、Node 的 x64 安装包、官方扩展模块包 `*.mod.ops_ext`、
+     RDP 网关 exe、`*-Source-Code.tar.gz` /
      `*-Source-Code.zip` 源码附件、SHA256SUMS.txt），生成一张中英对照的表（平台 / 大小 / 说明）；
   2. 从 `SHA256SUMS.txt` 里读回校验和（没有也照样能生成，只是正文少一行总数）；
   3. 按 `--channel`（stable / rc）与 `--dev-build` 裁模板里的条件块：
@@ -86,6 +87,30 @@ CATALOG: list[tuple[str, int, str, str, str, str]] = [
         "Source code (.zip)",
         "同上，只是换了个压缩格式（Windows 上双击就能解）",
         "Same as above, zipped (handy on Windows)",
+    ),
+    (
+        "hello-bastion-",
+        60,
+        "扩展模块 · Hello Bastion（示例）",
+        "Extension module · Hello Bastion (sample)",
+        "官方示例模块：侧边栏入口 + 模块设置 + 异步 SDK 调用；在「系统设置 → 扩展模块 → 安装扩展模块」里上传即可",
+        "Official sample module: sidebar entry, module settings and async SDK calls; upload it in System settings → Extension modules → Install",
+    ),
+    (
+        "js-demo-",
+        61,
+        "扩展模块 · JS 模式示例",
+        "Extension module · js mode demo",
+        "官方示例模块：最小的 js 模式页面（纯 `React.createElement` + 宿主 antd，无构建链）",
+        "Official sample module: the smallest js-mode page (plain `React.createElement` + host antd, no build step)",
+    ),
+    (
+        "rdp-gateway-",
+        62,
+        "扩展模块 · RDP 网关",
+        "Extension module · RDP gateway",
+        "官方 RDP 网关模块：把实验性 RDP 能力做成可装卸的扩展包（包内自带 `bin/bastion-rdp-gateway.exe`）",
+        "Official RDP gateway module: the experimental RDP capability as an installable package (bundles `bin/bastion-rdp-gateway.exe`)",
     ),
     (
         "SHA256SUMS",
@@ -250,8 +275,14 @@ def main() -> int:
         print(f"找不到附件目录：{assets_dir}", file=sys.stderr)
         return 2
 
+    # `.mod.ops_ext` 是两段后缀（模块包），`Path.suffix` 只认最后一段，所以按文件名结尾匹配。
     suffixes = (".zip", ".exe", ".msi", ".txt", ".gz")
-    assets = sorted(p for p in assets_dir.iterdir() if p.is_file() and p.suffix in suffixes)
+    assets = sorted(
+        p
+        for p in assets_dir.iterdir()
+        if p.is_file()
+        and (p.suffix in suffixes or p.name.endswith(".mod.ops_ext"))
+    )
     if not assets:
         print(f"{assets_dir} 里没有任何附件，拒绝生成空说明", file=sys.stderr)
         return 2

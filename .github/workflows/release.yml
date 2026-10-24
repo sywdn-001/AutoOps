@@ -238,6 +238,90 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # ---------------------------------------------------------------- ⓪c 打包官方扩展模块
+  # 宿主不预装任何模块：三个官方示例（hello-bastion / js-demo / rdp-gateway）都由管理员上传
+  # *.mod.ops_ext 安装。这里把这三个包打出来，作为独立附件挂到 Release 上。
+  # rdp-gateway 模块要把 Rust 网关 exe 打进包内 bin/（该目录被 .gitignore 忽略，
+  # 所以必须从上面 ⓪b 的产物里取回来，不能让 checkout 自己指望仓库里有）。
+  modules:
+    name: 打包扩展模块
+    needs: [plan, rdp-gateway]
+    runs-on: windows-latest
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 取回 RDP 网关（塞进 rdp-gateway 模块包）
+        uses: actions/download-artifact@v4
+        with:
+          name: rdp-gateway
+          path: modules-src/rdp-gateway/bin
+
+      - name: 装 Python ${{ env.BUILD_PYTHON }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.BUILD_PYTHON }}
+          cache: pip
+          cache-dependency-path: bastion-backend/requirements.txt
+
+      - name: 装后端依赖（pack_module 会 import app.modules，需要 flask / werkzeug）
+        shell: pwsh
+        working-directory: bastion-backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: 打包三个官方模块
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path modules-dist | Out-Null
+          foreach ($id in @('hello-bastion', 'js-demo', 'rdp-gateway')) {
+            Write-Host "=== 打包 $id ==="
+            python bastion-backend/tools/pack_module.py "modules-src/$id" -o modules-dist
+            if ($LASTEXITCODE -ne 0) { throw "模块 $id 打包失败" }
+          }
+          Get-ChildItem modules-dist | Select-Object Name, Length | Format-Table -AutoSize | Out-String -Width 120
+
+      - name: 校验产物（宿主装得进去、RDP 包里确实带了 exe）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Windows PowerShell 5.1 需要显式加载；PowerShell 7 里这个类型默认就有，加载失败也无所谓。
+          try { Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop } catch { }
+
+          $packs = Get-ChildItem modules-dist -Filter '*.mod.ops_ext'
+          if ($packs.Count -ne 3) { throw "期望 3 个模块包，实际 $($packs.Count) 个" }
+
+          foreach ($pack in $packs) {
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($pack.FullName)
+            try {
+              $names = $zip.Entries | ForEach-Object { $_.FullName }
+              # 每个包都必须是 description.json + 至少一页 UI（js 模式 web/，或 Python 侧 modules/）
+              if ($names -notcontains 'description.json') { throw "$($pack.Name) 里没有 description.json" }
+              if (-not ($names | Where-Object { $_ -like 'web/*' })) { throw "$($pack.Name) 里没有 web/ 页面" }
+              Write-Host ("{0}：{1} 个条目，{2:N0} 字节" -f $pack.Name, $names.Count, $pack.Length)
+              if ($pack.Name -like 'rdp-gateway-*') {
+                $exe = $zip.Entries | Where-Object { $_.FullName -eq 'bin/bastion-rdp-gateway.exe' }
+                if (-not $exe) { throw 'RDP 网关模块包里没有 bin/bastion-rdp-gateway.exe' }
+                if ($exe.Length -lt 1MB) { throw "RDP 网关 exe 只有 $($exe.Length) 字节，不对劲" }
+                Write-Host ("RDP 网关 exe：{0:N0} 字节（已打进模块包）" -f $exe.Length)
+              }
+            } finally {
+              $zip.Dispose()
+            }
+          }
+          Get-ChildItem modules-dist -Filter '*.mod.ops_ext' | Select-Object Name, Length |
+            Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: 上传模块产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: modules
+          path: modules-dist/*.mod.ops_ext
+          if-no-files-found: error
+          retention-days: 7
+
 # ---------------------------------------------------------------- ① 打包两个架构
   package:
     name: 打包 ${{ matrix.label }}
@@ -470,10 +554,10 @@ jobs:
   # ---------------------------------------------------------------- ③ 发 Release
   release:
     name: 发布 Release
-    needs: [plan, package, installers, rdp-gateway]
+    needs: [plan, package, installers, rdp-gateway, modules]
     # needs 里只要有一个 job 被 skip（夜间构建不从 installers 取安装包），默认会把这个 job 一起 skip，
     # 所以必须显式放行 skipped；否则夜间构建跑完什么都不发。
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.package.result == 'success' && needs.rdp-gateway.result == 'success' && (needs.installers.result == 'success' || needs.installers.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.package.result == 'success' && needs.rdp-gateway.result == 'success' && needs.modules.result == 'success' && (needs.installers.result == 'success' || needs.installers.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: 取出代码（要仓库里的说明模板、脚本与源码）
@@ -503,7 +587,9 @@ jobs:
           RELEASE_TAG: ${{ needs.plan.outputs.tag }}
         run: |
           set -euo pipefail
-          find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' \) -exec cp {} release/ \;
+          # *.mod.ops_ext 是官方扩展模块包（hello-bastion / js-demo / rdp-gateway），
+          # 由 ⓪c 的 modules job 产出，跟安装包一样单独挂在 Release 上。
+          find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' -o -name '*.mod.ops_ext' \) -exec cp {} release/ \;
           cd release
           sha256sum * > SHA256SUMS.txt
           ls -lh
