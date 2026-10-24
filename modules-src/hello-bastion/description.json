@@ -4,7 +4,7 @@
     "zh": "Hello Bastion",
     "en": "Hello Bastion"
   },
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "AutoOps",
   "description": {
     "zh": "AutoOps 扩展模块示例：展示导航注入、模块设置、js 模式页面与异步 SDK 调用。",

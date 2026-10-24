@@ -30,7 +30,8 @@ modules/                optional, Python extension root (if present it must cont
 images/                 optional, demo images
 web/                    optional, static frontend assets (any HTML/JS/CSS)
 data/                   optional, initial data, copied to instance/modules/<id>/data on install
-README.md               optional
+README.md               optional, Chinese feature description (shown in the install preview window)
+README.en.md            optional, English feature description; the English UI prefers it and falls back to README.md when absent
 bin/                    optional, executables (such as the RDP gateway), in-package path instance/modules/<id>/package/bin/
 ```
 
@@ -290,7 +291,7 @@ Blueprint `modules_bp` (`app/api/modules.py`, which must be registered in `app/a
 |POST|`/api/modules/<id>/enable`|`admin_required`|set enabled and try to load|
 |POST|`/api/modules/<id>/disable`|`admin_required`|set disabled and teardown|
 |DELETE|`/api/modules/<id>`|`admin_required`|uninstall (disable first, then delete the directory); the system has no built-in modules, so restoring after uninstall requires re-uploading the package|
-|GET|`/api/modules/<id>/asset/<path:rel>`|no login|only `web/`, `images/`, `README.md` are allowed; `Cache-Control: no-cache`; uses `send_from_directory` to prevent traversal|
+|GET|`/api/modules/<id>/asset/<path:rel>`|no login|only `web/`, `images/`, `README.md`, `README.en.md` are allowed; `Cache-Control: no-cache`; uses `send_from_directory` to prevent traversal|
 |GET|`/api/modules/<id>/logs`|`setting:view`|the last 200 lines of module logs (in-memory ring buffer)|
 |GET|`/api/modules/preview/<token>/asset/<path:rel>`|no login|screenshots in the pre-install preview session (only `images/` allowed), token is short-lived, `Cache-Control: private, max-age=600`|
 |POST|`/api/modules/preview/<token>/install`|`admin_required`|install directly from the preview window: JSON `{ack}`; returns the normalized object and destroys the session on success|
@@ -303,7 +304,8 @@ The `upload-check` response adds these fields on top of the module object:
 |`installable`|determined only by **hard blockers** (already installed, reserved id…); experimental does not count as a blocker|
 |`issues`|`issues + warnings`, kept for compatibility with older frontends|
 |`warnings`|advisory items (e.g. "experimental modules require verbatim confirmation")|
-|`readme` / `readmeName`|the README body from the package (≤20000 characters) and its path, used by the install preview window|
+|`readme` / `readmeName`|the Chinese README body from the package (≤20000 characters) and its path, used by the install preview window|
+|`readmeEn` / `readmeEnName`|the English README body (`README.en.md`) and path; empty strings when absent. The frontend picks one by UI language (English prefers `readmeEn`)|
 |`size` / `fileCount` / `folders`|total bytes after extraction, file count, top-level directories (`["web/","modules/"]`)|
 |`previewToken`|32-hex-digit preview session token; used by both `install` and the screenshot URLs|
 |`images[]`|`{path, size?, url?}`; `url` points to screenshots in the preview session (at most 8, each ≤4MB)|
@@ -347,11 +349,15 @@ Icons: the `icon` field is an antd icon name, resolved dynamically with the exis
 `calc(100vh - 180px)`, white background + 8px corner radius; same-origin, so the iframe can read `localStorage.bastion_token` directly.
 **Not recommended** for official modules: hand-rolled HTML/CSS can hardly keep the same look and feel as the host.
   * `js` mode (**recommended**): dynamically inject `<script type="module" src=entry>`; the script takes
-`{ React, ReactDOM, antd, request, getToken, message, t, history }` from `window.AutoOpsSDK`,
+`{ React, ReactDOM, antd, request, getToken, message, t, isEnglish, history }` from `window.AutoOpsSDK`,
 and then calls `window.AutoOpsModules[moduleId].mount(el, sdk)` (an ESM default export of `mount/unmount` also works).
 Inside the module **use only antd components** (`Card/Statistic/Descriptions/Table/Tag/Button/Space/Alert/…`),
 write no custom CSS, no gradients/Hero/hand-made cards, and let the host provide the page title;
 `sdk.history.push('/system/settings')` performs SPA navigation, and `sdk.message` shows toasts.
+  * **Module UIs must support Chinese and English** (the host has a language switch): write every user-visible string as `sdk.t('Chinese source text')`, with the fallback `const tr = typeof sdk.t === 'function' ? sdk.t : (zh) => zh;`. `t` returns the source unchanged in the Chinese UI; in the English UI it looks up the host dictionary `ant-design-pro/src/i18n/dict/en-US.json` (keys are the Chinese source strings; placeholders such as `{count}` are preserved).
+Sentences with variables use `tr('{count} hosts', { count: n })`. Do not wrap machine-readable constants (keys, URLs, code snippets, `bool`/`int`, logs) in `t`.
+Use `sdk.isEnglish()` when a language branch is required (it reads the latest language on every call, so switching languages does not require remounting the module).
+New Chinese source strings must be added to the host dictionary too, otherwise the English UI will show Chinese.
   * Module disabled/missing → a friendly 403/404 card.
 * **Service layer** `src/services/bastion/modules.ts` + additions to `types.ts`, must `unwrap()`.
 * **Install page** `src/pages/bastion/modules/index.tsx` (mounted at "System settings → Extension modules"):
@@ -379,8 +385,8 @@ size/file count, screenshots (`images[].url`, antd `Image`).
   * **The install action completes in the preview window**: the "Install" card at the bottom → experimental modules require the verbatim confirmation first → `POST /api/modules/preview/<token>/install`
 → on success write `localStorage['module-installed:<id>'] = Date.now()` and tell the user the window can be closed;
 the main window listens with `window.addEventListener('storage', …)` (key prefix `module-installed:`) and refreshes the list/sidebar.
-When there is no README, an Empty is shown.
-  * i18n: every new string must be added in both Chinese and English (`src/i18n/`).
+The feature description prefers `readmeEn` in the English UI when the package contains `README.en.md`; otherwise it falls back to `readme`, and shows an Empty when neither exists.
+  * i18n: every new string must be added in both Chinese and English (`src/i18n/`); the bilingual rules for a module's own UI are in the js-mode item in §7.
 
 ## 8. Packaging tool
 
@@ -393,13 +399,20 @@ python tools/pack_module.py <source-dir> [-o <output-dir>] [--check]
 * Source directory = one complete package directory (containing `description.json`).
 * `--check`: validate only, do not pack (equivalent to the install-time validation).
 * Default output `modules-dist/<id>-<version>.mod.ops_ext`; `-o` may point to any directory
-(**artifacts of the official RDP gateway module are always generated into the repository root**, for easy distribution).
+(**artifacts of the three official example modules are always generated into the repository root** with `python tools/pack_module.py modules-src/<id> -o .`, for easy distribution).
 * Packaging excludes `__pycache__`, `.git`, `node_modules`, `*.pyc`, `.DS_Store`.
 * After packing it prints id/version/size/entry count, and runs `spec.validate` over the zip once more.
 
 ## 9. Official modules
 
-* First official module: `modules-src/rdp-gateway/` (RDP gateway, `experimental: true`, `author: "AutoOps"`).
-* The host's old `app/api/rdp_gateway.py` and `/api/rdp-gateway/*` endpoints, and the `/system/rdp-gateway` frontend page,
-are provided by the module **after it is installed**; the host no longer ships them (the decoupling goal).
+The system **does not preinstall any modules**. All three official examples live in `modules-src/`; their artifacts go to the repository root and are installed by upload:
+
+| Source | Version | Description |
+|-|-|-|
+|`modules-src/rdp-gateway/`|1.2.2|RDP gateway (`experimental: true`). Ships its own Rust gateway process (`bin/bastion-rdp-gateway.exe`); the host's former `app/api/rdp_gateway.py`, `/api/rdp-gateway/*`, and `/system/rdp-gateway` page are all provided by it|
+|`modules-src/hello-bastion/`|1.1.1|Smallest usable example: nav injection + module settings + async SDK (including the credential-summary demo)|
+|`modules-src/js-demo/`|1.0.1|Smallest js-mode example: demonstrates only basic SDK capabilities|
+
+* **The RDP gateway module has no "direct connect" channel**: the early page could hand a target address and password to the user's local mstsc for a direct connection, bypassing recording and audit; that path has been removed. Only `mstsc /v:<bastion-IP>:<port>` → sign in with a bastion account → select a host by number in the gateway session remains.
+The module's target list is a **read-only** authorization overview. `POST /api/modules/rdp-gateway/api/sessions` remains because the Rust gateway process uses it to register audited sessions.
 * Backward compatibility kept: the `RDP_GATEWAY_ENABLED`/`RDP_GATEWAY_PORT` environment variables are still read by the module.

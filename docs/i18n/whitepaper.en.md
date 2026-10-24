@@ -12,7 +12,7 @@
 >
 > A Python extension runs with the identity of the bastion process = **fully trusted code, equivalent to editing the backend directly**; there is **no sandbox isolation**; install only modules from **signed, trusted sources**.
 >
-> This is not a disclaimer but an architectural fact: a module can `import app`, read the database, read `FERNET_KEY`, change global routes, spawn threads and access the network. The host does not restrict any of these. Static assets (`web/`, `images/`, `README.md`) are served **without login**, so never put secrets in them.
+> This is not a disclaimer but an architectural fact: a module can `import app`, read the database, read `FERNET_KEY`, change global routes, spawn threads and access the network. The host does not restrict any of these. Static assets (`web/`, `images/`, `README.md`, `README.en.md`) are served **without login**, so never put secrets in them.
 
 ---
 
@@ -144,7 +144,7 @@
 - **You cannot assume the host environment can `pip install`**. Installing a package never triggers dependency installation. Third-party libraries must be vendored with the package (pure Python goes under `modules/`) or use dependencies the host already has; anything involving platform binaries or external programs goes into `bin/` and you must probe for it yourself.
 - **You cannot override host core routes/APIs**. Technically, as trusted code, you could monkeypatch them, but that is unsupported behaviour and it will break on every upgrade; use the dedicated prefix that `ctx.route` gives you.
 - **You cannot guarantee that a crash will not affect the host at all**. What the contract provides is "load-failure isolation" and "single-request exception isolation"; malicious code, `os._exit`, exhausting memory/GIL or blocking the main thread can still drag the whole backend down.
-- **You cannot put secrets in static assets**. `/api/modules/<id>/asset/**` needs no login, so `web/`, `images/` and `README.md` can be read by any logged-in user, or even by someone who never logged in.
+- **You cannot put secrets in static assets**. `/api/modules/<id>/asset/**` needs no login, so `web/`, `images/`, `README.md` and `README.en.md` can be read by any logged-in user, or even by someone who never logged in.
 - **You cannot rely on the install page executing your code to do initialisation**. Put initialisation logic in `setup(ctx)`; it runs only in the load phase after a successful install.
 
 <a id="sec-1-3"></a>
@@ -185,7 +185,8 @@ my-module-1.0.0.mod.ops_ext
 ├── data/                   # optional, initial data; copied to instance/modules/<id>/data at install
 ├── bin/                    # optional, executables / external programs
 │   └── my-helper.exe
-└── README.md               # optional, readable from the install page; the asset API serves it
+├── README.md               # optional Chinese description, shown in the install preview window
+└── README.en.md            # optional English description; the English UI prefers it
 ```
 
 Requirements and limits (contract §1):
@@ -216,10 +217,10 @@ From the module's point of view:
 
 | Property | Points to | Purpose |
 | --- | --- | --- |
-| `ctx.package_dir` | `instance/modules/<id>/package` | Read read-only resources inside the package (`web/`, `bin/`, `README.md`) |
+| `ctx.package_dir` | `instance/modules/<id>/package` | Read read-only resources inside the package (`web/`, `bin/`, `README.md`, `README.en.md`) |
 | `ctx.data_dir` | `instance/modules/<id>/data` | The **only** writable directory at runtime |
 | `bin/` runtime path | `ctx.package_dir / "bin" / <file>` | External executables (such as the RDP gateway) |
-| Static asset URL | `/api/modules/<id>/asset/<relative-path>` | Only applies to `web/`, `images/`, `README.md` |
+| Static asset URL | `/api/modules/<id>/asset/<relative-path>` | Only applies to `web/`, `images/`, `README.md`, `README.en.md` |
 
 > This directory only appears after an administrator uploads and installs a package; on a fresh instance `instance/modules/` is empty. The system builds in no modules and pre-installs none, and it will not top itself up from `modules-src/` at startup.
 
@@ -253,7 +254,7 @@ From the module's point of view:
 | `web/` | Frontend pages and assets | No | Yes | The entry comes from `entry.web` or `nav[].entry` |
 | `data/` | Initial data | Copied to `data_dir` after install | No | Copied at install time; read and write `ctx.data_dir` at runtime |
 | `bin/` | Executables | No (but the programs may write files themselves) | No | Mind the Linux/Windows platform and execute permissions |
-| `README.md` | Documentation | No | Yes | Read without login, so never write secrets there |
+| `README.md`, `README.en.md` | Documentation (Chinese / English) | No | Yes | Both are read without login; English UI prefers `README.en.md` and falls back to `README.md`; never write secrets there |
 
 <a id="sec-2-5"></a>
 ### 2.5 Minimal skeleton
@@ -1210,7 +1211,7 @@ async def broadcast_refresh():
 <a id="sec-6"></a>
 ## 6. The two Web UI modes: `iframe` and `js`
 
-The official examples [`hello-bastion`](../../modules-src/hello-bastion), [`rdp-gateway`](../../modules-src/rdp-gateway) and [`js-demo`](../../modules-src/js-demo) **all use `js` mode**. `hello-bastion` and `js-demo` are minimal teaching examples, while `rdp-gateway` is a complete business module with a Python backend. None of the three ships pre-installed with the host; all are uploaded and installed as `.mod.ops_ext`, and `modules-src/` is only source code and packaging input.
+The official examples [`hello-bastion`](../../modules-src/hello-bastion), [`rdp-gateway`](../../modules-src/rdp-gateway) and [`js-demo`](../../modules-src/js-demo) **all use `js` mode**. `hello-bastion` and `js-demo` are minimal teaching examples, while `rdp-gateway` is a complete business module with a Python backend. None of the three ships pre-installed with the host; all are uploaded and installed as `.mod.ops_ext`, and `modules-src/` is only source code and packaging input. Current versions are `rdp-gateway` 1.2.2, `hello-bastion` 1.1.1 and `js-demo` 1.0.1. The RDP gateway module has **no "direct connect" channel**: connecting a target outside the gateway would bypass recording and audit, so the only supported path is `mstsc /v:<bastion-IP>:<port>` → sign in with a bastion account → select a host by number in the gateway session. Its target list is a read-only authorization overview; `POST /api/modules/rdp-gateway/api/sessions` remains for the Rust gateway process to register audited sessions.
 
 <a id="sec-6-1"></a>
 ### 6.1 Comparing the options
@@ -1232,7 +1233,7 @@ The official examples [`hello-bastion`](../../modules-src/hello-bastion), [`rdp-
 <a id="sec-6-2"></a>
 ### 6.2 Static assets and URL rules
 
-After a module is installed, `web/`, `images/` and `README.md` are reachable without login through the following endpoint:
+After a module is installed, `web/`, `images/`, `README.md` and `README.en.md` are reachable without login through the following endpoint:
 
 ```text
 GET /api/modules/<id>/asset/<path relative to the package>
@@ -1260,7 +1261,7 @@ Relative paths inside a page are resolved against the **current asset directory*
 
 Limits:
 
-- **Only `web/`, `images/` and `README.md` are accessible**; `data/`, `modules/`, `bin/` and `description.json` are not exposed.
+- **Only `web/`, `images/`, `README.md` and `README.en.md` are accessible**; `data/`, `modules/`, `bin/` and `description.json` are not exposed.
 - The response header is `Cache-Control: no-cache`; during development just change the file and refresh.
 - The static asset endpoint **requires no login**; only the APIs called from the page go through JWT.
 - The entry must live under `web/`; `entry: "index.html"` (missing `web/`) returns 404.
@@ -1412,7 +1413,7 @@ Key points:
 The entry of `js` mode is an ES Module, for example `web/dashboard.js`. The host will:
 
 1. inject the module's entry script into the page as `<script type="module" src="/api/modules/<id>/asset/web/dashboard.js">`;
-2. provide the shared runtime `window.AutoOpsSDK = { React, ReactDOM, antd, request, getToken, message, t, history }`;
+2. provide the shared runtime `window.AutoOpsSDK = { React, ReactDOM, antd, request, getToken, message, t, isEnglish, history }`;
 3. call `window.AutoOpsModules[<id>].mount(el, sdk)`, or use the ESM default-exported `mount/unmount` where supported;
 4. call `unmount()` when leaving the page.
 
@@ -1537,7 +1538,7 @@ Key points and pitfalls:
 
 - **Do not bundle React/ReactDOM/antd yourself**. Two copies of React on the same page cause hooks errors and break the antd context. Use `window.AutoOpsSDK`.
 - `request` is the host's umi-request-based function: it attaches the JWT automatically and throws on 4xx/5xx; the error object usually has `error.response.status` and `error.response.data`. If the host's global error handling redirects to the login page, your `catch` may only see a brief state before the redirect; handle it according to the actual behaviour.
-- `t` is the host i18n function (the host only guarantees that it exists, not that it contains your module's own Chinese/English entries). For module-specific copy it is better to write Chinese directly or ship a small dictionary; do not expect `t('My Module')` to be translated into Chinese.
+- **Module UIs must support both Chinese and English** (the host has a language switch): write every user-visible string as `sdk.t('Chinese source text')`, with the fallback `const tr = typeof sdk.t === 'function' ? sdk.t : (zh) => zh;`. In the Chinese UI `t` returns the source unchanged; in the English UI it looks up the host dictionary `ant-design-pro/src/i18n/dict/en-US.json` (keys are the Chinese source strings; `{count}` placeholders are preserved). Use `tr(source, { count: n })` for sentences with variables. Do not wrap machine-readable constants (keys, URLs, code snippets, `bool`/`int`, logs) in `t`. Use `sdk.isEnglish()` when a language branch is required; it reads the latest language on every call, so switching language does not require remounting the module. New Chinese source strings must be added to the host dictionary too, otherwise the English UI will show Chinese.
 - Use `getToken()` only when you need to display/debug the token; for normal requests use `request`, and do not hand-build the `Authorization` header and run through the host interceptors again.
 - For in-page navigation use `sdk.history.push('/system/settings')` (or `/system/modules`), not a full page reload via `window.location`; `history` is provided by the host router, so do not call it after the module has been unmounted.
 - **For the UI use only the antd injected by the host**: no custom CSS, no gradients/Hero sections, no hand-drawn page titles. The title, breadcrumbs and the official/experimental labels are provided by the host's `PageContainer`; the module returns only content cards (`Card`/`Statistic`/`Descriptions`/`Table` etc.), which is what keeps it consistent with the other bastion host pages.
@@ -1555,7 +1556,7 @@ Key points and pitfalls:
 | request | `window.AutoOpsSDK` | Use the host request; token attachment and unified error handling are automatic |
 | `getToken` | `window.AutoOpsSDK` | Reads `bastion_token`; beware of the same-origin XSS risk |
 | `message` | `window.AutoOpsSDK` | Lightweight toast; do not use it to show sensitive data |
-| `t` | `window.AutoOpsSDK` | Host entries are limited; provide the module's own copy yourself |
+| `t` / `isEnglish` | `window.AutoOpsSDK` | Host i18n: write user-visible copy as `sdk.t('Chinese source text')`; add new sources to the host dictionary; `isEnglish()` checks the latest UI language |
 | `history` | `window.AutoOpsSDK` | Host SPA router; navigate with `history.push(path)`, do not reload the whole page |
 
 Build options:
@@ -1853,7 +1854,7 @@ A js-mode script must be an **ES Module** (`export`/`import` syntax), and its en
 - [ ] The assets in `web/` use relative paths/module API absolute paths, with no host paths such as `/static/...`;
 - [ ] `data/` contains only initial data, no runtime temporary files;
 - [ ] No `__pycache__`, `.git`, `node_modules`, `*.pyc`, logs, keys or test dumps;
-- [ ] `README.md` and `images/` are safe to make public (they are readable without login);
+- [ ] `README.md`, `README.en.md` and `images/` are safe to make public (they are readable without login);
 - [ ] You have installed it by hand once on the target host version, with `loaded=true` and `errors=[]`;
 - [ ] For an experimental module, the confirmation phrase text is ready.
 
@@ -1888,8 +1889,13 @@ Output:
 
 ```text
 <id>-<version>.mod.ops_ext
-# e.g. hello-bastion-1.1.0.mod.ops_ext (right in the repository root)
+# e.g. hello-bastion-1.1.1.mod.ops_ext (right in the repository root)
 ```
+
+The same form applies to the other official examples:
+`python bastion-backend/tools/pack_module.py modules-src/js-demo -o .` and
+`python bastion-backend/tools/pack_module.py modules-src/rdp-gateway -o .`;
+all three artifacts are written to the repository root.
 
 Tool behaviour (contract §8):
 
@@ -1908,7 +1914,7 @@ If your current branch does not have this tool, the modular backend implementati
 
 1. The administrator logs in and goes to "System Settings → Extension Modules";
 2. Select/drag in the `.mod.ops_ext`;
-3. The frontend calls `POST /api/modules/upload-check` and shows a `description.json` preview (name, version, author, tags, description, demo images);
+3. The frontend calls `POST /api/modules/upload-check` and shows a `description.json` preview (name, version, author, tags, description, demo images); the feature description prefers `readmeEn` when the UI is English and the package contains `README.en.md`, otherwise it falls back to `readme`;
 4. If `experimental` is set (or the tags contain `experimental`), a Modal pops up and requires **typing by hand**:
    ```text
    我知道这是实验性功能，使用不当的话也许会造成系统损毁
@@ -2098,7 +2104,7 @@ Check in turn: the module has `enabled=true`, `loaded=true`, `errors=[]`; the cu
 The module is not loaded or `settings` is not declared; setting defaults are registered when the module is loaded/installed. Look at `/api/modules/<id>` and `/logs`, and refresh the page after reinstalling.
 
 **Q13: Do static assets require login?**<br>
-No. `/api/modules/<id>/asset/**` is login-free and only allows `web/`, `images/`, `README.md`. Do not put secrets there.
+No. `/api/modules/<id>/asset/**` is login-free and only allows `web/`, `images/`, `README.md`, `README.en.md`. Do not put secrets there.
 
 **Q14: Can I return files/streams/custom status codes?**<br>
 `ctx.route` is only suited to returning dict/list/None + `ModuleApiError` status codes. For files/streams/custom responses use `ctx.blueprint()` + native Flask responses, and handle errors yourself according to the unified envelope convention.
@@ -2152,16 +2158,17 @@ modules-src/hello-bastion/
 │   └── index.js            # js mode entry: export mount/unmount + React.createElement + antd
 ├── images/
 │   └── demo-1.png          # install page demo image (800×450)
-└── README.md
+├── README.md               # Chinese description for the install preview
+└── README.en.md            # English description, preferred by the English UI
 ```
 
 | File | Purpose |
 | --- | --- |
-| [`description.json`](../../modules-src/hello-bastion/description.json) | `version: "1.1.0"`, `entry.web: "web/index.js"`, `nav[0].type: "js"`, 3 settings, experimental flag |
+| [`description.json`](../../modules-src/hello-bastion/description.json) | `version: "1.1.1"`, `entry.web: "web/index.js"`, `nav[0].type: "js"`, 3 settings, experimental flag |
 | [`modules/__init__.py`](../../modules-src/hello-bastion/modules/__init__.py) | `setup(ctx)`, `/stats`, `/credentials-sample`, async bridge, lifecycle hooks |
 | [`web/index.js`](../../modules-src/hello-bastion/web/index.js) | js page: 4 antd `Card`s assembled with `React.createElement`, no JSX, no imports, no custom CSS |
 | [`images/demo-1.png`](../../modules-src/hello-bastion/images/demo-1.png) | 800×450 install page demo image |
-| [`README.md`](../../modules-src/hello-bastion/README.md) | Installation, API and troubleshooting notes for this example |
+| [`README.md`](../../modules-src/hello-bastion/README.md), [`README.en.md`](../../modules-src/hello-bastion/README.en.md) | Chinese and English installation, API and troubleshooting notes for this example |
 
 Mappings:
 
@@ -2202,13 +2209,13 @@ python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
 Expected artifact (repository root):
 
 ```text
-hello-bastion-1.1.0.mod.ops_ext
+hello-bastion-1.1.1.mod.ops_ext
 ```
 
 **Step 4: installation**:
 
 1. Log in to the frontend as an administrator;
-2. Under "System Settings → Extension Modules", upload `hello-bastion-1.1.0.mod.ops_ext` from the repository root;
+2. Under "System Settings → Extension Modules", upload `hello-bastion-1.1.1.mod.ops_ext` from the repository root;
 3. You should see the demo image/name/version/tags;
 4. Because `experimental: true`, hand-type the confirmation phrase 我知道这是实验性功能，使用不当的话也许会造成系统损毁;
 5. Installation succeeds, `hello-bastion` appears in the module list with `loaded=true`.
@@ -2236,7 +2243,7 @@ Expected (values vary with the environment):
   "success": true,
   "message": "ok",
   "data": {
-    "module": { "id": "hello-bastion", "version": "1.1.0" },
+    "module": { "id": "hello-bastion", "version": "1.1.1" },
     "generatedAt": "2026-10-23T15:04:05.123456+00:00",
     "hostTotal": 12,
     "activeSessions": 3,

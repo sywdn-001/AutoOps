@@ -32,7 +32,7 @@ function renderNotice(el, text) {
   el.appendChild(box);
 }
 
-function describeError(error) {
+function describeError(error, tr = (zh) => zh) {
   const response = error && error.response;
   const status = response && response.status;
   const payload = response && response.data;
@@ -44,16 +44,16 @@ function describeError(error) {
     detail = payload;
   }
   if (!detail) {
-    detail = (error && error.message) || '未知错误';
+    detail = (error && error.message) || tr('未知错误');
   }
 
   if (status === 401) {
-    return 'HTTP 401：登录状态已失效，请重新登录后再试。';
+    return tr('HTTP 401：登录状态已失效，请重新登录后再试。');
   }
   if (status === 403) {
-    return `HTTP 403：${detail}`;
+    return tr('HTTP 403：{detail}', { detail });
   }
-  return status ? `HTTP ${status}：${detail}` : detail;
+  return status ? tr('HTTP {status}：{detail}', { status, detail }) : detail;
 }
 
 /**
@@ -74,11 +74,12 @@ export async function mount(el, injectedSdk) {
   disposed = false;
   el.replaceChildren();
 
-  const runtime = injectedSdk || window.AutoOpsSDK;
+  const runtime = injectedSdk || window.AutoOpsSDK || {};
+  const tr = typeof runtime.t === 'function' ? runtime.t : (zh) => zh;
   if (!runtime || !runtime.React || !runtime.ReactDOM) {
     renderNotice(
       el,
-      'window.AutoOpsSDK 未注入，或缺少 React/ReactDOM。请确认宿主版本支持 js 模式。',
+      tr('window.AutoOpsSDK 未注入，或缺少 React/ReactDOM。请确认宿主版本支持 js 模式。'),
     );
     return;
   }
@@ -90,7 +91,7 @@ export async function mount(el, injectedSdk) {
     antd = loaded && loaded.default && loaded.default.Card ? loaded.default : loaded;
   } catch (error) {
     if (!disposed && hostEl === el) {
-      renderNotice(el, `antd 加载失败：${describeError(error)}`);
+      renderNotice(el, tr('antd 加载失败：{message}', { message: describeError(error, tr) }));
     }
     return;
   }
@@ -99,13 +100,13 @@ export async function mount(el, injectedSdk) {
     return;
   }
   if (!antd || !antd.Card) {
-    renderNotice(el, 'window.AutoOpsSDK.antd 不可用：缺少 antd 组件。');
+    renderNotice(el, tr('window.AutoOpsSDK.antd 不可用：缺少 antd 组件。'));
     return;
   }
 
   const { React, ReactDOM, request, getToken, message } = runtime;
   if (typeof request !== 'function') {
-    renderNotice(el, 'window.AutoOpsSDK.request 不可用，无法调用 /api/health。');
+    renderNotice(el, tr('window.AutoOpsSDK.request 不可用，无法调用 /api/health。'));
     return;
   }
 
@@ -147,11 +148,11 @@ export async function mount(el, injectedSdk) {
         const payload = body && typeof body === 'object' && body.data ? body.data : body;
         setHealth({
           service: (payload && payload.service) || 'bastion-backend',
-          gateway: payload && payload.gateway_enabled ? '已启用' : '未启用',
+          gateway: payload && payload.gateway_enabled ? tr('已启用') : tr('未启用'),
           port: payload && payload.gateway_port != null ? String(payload.gateway_port) : '-',
         });
       } catch (error) {
-        setHealthError(describeError(error));
+        setHealthError(describeError(error, tr));
       } finally {
         setHealthLoading(false);
       }
@@ -160,14 +161,18 @@ export async function mount(el, injectedSdk) {
     const notify = () => {
       const api = message && typeof message.success === 'function' ? message : antd.message;
       if (api && typeof api.success === 'function') {
-        api.success('js-demo：React/antd 来自宿主共享运行时');
+        api.success(tr('js-demo：React/antd 来自宿主共享运行时'));
       } else {
-        window.alert('js-demo：React/antd 来自宿主共享运行时');
+        window.alert(tr('js-demo：React/antd 来自宿主共享运行时'));
       }
     };
 
     const healthDescription = health
-      ? `service=${health.service}；gateway=${health.gateway}；port=${health.port}`
+      ? tr('service={service}；gateway={gateway}；port={port}', {
+          service: health.service,
+          gateway: health.gateway,
+          port: health.port,
+        })
       : '';
 
     return e(
@@ -179,7 +184,8 @@ export async function mount(el, injectedSdk) {
           title: e(
             'span',
             null,
-            'JS 模式示例 ',
+            tr('JS 模式示例'),
+            ' ',
             e(Typography.Text, { type: 'secondary' }, 'JS Mode Demo'),
           ),
           extra: e(Tag, { color: 'blue' }, 'js mode'),
@@ -190,7 +196,9 @@ export async function mount(el, injectedSdk) {
           e(
             Typography.Paragraph,
             { type: 'secondary', style: { marginBottom: 0 } },
-            '没有 import、没有 JSX、没有第二份 React。这个卡片直接复用宿主的 React/ReactDOM/antd。',
+            tr(
+              '没有 import、没有 JSX、没有第二份 React。这个卡片直接复用宿主的 React/ReactDOM/antd。',
+            ),
           ),
           e(
             Space,
@@ -198,19 +206,19 @@ export async function mount(el, injectedSdk) {
             e(
               Button,
               { type: 'primary', loading: healthLoading, onClick: loadHealth },
-              '调用 GET /api/health',
+              tr('调用 GET /api/health'),
             ),
             e(
               Tag,
               { color: tokenPresent ? 'green' : 'orange' },
-              tokenPresent ? 'JWT 已注入' : '未找到 bastion_token',
+              tokenPresent ? tr('JWT 已注入') : tr('未找到 bastion_token'),
             ),
           ),
           healthError
             ? e(Alert, {
                 type: 'error',
                 showIcon: true,
-                message: '健康检查失败',
+                message: tr('健康检查失败'),
                 description: healthError,
               })
             : null,
@@ -218,7 +226,7 @@ export async function mount(el, injectedSdk) {
             ? e(Alert, {
                 type: 'success',
                 showIcon: true,
-                message: '后端健康检查成功',
+                message: tr('后端健康检查成功'),
                 description: healthDescription,
               })
             : null,
@@ -238,26 +246,26 @@ export async function mount(el, injectedSdk) {
             e(
               'div',
               null,
-              e(Typography.Text, { strong: true }, 'antd Switch 计数器'),
-              e('div', null, e(Typography.Text, { type: 'secondary' }, '打开开关后每秒 +1')),
+              e(Typography.Text, { strong: true }, tr('antd Switch 计数器')),
+              e('div', null, e(Typography.Text, { type: 'secondary' }, tr('打开开关后每秒 +1'))),
             ),
             e(Switch, {
               checked: counterOn,
               onChange: setCounterOn,
-              checkedChildren: '计数中',
-              unCheckedChildren: '已暂停',
+              checkedChildren: tr('计数中'),
+              unCheckedChildren: tr('已暂停'),
             }),
-            e(Statistic, { title: '计数', value: count, style: { minWidth: 120 } }),
-            e(Button, { onClick: () => setCount(0) }, '重置'),
+            e(Statistic, { title: tr('计数'), value: count, style: { minWidth: 120 } }),
+            e(Button, { onClick: () => setCount(0) }, tr('重置')),
           ),
           e(
             Space,
             { wrap: true, align: 'center' },
-            e(Button, { onClick: notify }, '触发 message.success()'),
+            e(Button, { onClick: notify }, tr('触发 message.success()')),
             e(
               Typography.Text,
               { type: 'secondary' },
-              '弹提示也走宿主 App 上下文的 message，不另起一份 antd。',
+              tr('弹提示也走宿主 App 上下文的 message，不另起一份 antd。'),
             ),
           ),
         ),
@@ -283,11 +291,11 @@ export async function mount(el, injectedSdk) {
         },
       };
     } else {
-      renderNotice(el, 'ReactDOM 既不提供 createRoot 也不提供 render，无法挂载。');
+      renderNotice(el, tr('ReactDOM 既不提供 createRoot 也不提供 render，无法挂载。'));
     }
   } catch (error) {
     if (!disposed && hostEl === el) {
-      renderNotice(el, `模块挂载失败：${describeError(error)}`);
+      renderNotice(el, tr('模块挂载失败：{message}', { message: describeError(error, tr) }));
     }
   }
 }

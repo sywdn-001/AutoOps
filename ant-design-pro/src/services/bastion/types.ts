@@ -877,6 +877,12 @@ export type ModuleItem = {
 };
 
 /** `POST /api/modules/upload-check` 的预览：归一化 description + 可安装性 */
+/** upload-check 里可翻译的提示项：`key` 是中文模板（如 `模块 {id} 已安装`） */
+export type ModulePreviewIssue = {
+  key: string;
+  params?: Record<string, string>;
+};
+
 export type ModulePreview = ModuleItem & {
   /** 后端预检结论；false 时安装按钮应禁用（如已存在/保留 id） */
   installable?: boolean;
@@ -884,10 +890,18 @@ export type ModulePreview = ModuleItem & {
   issues?: string[];
   /** 附加提醒（例如实验性模块需要逐字确认），不影响 installable */
   warnings?: string[];
+  /** `issues` 的可翻译版本（硬阻塞项），英文界面优先用它 */
+  issueItems?: ModulePreviewIssue[];
+  /** `warnings` 的可翻译版本 */
+  warningItems?: ModulePreviewIssue[];
   /** 包内 README 全文；没有则空串 */
   readme?: string;
   /** 找到的 README 文件名，如 `README.md` */
   readmeName?: string;
+  /** 包内英文 README 全文（`README.en.md`）；没有则空串 */
+  readmeEn?: string;
+  /** 找到的英文 README 文件名，如 `README.en.md` */
+  readmeEnName?: string;
   /** 包内文件数 */
   fileCount?: number;
   /** 包内一级目录，如 `web/`、`modules/` */

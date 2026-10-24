@@ -22,7 +22,7 @@ import type { App } from 'antd';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import * as ReactDOMClient from 'react-dom/client';
-import { t } from '@/i18n';
+import { isEnglish, t } from '@/i18n';
 import { getToken } from '@/services/bastion/client';
 
 type MessageApi = ReturnType<typeof App.useApp>['message'];
@@ -42,6 +42,11 @@ export type AutoOpsSDK = {
   getToken: typeof getToken;
   message: MessageApi;
   t: typeof t;
+  /**
+   * 当前界面是否为英文。每次调用都读最新语言，模块无需在语言切换后重挂。
+   * 典型用法：`sdk.isEnglish() ? enText : zhText`（例如双语 README、模块自带的英文文档）。
+   */
+  isEnglish: typeof isEnglish;
   /** 宿主路由实例：模块内跳转用 `sdk.history.push('/system/settings')`，不整页刷新。 */
   history: typeof history;
 };
@@ -73,6 +78,7 @@ export const ensureAutoOpsSdk = async (
         getToken,
         message,
         t,
+        isEnglish,
         history,
       };
       window.AutoOpsSDK = sdk;
