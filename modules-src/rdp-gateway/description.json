@@ -4,7 +4,7 @@
     "zh": "RDP 网关",
     "en": "RDP Gateway"
   },
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": "AutoOps",
   "description": {
     "zh": "实验性 RDP 网关：把 Windows mstsc 直接接到堡垒机，登录后选择有权限的主机并建立会话记录。由官方从宿主内置功能解耦成扩展模块，可独立启停、配置端口与查看日志。",

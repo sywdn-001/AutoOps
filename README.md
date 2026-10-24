@@ -136,6 +136,27 @@ npm run dev            # 开发模式 http://localhost:8000，/api 与 /socket.i
 
 > 没有 Linux 机器也能跑通全链路：`python tools/demo_ssh_target.py` 会起一个**真实 SSH 协议栈**的假 Linux（`127.0.0.1:2200`，账号 `root` / `s3cret`），把它当资产加进来就能体验网页终端、SSH 网关、命令策略拦截与审计落库。生产构建用 `npm run build`，产物 `dist/` 由后端同端口直服。
 
+### 编译 RDP 网关并打包成扩展模块
+
+系统**不预装任何扩展模块**（全新实例是 0 个模块），「RDP 网关」也要自己上传安装。它的网关进程是独立的 Rust 程序，所以需要先编译再打包：
+
+```bash
+# 前置：Rust 工具链（rustup）+ C 工具链（Windows 需 MSVC Build Tools，Linux 需 gcc）
+cd bastion-rdp-gateway
+cargo build --release        # 必须 --release；debug 产物会在运行时报 D8050
+
+# 把编译好的网关放进模块包，再打包成 .mod.ops_ext
+cp target/release/bastion-rdp-gateway.exe ../modules-src/rdp-gateway/bin/   # Linux 去掉 .exe
+cd ..
+
+python bastion-backend/tools/pack_module.py modules-src/rdp-gateway -o .
+# → 仓库根目录得到 rdp-gateway-<version>.mod.ops_ext
+```
+
+然后登录后台 →「系统设置 → 扩展模块 → 安装扩展模块」，上传仓库根目录里的 `.mod.ops_ext`（实验性模块要逐字输入风险确认语）。其它两个官方示例同样打包：`python bastion-backend/tools/pack_module.py modules-src/hello-bastion -o .`、`... modules-src/js-demo -o .`。
+
+> 打包产物与 `modules-src/rdp-gateway/bin/` 都在 `.gitignore` 里，不进仓库。
+
 ## 部署到生产（Linux）
 
 前置：**Ubuntu 22.04+ / Debian 12+ / RHEL 9+**、Python ≥ 3.11（开发用 3.13）、Node ≥ 20（只在构建前端时用）、放行 **5000**（Web/API）与 **2222**（SSH 网关）两个端口。建议单独建一个系统账号跑服务：

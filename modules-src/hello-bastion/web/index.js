@@ -26,7 +26,7 @@ function pickData(body) {
   return body;
 }
 
-function describeError(error) {
+function describeError(error, tr = (zh) => zh) {
   const response = error && error.response;
   const status = response && response.status;
   const payload = response && response.data;
@@ -38,12 +38,12 @@ function describeError(error) {
     detail = payload;
   }
   if (!detail) {
-    detail = (error && error.message) || '未知错误';
+    detail = (error && error.message) || tr('未知错误');
   }
   if (status === 401) {
-    return 'HTTP 401：登录状态已失效，请重新登录后再试。';
+    return tr('HTTP 401：登录状态已失效，请重新登录后再试。');
   }
-  return status ? `HTTP ${status}：${detail}` : detail;
+  return status ? tr('HTTP {status}：{detail}', { status, detail }) : detail;
 }
 
 function renderNotice(el, text) {
@@ -71,9 +71,10 @@ export async function mount(el, injectedSdk) {
   disposed = false;
   el.replaceChildren();
 
-  const runtime = injectedSdk || window.AutoOpsSDK;
+  const runtime = injectedSdk || window.AutoOpsSDK || {};
+  const tr = typeof runtime.t === 'function' ? runtime.t : (zh) => zh;
   if (!runtime || !runtime.React || !runtime.ReactDOM) {
-    renderNotice(el, 'window.AutoOpsSDK 未注入，缺少 React/ReactDOM，无法渲染。');
+    renderNotice(el, tr('window.AutoOpsSDK 未注入，缺少 React/ReactDOM，无法渲染。'));
     return;
   }
 
@@ -83,7 +84,7 @@ export async function mount(el, injectedSdk) {
     antd = loaded && loaded.default && loaded.default.Card ? loaded.default : loaded;
   } catch (error) {
     if (!disposed && hostEl === el) {
-      renderNotice(el, `antd 加载失败：${describeError(error)}`);
+      renderNotice(el, tr('antd 加载失败：{message}', { message: describeError(error, tr) }));
     }
     return;
   }
@@ -91,13 +92,13 @@ export async function mount(el, injectedSdk) {
     return;
   }
   if (!antd || !antd.Card) {
-    renderNotice(el, 'window.AutoOpsSDK.antd 不可用：缺少 antd 组件。');
+    renderNotice(el, tr('window.AutoOpsSDK.antd 不可用：缺少 antd 组件。'));
     return;
   }
 
   const { React, ReactDOM, request, history } = runtime;
   if (typeof request !== 'function') {
-    renderNotice(el, 'window.AutoOpsSDK.request 不可用，无法调用模块接口。');
+    renderNotice(el, tr('window.AutoOpsSDK.request 不可用，无法调用模块接口。'));
     return;
   }
 
@@ -167,7 +168,7 @@ export async function mount(el, injectedSdk) {
           setUpdatedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
         } catch (error) {
           if (!disposed) {
-            setStatsError(describeError(error));
+            setStatsError(describeError(error, tr));
           }
         } finally {
           if (!disposed && !silent) {
@@ -207,7 +208,7 @@ export async function mount(el, injectedSdk) {
       setCredentialError('');
       setCredential(null);
       if (!hostId) {
-        setCredentialError('请先填一个资产 ID（堡垒机「资产管理」里的主机 id）。');
+        setCredentialError(tr('请先填一个资产 ID（堡垒机「资产管理」里的主机 id）。'));
         return;
       }
       setCredentialLoading(true);
@@ -221,7 +222,7 @@ export async function mount(el, injectedSdk) {
         }
       } catch (error) {
         if (!disposed) {
-          setCredentialError(describeError(error));
+          setCredentialError(describeError(error, tr));
         }
       } finally {
         if (!disposed) {
@@ -232,18 +233,18 @@ export async function mount(el, injectedSdk) {
 
     const overviewItems = useMemo(
       () => [
-        { title: '主机总数', value: stats ? stats.hostTotal : 0 },
-        { title: '在线会话', value: stats ? stats.activeSessions : 0 },
-        { title: '自动刷新间隔（秒）', value: refreshSeconds },
-        { title: '最近刷新', value: updatedAt || '—' },
+        { title: tr('主机总数'), value: stats ? stats.hostTotal : 0 },
+        { title: tr('在线会话'), value: stats ? stats.activeSessions : 0 },
+        { title: tr('自动刷新间隔（秒）'), value: refreshSeconds },
+        { title: tr('最近刷新'), value: updatedAt || '—' },
       ],
       [refreshSeconds, stats, updatedAt],
     );
 
     const settingsRows = [
-      { key: 'show_greeting', label: '显示问候语', value: settings.showGreeting },
-      { key: 'refresh_seconds', label: '自动刷新间隔（秒）', value: refreshSeconds },
-      { key: 'greeting_text', label: '问候语', value: settings.greetingText },
+      { key: 'show_greeting', label: tr('显示问候语'), value: settings.showGreeting },
+      { key: 'refresh_seconds', label: tr('自动刷新间隔（秒）'), value: refreshSeconds },
+      { key: 'greeting_text', label: tr('问候语'), value: settings.greetingText },
     ];
 
     return e(
@@ -254,15 +255,15 @@ export async function mount(el, injectedSdk) {
       e(
         Card,
         {
-          title: '运行概况',
+          title: tr('运行概况'),
           extra: e(
             Space,
             { size: 8 },
-            e(Tag, { color: 'blue' }, `每 ${refreshSeconds} 秒自动刷新`),
+            e(Tag, { color: 'blue' }, tr('每 {seconds} 秒自动刷新', { seconds: refreshSeconds })),
             e(
               Button,
               { onClick: () => loadStats(false), loading },
-              '立即刷新',
+              tr('立即刷新'),
             ),
           ),
         },
@@ -273,7 +274,7 @@ export async function mount(el, injectedSdk) {
             ? e(Alert, {
                 type: 'error',
                 showIcon: true,
-                message: '读取 /stats 失败',
+                message: tr('读取 /stats 失败'),
                 description: statsError,
               })
             : null,
@@ -282,8 +283,9 @@ export async function mount(el, injectedSdk) {
                 type: 'success',
                 showIcon: true,
                 message: settings.greetingText,
-                description:
+                description: tr(
                   '这段文案来自模块设置 greeting_text，可在「系统设置 → 参数设置」里改。',
+                ),
               })
             : null,
           e(
@@ -300,7 +302,9 @@ export async function mount(el, injectedSdk) {
           e(
             Text,
             { type: 'secondary' },
-            '数据来自模块自己的 GET /stats 接口：主机数与在线会话数由宿主 SDK（autoops.bastion）异步查询。',
+            tr(
+              '数据来自模块自己的 GET /stats 接口：主机数与在线会话数由宿主 SDK（autoops.bastion）异步查询。',
+            ),
           ),
         ),
       ),
@@ -309,11 +313,11 @@ export async function mount(el, injectedSdk) {
       e(
         Card,
         {
-          title: '模块设置',
+          title: tr('模块设置'),
           extra: e(
             Button,
             { type: 'link', onClick: goSettings },
-            '去参数设置修改',
+            tr('去参数设置修改'),
           ),
         },
         e(
@@ -329,7 +333,7 @@ export async function mount(el, injectedSdk) {
                       Badge,
                       {
                         status: row.value ? 'success' : 'default',
-                        text: row.value ? '已开启' : '已关闭',
+                        text: row.value ? tr('已开启') : tr('已关闭'),
                       },
                     )
                   : e(Text, { code: true }, String(row.value ?? '—')),
@@ -344,20 +348,22 @@ export async function mount(el, injectedSdk) {
             pagination: false,
             rowKey: 'key',
             dataSource: [
-              { key: 'mod.hello-bastion.show_greeting', value: 'bool，默认 1' },
-              { key: 'mod.hello-bastion.refresh_seconds', value: 'int，5-600，默认 30' },
-              { key: 'mod.hello-bastion.greeting_text', value: 'string，默认 Hello, Bastion!' },
+              { key: 'mod.hello-bastion.show_greeting', value: tr('bool，默认 1') },
+              { key: 'mod.hello-bastion.refresh_seconds', value: tr('int，5-600，默认 30') },
+              { key: 'mod.hello-bastion.greeting_text', value: tr('string，默认 Hello, Bastion!') },
             ],
             columns: [
-              { title: '配置项', dataIndex: 'key', render: (value) => e(Text, { code: true }, value) },
-              { title: '类型与默认值', dataIndex: 'value' },
+              { title: tr('配置项'), dataIndex: 'key', render: (value) => e(Text, { code: true }, value) },
+              { title: tr('类型与默认值'), dataIndex: 'value' },
             ],
           },
         ),
         e(
           Paragraph,
           { type: 'secondary', style: { marginTop: 12, marginBottom: 0 } },
-          '模块设置由 description.json 的 settings[] 声明，宿主在安装时自动并入参数页，键名前缀为 mod.<模块 id>.。',
+          tr(
+            '模块设置由 description.json 的 settings[] 声明，宿主在安装时自动并入参数页，键名前缀为 mod.<模块 id>.。',
+          ),
         ),
       ),
 
@@ -365,7 +371,7 @@ export async function mount(el, injectedSdk) {
       e(
         Card,
         {
-          title: '异步 SDK 演示：读取资产凭证摘要',
+          title: tr('异步 SDK 演示：读取资产凭证摘要'),
           extra: e(Tag, { color: 'purple' }, 'autoops.bastion'),
         },
         e(
@@ -374,20 +380,22 @@ export async function mount(el, injectedSdk) {
           e(
             Paragraph,
             { type: 'secondary', style: { marginBottom: 0 } },
-            '模块里的 bastion.credentials.get() 是 async 函数；下面的按钮调用模块自己的 GET /credentials-sample，只返回用户名与口令长度，明文永远不出后端。',
+            tr(
+              '模块里的 bastion.credentials.get() 是 async 函数；下面的按钮调用模块自己的 GET /credentials-sample，只返回用户名与口令长度，明文永远不出后端。',
+            ),
           ),
           e(
             Space,
             { wrap: true, align: 'center' },
             e(InputNumber, {
-              placeholder: '资产 ID（必填）',
+              placeholder: tr('资产 ID（必填）'),
               style: { width: 180 },
               min: 1,
               value: hostId,
               onChange: setHostId,
             }),
             e(InputNumber, {
-              placeholder: '账号 ID（可选）',
+              placeholder: tr('账号 ID（可选）'),
               style: { width: 180 },
               min: 1,
               value: accountId,
@@ -396,19 +404,19 @@ export async function mount(el, injectedSdk) {
             e(
               Button,
               { type: 'primary', loading: credentialLoading, onClick: loadCredential },
-              '读取凭证摘要',
+              tr('读取凭证摘要'),
             ),
             e(
               Tooltip,
               { title: 'GET /api/modules/hello-bastion/api/credentials-sample?host_id=1' },
-              e(Text, { type: 'secondary' }, '查看接口'),
+              e(Text, { type: 'secondary' }, tr('查看接口')),
             ),
           ),
           credentialError
             ? e(Alert, {
                 type: 'error',
                 showIcon: true,
-                message: '读取失败',
+                message: tr('读取失败'),
                 description: credentialError,
               })
             : null,
@@ -420,10 +428,10 @@ export async function mount(el, injectedSdk) {
                   size: 'small',
                   column: { xs: 1, md: 2 },
                   items: [
-                    { key: 'hostId', label: '资产 ID', children: credential.hostId },
-                    { key: 'accountId', label: '账号 ID', children: credential.accountId ?? '—' },
-                    { key: 'username', label: '用户名', children: e(Text, { code: true }, credential.username || '—') },
-                    { key: 'passwordLength', label: '口令长度', children: `${credential.passwordLength ?? 0} 位` },
+                    { key: 'hostId', label: tr('资产 ID'), children: credential.hostId },
+                    { key: 'accountId', label: tr('账号 ID'), children: credential.accountId ?? '—' },
+                    { key: 'username', label: tr('用户名'), children: e(Text, { code: true }, credential.username || '—') },
+                    { key: 'passwordLength', label: tr('口令长度'), children: tr('{length} 位', { length: credential.passwordLength ?? 0 }) },
                   ],
                 },
               )
@@ -434,7 +442,7 @@ export async function mount(el, injectedSdk) {
       // ---- 关于 ----
       e(
         Card,
-        { title: '关于本示例' },
+        { title: tr('关于本示例') },
         e(
           Descriptions,
           {
@@ -442,18 +450,18 @@ export async function mount(el, injectedSdk) {
             items: [
               {
                 key: 'id',
-                label: '模块 ID',
+                label: tr('模块 ID'),
                 children: e(Text, { code: true }, (stats && stats.module && stats.module.id) || MODULE_ID),
               },
               {
                 key: 'version',
-                label: '版本',
+                label: tr('版本'),
                 children: (stats && stats.module && stats.module.version) || '—',
               },
-              { key: 'type', label: '页面模式', children: e(Tag, { color: 'blue' }, 'js（宿主注入 React / antd）') },
-              { key: 'api', label: '接口前缀', children: e(Text, { code: true }, API_BASE) },
-              { key: 'author', label: '作者', children: 'AutoOps（官方）' },
-              { key: 'generated', label: '本次数据时间', children: (stats && stats.generatedAt) || '—' },
+              { key: 'type', label: tr('页面模式'), children: e(Tag, { color: 'blue' }, tr('js（宿主注入 React / antd）')) },
+              { key: 'api', label: tr('接口前缀'), children: e(Text, { code: true }, API_BASE) },
+              { key: 'author', label: tr('作者'), children: tr('AutoOps（官方）') },
+              { key: 'generated', label: tr('本次数据时间'), children: (stats && stats.generatedAt) || '—' },
             ],
           },
         ),
@@ -472,7 +480,7 @@ export async function mount(el, injectedSdk) {
                 }
               },
             },
-            '打开扩展模块管理',
+            tr('打开扩展模块管理'),
           ),
           e(
             Button,
@@ -480,13 +488,15 @@ export async function mount(el, injectedSdk) {
               onClick: () => {
                 const { message } = runtime;
                 if (message && typeof message.success === 'function') {
-                  message.success(`${settings.greetingText || 'Hello, Bastion'}：来自 antd message`);
+                  message.success(
+                    tr('{text}：来自 antd message', { text: settings.greetingText || 'Hello, Bastion' }),
+                  );
                 }
               },
             },
-            '弹一条 antd 提示',
+            tr('弹一条 antd 提示'),
           ),
-          e(Text, { type: 'secondary' }, '页面只用 antd 组件，没有自定义 CSS。'),
+          e(Text, { type: 'secondary' }, tr('页面只用 antd 组件，没有自定义 CSS。')),
         ),
       ),
     );
@@ -508,11 +518,11 @@ export async function mount(el, injectedSdk) {
         },
       };
     } else {
-      renderNotice(el, 'ReactDOM 既不提供 createRoot 也不提供 render，无法挂载。');
+      renderNotice(el, tr('ReactDOM 既不提供 createRoot 也不提供 render，无法挂载。'));
     }
   } catch (error) {
     if (!disposed && hostEl === el) {
-      renderNotice(el, `模块挂载失败：${describeError(error)}`);
+      renderNotice(el, tr('模块挂载失败：{message}', { message: describeError(error, tr) }));
     }
   }
 }

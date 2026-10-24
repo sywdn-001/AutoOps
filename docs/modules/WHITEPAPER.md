@@ -11,7 +11,7 @@
 >
 > Python 扩展以堡垒机进程身份运行 = **完全可信代码，等价于直接改后端**；**没有沙箱隔离**；请只安装**签名可信来源**的模块。
 >
-> 这不是一句免责声明，而是架构事实：模块可以 `import app`、读数据库、读 `FERNET_KEY`、改全局路由、开线程、访问网络。宿主不会限制这些能力。静态资源（`web/`、`images/`、`README.md`）是**免登录**的，不要在里面放密钥。
+> 这不是一句免责声明，而是架构事实：模块可以 `import app`、读数据库、读 `FERNET_KEY`、改全局路由、开线程、访问网络。宿主不会限制这些能力。静态资源（`web/`、`images/`、`README.md`/`README.en.md`）是**免登录**的，不要在里面放密钥。
 
 ---
 
@@ -137,13 +137,13 @@
 
 - **不能改宿主导航以外的布局**。你不能往宿主左侧菜单之外塞页面、改顶部栏、改登录页；能加的只有 `nav[]` 里的入口，最终 URL 固定为 `/m/<id><path>`。
 - **不能新增宿主核心权限码**。核心权限码定义在 `bastion-backend/app/security.py` 的 `ALL_PERMISSIONS`，模块不能往里加。你可以在 `description.json.permissions` 里声明模块级权限（通常 `module:<id>:use`），但角色配置页是否展示、如何授权由宿主实现决定。
-- **不能在安装页预览时执行 Python**。上传预览走 `POST /api/modules/upload-check`：只解析 `description.json`、不落盘、不 import 模块代码。安装成功后才加载。
+- **不能在安装页预览时执行 Python**。上传预览走 `POST /api/modules/upload-check`：只解析 `description.json`/`README*`、不 import 模块代码；为了预览会话，包与截图会暂存到 `instance/module-previews/<token>/`（TTL 30 分钟），但不会安装到 `instance/modules/`。安装成功后才加载。
 - **没有进程内沙箱**。Python 扩展可以读数据库、密钥、其他模块文件、访问网络。宿主只做「安装包路径/大小/结构」校验，不做能力隔离。
 - **不能新增数据库迁移**。模块系统没有 schema migration 机制；不要改宿主表结构。需要持久化就用 `ctx.data_dir` 下的 JSON/SQLite 文件。
 - **不能假设宿主环境能 `pip install`**。安装包不会触发依赖安装。第三方库必须随包 vendoring（纯 Python 放 `modules/` 下）或使用宿主已有依赖；有平台二进制/外部程序的放 `bin/` 并自己做探测。
 - **不能覆盖宿主核心路由/接口**。技术上作为可信代码可以 monkeypatch，但这属于未支持行为，升级必炸；用 `ctx.route` 的独立前缀。
 - **不能保证崩溃完全不影响宿主**。契约提供的是「加载失败隔离」和「单请求异常隔离」；恶意代码、`os._exit`、耗尽内存/GIL、阻塞主线程仍能拖垮整个后端。
-- **不能把秘密放静态资源**。`/api/modules/<id>/asset/**` 免登录，`web/`、`images/`、`README.md` 任何登录用户甚至未登录者都能读。
+- **不能把秘密放静态资源**。`/api/modules/<id>/asset/**` 免登录，`web/`、`images/`、`README.md`/`README.en.md` 任何登录用户甚至未登录者都能读。
 - **不能依赖安装页执行你的代码来做初始化**。初始化逻辑放 `setup(ctx)`，它只在安装成功后的加载阶段执行。
 
 <a id="sec-1-3"></a>
@@ -184,8 +184,11 @@ my-module-1.0.0.mod.ops_ext
 ├── data/                   # 可选，初始数据；安装时复制到 instance/modules/<id>/data
 ├── bin/                    # 可选，可执行文件/外部程序
 │   └── my-helper.exe
-└── README.md               # 可选，安装页可读；静态资源接口允许访问
+├── README.md               # 可选，中文说明；安装预览/静态资源可读
+└── README.en.md            # 可选，英文说明；英文界面优先用于预览，同样可静态访问
 ```
+
+安装预览窗口按界面语言选 README：英文界面优先 `README.en.md`，缺失时回退 `README.md`；两者都没有就显示空态。中文 README 与英文 README 都通过免登录静态资源接口访问，**不要写密钥**。
 
 要求与限制（契约 §1）：
 
@@ -215,10 +218,10 @@ bastion-backend/instance/modules/<id>/
 
 | 属性 | 指向 | 用途 |
 | --- | --- | --- |
-| `ctx.package_dir` | `instance/modules/<id>/package` | 读包内只读资源（`web/`、`bin/`、`README.md`） |
+| `ctx.package_dir` | `instance/modules/<id>/package` | 读包内只读资源（`web/`、`bin/`、`README.md`、`README.en.md`） |
 | `ctx.data_dir` | `instance/modules/<id>/data` | **唯一**运行期可写目录 |
 | `bin/` 运行路径 | `ctx.package_dir / "bin" / <file>` | 外部可执行文件（如 RDP 网关） |
-| 静态资源 URL | `/api/modules/<id>/asset/<相对路径>` | 只对 `web/`、`images/`、`README.md` 生效 |
+| 静态资源 URL | `/api/modules/<id>/asset/<相对路径>` | 只对 `web/`、`images/`、`README.md`/`README.en.md` 生效 |
 
 > 这个目录只在管理员上传安装后出现；全新实例的 `instance/modules/` 是空的。系统不内置、不预装任何模块，也不会在启动时从 `modules-src/` 补装。
 
@@ -252,7 +255,8 @@ bastion-backend/instance/modules/<id>/
 | `web/` | 前端页面与资源 | 否 | 是 | 入口来自 `entry.web` 或 `nav[].entry` |
 | `data/` | 初始数据 | 安装后复制到 `data_dir` | 否 | 安装时复制；运行期读写 `ctx.data_dir` |
 | `bin/` | 可执行文件 | 否（但程序自身可能写文件） | 否 | 注意 Linux/Windows 平台与执行权限 |
-| `README.md` | 说明 | 否 | 是 | 会被免登录读取，别写秘密 |
+| `README.md` | 中文说明 | 否 | 是 | 会被免登录读取，别写秘密 |
+| `README.en.md` | 英文说明 | 否 | 是 | 英文界面安装预览优先读取；同样免登录，别写秘密 |
 
 <a id="sec-2-5"></a>
 ### 2.5 最小骨架
@@ -1209,7 +1213,9 @@ async def broadcast_refresh():
 <a id="sec-6"></a>
 ## 6. Web UI 两种模式：`iframe` 与 `js`
 
-官方示例 [`hello-bastion`](../../modules-src/hello-bastion)、[`rdp-gateway`](../../modules-src/rdp-gateway) 和 [`js-demo`](../../modules-src/js-demo) **全部使用 `js` 模式**。其中 `hello-bastion` 和 `js-demo` 是最小教学示例，`rdp-gateway` 是带 Python 后端的完整业务模块。三者都不随宿主预装，均以 `.mod.ops_ext` 上传安装；`modules-src/` 只是源码与打包输入。
+官方示例 [`hello-bastion`](../../modules-src/hello-bastion)、[`rdp-gateway`](../../modules-src/rdp-gateway) 和 [`js-demo`](../../modules-src/js-demo) **全部使用 `js` 模式**，当前版本分别为 `1.1.1`、`1.2.2`、`1.0.1`。其中 `hello-bastion` 和 `js-demo` 是最小教学示例，`rdp-gateway` 是带 Python 后端的完整业务模块。三者都不随宿主预装，均以 `.mod.ops_ext` 上传安装；`modules-src/` 只是源码与打包输入。三个模块都带 `README.en.md`，页面文案全部走 `sdk.t`。
+
+> `rdp-gateway 1.2.2` **已删除「直连」旁路**。目标机列表是只读的授权概览，不再有「操作/直连」列，也没有登录账号选择与会话卡；原因是直连会把目标机地址和口令交给本地 `mstsc`，绕过录制与审计。现在只能 `mstsc /v:<堡垒机IP>:<端口>`，登录堡垒机账号后在网关会话里按编号选目标主机。目标机列表里的 `POST /api/modules/rdp-gateway/api/sessions` 仍保留，供 Rust 网关进程登记受审计会话。
 
 <a id="sec-6-1"></a>
 ### 6.1 选型对比
@@ -1231,7 +1237,7 @@ async def broadcast_refresh():
 <a id="sec-6-2"></a>
 ### 6.2 静态资源与 URL 规则
 
-模块安装后，`web/`、`images/`、`README.md` 通过以下接口免登录访问：
+模块安装后，`web/`、`images/`、`README.md`/`README.en.md` 通过以下接口免登录访问：
 
 ```text
 GET /api/modules/<id>/asset/<包内相对路径>
@@ -1259,7 +1265,7 @@ description.json 的 nav[].entry = "web/dashboard.html"
 
 限制：
 
-- **只有 `web/`、`images/`、`README.md` 可访问**；`data/`、`modules/`、`bin/`、`description.json` 不对外。
+- **只有 `web/`、`images/`、`README.md`/`README.en.md` 可访问**；`data/`、`modules/`、`bin/`、`description.json` 不对外。
 - 响应头是 `Cache-Control: no-cache`；开发时改完文件刷新即可。
 - 静态资源接口**免登录**；页面里的 API 才走 JWT。
 - 入口必须在 `web/` 下；`entry: "index.html"`（缺 `web/`）会 404。
@@ -1554,8 +1560,33 @@ export default api;
 | request | `window.AutoOpsSDK` | 用宿主请求，自动带 token/统一错误处理 |
 | `getToken` | `window.AutoOpsSDK` | 读取 `bastion_token`；注意同源 XSS 风险 |
 | `message` | `window.AutoOpsSDK` | 轻量提示；不要用它展示敏感数据 |
-| `t` | `window.AutoOpsSDK` | 宿主词条有限；模块自有文案自备 |
+| `t` | `window.AutoOpsSDK` | `t(中文原文, vars?)`：中文界面原样返回；英文界面查宿主词典，缺键回退中文；`{name}`/`{count}` 占位 |
+| `isEnglish` | `window.AutoOpsSDK` | `() => boolean`：当前是否英文界面；每次调用实时读取，语言切换会整页重载，不必监听 |
 | `history` | `window.AutoOpsSDK` | 宿主 SPA 路由；用 `history.push(path)` 跳转，不要整页刷新 |
+
+**模块 UI 必须支持中英双语。** 所有面向用户的字面量都用 `sdk.t` 包起来（中文原文就是词典 key），变量用 `{name}` / `{count}` 占位：
+
+```js
+export function mount(el, sdk) {
+  const { React, ReactDOM, antd } = sdk;
+  const tr = typeof sdk.t === 'function' ? sdk.t : (zh) => zh;
+  const root = ReactDOM.createRoot(el);
+
+  root.render(React.createElement(antd.Card, { title: tr('运行概况') }, [
+    React.createElement(antd.Statistic, {
+      key: 'hosts',
+      title: tr('共 {count} 台主机', { count: 3 }),
+      value: 3,
+    }),
+    React.createElement('p', { key: 'lang', 'data-lang': sdk.isEnglish() ? 'en-US' : 'zh-CN' }, tr('当前界面语言')),
+  ]));
+}
+```
+
+- 英文译文放在宿主 `ant-design-pro/src/i18n/dict/en-US.json`，**键就是中文原文**（当前 1796 键）；缺键时回退中文，英文界面会漏中文，所以新增原文必须同时补词典。
+- 不包 `t`：常量/枚举/代码标识符、URL、`console` 日志、开发者异常信息；不要把变量拼进 key，统一用 `t('共 {count} 台', { count: n })`。
+- 语言切换由宿主整页重载，`mount` 里不需要订阅语言事件；需要按语言分支时调用 `sdk.isEnglish()`。
+- 当前模块包没有「自带词典」字段；第三方模块新增的原文要列进发布说明，由宿主维护方合并进上述词典，否则英文界面只能回退中文。
 
 构建方案：
 
@@ -1837,7 +1868,7 @@ js 模式脚本必须是 **ES Module**（`export`/`import` 语法），并且入
 | 设置项不出现 | 模块未加载/`settings` 未声明 | 看 `loaded`、`errors`；重装后刷新参数设置页 |
 | `No module named autoops` | 宿主 loader 未注入门面/版本不匹配 | 确认宿主实现了模块系统且版本 ≥ `minBastionVersion` |
 
-> `POST /api/modules/upload-check` 只解析 `description.json`，**不会执行 Python**。所以「预览正常但安装后加载失败」通常是代码本身的问题，去 `/logs` 看 traceback。
+> `POST /api/modules/upload-check` 只解析 `description.json`/`README*`，**不会执行 Python**；预览包与截图会暂存在 `instance/module-previews/<token>/`，30 分钟后过期。所以「预览正常但安装后加载失败」通常是代码本身的问题，去 `/logs` 看 traceback。
 
 ---
 
@@ -1852,7 +1883,8 @@ js 模式脚本必须是 **ES Module**（`export`/`import` 语法），并且入
 - [ ] `web/` 里的资源使用相对路径/模块 API 绝对路径，没有 `/static/...` 之类宿主路径；
 - [ ] `data/` 只放初始数据，没有运行期临时文件；
 - [ ] 没有 `__pycache__`、`.git`、`node_modules`、`*.pyc`、日志、密钥、测试 dump；
-- [ ] `README.md` 与 `images/` 可公开（它们免登录可读）；
+- [ ] `README.md` / `README.en.md` 与 `images/` 可公开（它们免登录可读）；需要英文安装预览时提供 `README.en.md`；
+- [ ] `js` 模式所有用户可见文案都用 `sdk.t` / `tr` 包裹，新增的中文原文已补进宿主 `en-US.json`；
 - [ ] 在目标宿主版本上手工装过一次，`loaded=true`、`errors=[]`；
 - [ ] 实验性模块准备好确认语文本。
 
@@ -1875,19 +1907,33 @@ python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
 
 # 打包到仓库根目录（官方包随仓库分发）
 python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
+
+# 另两个官方示例同样输出到仓库根
+python bastion-backend\tools\pack_module.py modules-src\js-demo -o .
+python bastion-backend\tools\pack_module.py modules-src\rdp-gateway -o .
+```
+
+`rdp-gateway` 自带独立的 Rust 网关进程，打包前必须先编译（**必须 `--release`**；debug 产物运行时会报 D8050），再把 exe 放进模块包的 `bin/`：
+
+```powershell
+cd bastion-rdp-gateway
+cargo build --release
+cp target\release\bastion-rdp-gateway.exe ..\modules-src\rdp-gateway\bin\
+cd ..
+python bastion-backend\tools\pack_module.py modules-src\rdp-gateway -o .
 ```
 
 如果你的当前目录是 `bastion-backend/`，等价命令是：
 
 ```powershell
-python tools\pack_module.py ..\modules-src\hello-bastion -o ..
+python tools\pack_module.py ..\modules-src\hello-bastion -o D:\Desktop\AutoOps
 ```
 
 产物：
 
 ```text
 <id>-<version>.mod.ops_ext
-# 例：hello-bastion-1.1.0.mod.ops_ext（就在仓库根目录）
+# 例：hello-bastion-1.1.1.mod.ops_ext（就在仓库根目录）
 ```
 
 工具行为（契约 §8）：
@@ -1906,15 +1952,15 @@ python tools\pack_module.py ..\modules-src\hello-bastion -o ..
 > 系统默认是 0 个模块，没有「内置模块」或预装入口；三个官方示例也必须走下面这条上传流程。
 
 1. 管理员登录，进入「系统设置 → 扩展模块」；
-2. 选择/拖入 `.mod.ops_ext`；
-3. 前端调用 `POST /api/modules/upload-check`，展示 `description.json` 预览（名称、版本、作者、标签、说明、演示图）；
-4. 若 `experimental`（或 tags 含 `experimental`），弹出 Modal，要求**手工敲**：
+2. 点击「安装扩展模块」，宿主在**新的预览窗口**里打开选包页；选文件必须在预览窗口里完成（不要在主页面直接调 `input.click()`，`window.open()` 已消耗用户手势，浏览器会静默忽略文件选择器）；
+3. 在预览窗口里选择 `.mod.ops_ext`，前端调用 `POST /api/modules/upload-check`；该接口只解析 `description.json`/`README*`、不 import 代码，但会为预览会话把包与截图暂存到 `instance/module-previews/<previewToken>/`（TTL 30 分钟），不会装入 `instance/modules/`；
+4. 预览窗口就地展示详情（名称、版本、作者、标签、说明、演示图、导航、设置、权限/依赖、包内目录）。**功能说明按界面语言选择**：英文界面优先 `README.en.md`，没有则回退 `README.md`，两者都无则显示空态；
+5. 若 `experimental`（或 tags 含 `experimental`），展开确认区，要求**手工敲**：
    ```text
    我知道这是实验性功能，使用不当的话也许会造成系统损毁
    ```
    输入不匹配则「安装」按钮不可用；粘贴不算；
-5. 调用 `POST /api/modules/install`（multipart `file`，实验性模块另带 `ack`）；
-6. 安装成功后模块进入列表，默认按宿主策略启用/加载；侧边栏出现 `nav[]` 入口。
+6. 在预览窗口底部点「安装」，前端调用 `POST /api/modules/preview/<previewToken>/install`（JSON `{ack}`）；安装成功后会话销毁、窗口可关闭，主窗口通过 `storage` 事件刷新列表与侧边栏。之后模块默认按宿主策略启用/加载，侧边栏出现 `nav[]` 入口。
 
 安装期的错误码见 §8.6。安装失败必须回滚到「未安装」，不会留下半个模块。
 
@@ -1922,7 +1968,7 @@ python tools\pack_module.py ..\modules-src\hello-bastion -o ..
 ### 9.4 直接调安装 API（自动化场景）
 
 ```bash
-# 上传预览：不落盘、不执行
+# 上传预览：不安装、不执行；包暂存在预览会话
 curl -s -X POST "http://127.0.0.1:5000/api/modules/upload-check" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@./my-module-1.0.0.mod.ops_ext"
@@ -1937,6 +1983,28 @@ curl -s -X POST "http://127.0.0.1:5000/api/modules/install" \
 - `install` 需要管理员权限；
 - `ack` 只在实验性模块时必需；非实验性模块不要传；
 - 成功返回归一化模块对象（同 §3.6）。
+
+`upload-check` 还返回 `readme`/`readmeName`、`readmeEn`/`readmeEnName`：预览窗口按当前界面语言选择，英文优先 `readmeEn`，缺失回退 `readme`。同时返回 `previewToken`、`images[].url` 和 `size`/`fileCount`/`folders`，供预览窗口展示与就地安装：
+
+- 交互式前端用 `POST /api/modules/preview/<previewToken>/install`（JSON `{ack}`），成功后会话销毁；
+- `POST /api/modules/install`（multipart `file`）保留给自动化/脚本场景，不经过预览窗口；
+- 预览会话 TTL 30 分钟，过期后安装返回 `410 MODULE_PREVIEW_EXPIRED`，需重新选包。
+
+提示项有两套表示：
+
+- `issues` / `warnings`：中文句子数组，保留给旧前端，向后兼容；
+- `issueItems` / `warningItems`：与上面一一对应的可翻译项，每项 `{key, params}`。`key` 是中文模板（例如 `模块 {id} 已安装`），`params` 是占位符对象；前端用 `t(key, params)` 渲染。
+
+例如：
+
+```json
+{
+  "key": "模块 {id} 已安装，请先卸载再安装",
+  "params": { "id": "my-module" }
+}
+```
+
+新增提示时两套都要返回；只给 `issues` 会导致英文界面漏中文。
 
 <a id="sec-9-5"></a>
 ### 9.5 安装/启用/禁用/卸载的内部行为
@@ -2067,7 +2135,7 @@ def setup(ctx):
 不能往宿主核心权限目录（`ALL_PERMISSIONS`）里加。可以在 `description.json.permissions` 声明模块级权限（如 `module:<id>:use`），但是否出现在角色配置页、如何授权由宿主实现决定；在宿主未接入前，非超级管理员可能拿不到该权限。
 
 **Q3：安装页预览会执行 Python 吗？**<br>
-不会。`upload-check` 只解析 `description.json`，不落盘、不 import。安装成功后才加载模块；`setup` 里的错误会体现在 `loaded=false` / `errors[]`。
+不会。`upload-check` 只解析 `description.json`/`README*`、不 import；但会为预览会话暂存包与截图（30 分钟 TTL）。安装成功后才加载模块；`setup` 里的错误会体现在 `loaded=false` / `errors[]`。
 
 **Q4：模块崩溃会影响整个堡垒机吗？**<br>
 契约提供加载失败隔离和请求异常隔离：`setup` 抛异常只让本模块 `loaded=false`；路由异常只让该请求 500。但没有进程级沙箱：死循环、内存耗尽、`os._exit`、阻塞 GIL 仍可能拖垮进程。写健壮的代码，别把未捕获异常丢进后台线程。
@@ -2097,7 +2165,7 @@ def setup(ctx):
 模块未加载或 `settings` 未声明；设置默认值在加载/安装时注册。看 `/api/modules/<id>` 与 `/logs`，重装后刷新页面。
 
 **Q13：静态资源要登录吗？**<br>
-不要。`/api/modules/<id>/asset/**` 免登录，只允许 `web/`、`images/`、`README.md`。不要放秘密。
+不要。`/api/modules/<id>/asset/**` 免登录，只允许 `web/`、`images/`、`README.md`/`README.en.md`。不要放秘密。
 
 **Q14：能返回文件/流/自定义状态码吗？**<br>
 `ctx.route` 只适合返回 dict/list/None + `ModuleApiError` 状态码。文件/流/自定义响应走 `ctx.blueprint()` + Flask 原生响应，自己按统一信封约定处理错误。
@@ -2151,16 +2219,18 @@ modules-src/hello-bastion/
 │   └── index.js            # js 模式入口：export mount/unmount + React.createElement + antd
 ├── images/
 │   └── demo-1.png          # 安装页演示图（800×450）
-└── README.md
+├── README.md               # 中文说明
+└── README.en.md            # 英文说明；英文界面安装预览优先
 ```
 
 | 文件 | 作用 |
 | --- | --- |
-| [`description.json`](../../modules-src/hello-bastion/description.json) | `version: "1.1.0"`、`entry.web: "web/index.js"`、`nav[0].type: "js"`、3 个 settings、实验性标记 |
+| [`description.json`](../../modules-src/hello-bastion/description.json) | `version: "1.1.1"`、`entry.web: "web/index.js"`、`nav[0].type: "js"`、3 个 settings、实验性标记 |
 | [`modules/__init__.py`](../../modules-src/hello-bastion/modules/__init__.py) | `setup(ctx)`、`/stats`、`/credentials-sample`、async 桥、生命周期钩子 |
-| [`web/index.js`](../../modules-src/hello-bastion/web/index.js) | js 页面：4 张 antd `Card`，用 `React.createElement` 拼装，无 JSX、无 import、无自定义 CSS |
+| [`web/index.js`](../../modules-src/hello-bastion/web/index.js) | js 页面：4 张 antd `Card`，用 `React.createElement` 拼装，无 JSX、无 import、无自定义 CSS；文案走 `sdk.t` |
 | [`images/demo-1.png`](../../modules-src/hello-bastion/images/demo-1.png) | 800×450 安装页演示图 |
-| [`README.md`](../../modules-src/hello-bastion/README.md) | 该示例的安装/接口/排障说明 |
+| [`README.md`](../../modules-src/hello-bastion/README.md) | 中文安装/接口/排障说明 |
+| [`README.en.md`](../../modules-src/hello-bastion/README.en.md) | 英文说明；英文界面预览优先读取 |
 
 对应关系：
 
@@ -2168,7 +2238,8 @@ modules-src/hello-bastion/
 - `settings[]` → `show_greeting`（bool）、`refresh_seconds`（int, 5–600）、`greeting_text`（string）。
 - `/stats` → `asyncio.gather(bastion.hosts.list(), bastion.sessions.list_active())` + `ctx.get_setting()`。
 - `/credentials-sample` → `await bastion.credentials.get(host_id, account_id=...)`，只返回 `username` + `passwordLength`。
-- `web/index.js` → 用 `window.AutoOpsSDK` 的 `React`/`ReactDOM`/`antd`/`request`/`history`，通过宿主 `request` 调两个模块 API；`sdk.history.push('/system/settings')` 跳参数设置，`unmount()` 清理 root。
+- `web/index.js` → 用 `window.AutoOpsSDK` 的 `React`/`ReactDOM`/`antd`/`request`/`t`/`history`，通过宿主 `request` 调两个模块 API；所有可见文案用 `tr('中文原文')` 包裹，`sdk.history.push('/system/settings')` 跳参数设置，`unmount()` 清理 root。
+- `README.md` / `README.en.md` → 安装预览窗口按界面语言选择，英文优先 `README.en.md`；两者都免登录可读，不能放密钥。
 
 <a id="sec-12-2"></a>
 ### 12.2 从校验到安装
@@ -2201,16 +2272,16 @@ python bastion-backend\tools\pack_module.py modules-src\hello-bastion -o .
 预期产物（仓库根目录）：
 
 ```text
-hello-bastion-1.1.0.mod.ops_ext
+hello-bastion-1.1.1.mod.ops_ext
 ```
 
 **Step 4：安装**：
 
 1. 管理员登录前端；
-2. 「系统设置 → 扩展模块」上传仓库根目录的 `hello-bastion-1.1.0.mod.ops_ext`；
-3. 看到演示图/名称/版本/标签；
+2. 「系统设置 → 扩展模块」→「安装扩展模块」，在**新弹出窗口**里选择仓库根目录的 `hello-bastion-1.1.1.mod.ops_ext`；
+3. 预览窗口显示演示图/名称/版本/标签；英文界面优先展示 `README.en.md`；
 4. 因为 `experimental: true`，手敲确认语；
-5. 安装成功，模块列表出现 `hello-bastion`，`loaded=true`。
+5. 在预览窗口点「安装」，安装成功，主窗口模块列表出现 `hello-bastion`，`loaded=true`。
 
 **Step 5：确认权限**：
 
@@ -2235,7 +2306,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "success": true,
   "message": "ok",
   "data": {
-    "module": { "id": "hello-bastion", "version": "1.1.0" },
+    "module": { "id": "hello-bastion", "version": "1.1.1" },
     "generatedAt": "2026-10-23T15:04:05.123456+00:00",
     "hostTotal": 12,
     "activeSessions": 3,
@@ -2284,7 +2355,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 <a id="sec-12-4"></a>
 ### 12.4 页面与设置
 
-宿主用 `PageContainer` 包住模块内容，标题为「Hello Bastion」，`extra` 显示版本、官方、实验性标签；`web/index.js` 的 `mount()` 只向传入的 `el` 里渲染内容。页面是四张 antd `Card`：
+宿主用 `PageContainer` 包住模块内容，标题为「Hello Bastion」，`extra` 显示版本、官方、实验性标签；`web/index.js` 的 `mount()` 只向传入的 `el` 里渲染内容。页面是四张 antd `Card`，所有可见文案都经 `tr('中文原文')` 走宿主词典：
 
 1. **运行概况**：`Alert` 展示问候语（来自 `greeting_text`，`show_greeting=false` 时隐藏），下面 4 个 `Statistic`：主机总数、在线会话、自动刷新间隔、最近刷新；`extra` 有「每 N 秒自动刷新」标签和「立即刷新」按钮。
 2. **模块设置**：`Descriptions` 显示三个设置当前值，`Table` 列出 `mod.hello-bastion.show_greeting` / `refresh_seconds` / `greeting_text` 的类型和默认值；「去参数设置修改」按钮用 `sdk.history.push('/system/settings')` 做宿主内跳转。
@@ -2335,7 +2406,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 - 加接口：在 `modules/__init__.py` 的 `_register_routes(ctx)` 里加一个 `@ctx.route("/my-endpoint")`，按 §5.4 桥接 async SDK；
 - 加设置：在 `description.json.settings[]` 加一项，`setup` 里 `ctx.get_setting("new_key", default)`；
-- 改页面：直接改 `web/index.js` 里的 `React.createElement` 树，照四张 `Card` 的结构加一张；入口仍是 `entry.web: "web/index.js"`、`nav[].type: "js"`，不需要改后端；
+- 加页面：直接改 `web/index.js` 里的 `React.createElement` 树，照四张 `Card` 的结构加一张；入口仍是 `entry.web: "web/index.js"`、`nav[].type: "js"`，不需要改后端；
+- 加文案：先写 `tr('中文原文')`，再把同一句补进宿主 `ant-design-pro/src/i18n/dict/en-US.json`（值写英文）；带变量用 `tr('共 {count} 台', { count: n })`，不要把变量拼进 key；
 - 加一张新卡片：先从 `antd` 解构需要的组件，再在 `Space` 里加 `e(Card, ...)`；不要在模块里写 CSS，标题/布局交给宿主；
 - 加资产级鉴权：在敏感路由里校验当前用户对 `host_id` 的授权（见 §1.3/Q10），不要只依赖模块级 permission；
 - 加审计：在关键操作后调用 `bastion.audit.log(...)`，detail 不放明文。
@@ -2356,9 +2428,9 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | §4 Python 入口 | `setup`/`teardown`/`on_enable`/`on_disable`、`ctx` 成员、`ctx.route` 包装与权限缺省、`ctx.blueprint`、`ctx.on`/`ctx.emit` |
 | §5 SDK | 全部方法签名/返回类型、全异步、`_sync` 版本、`credentials.get` 审计、`run_blocking`、`ModuleError` |
 | §6 REST 接口 | `/api/modules*` 路由、权限、错误码、静态资源白名单、日志/上传预览 |
-| §7 前端契约 | iframe/js 两种模式、`window.AutoOpsSDK`、`window.AutoOpsModules`、`/m/:moduleId/*`、安装页流程 |
+| §7 前端契约 | iframe/js 两种模式、`window.AutoOpsSDK`、`window.AutoOpsModules`、`/m/:moduleId/*`、安装页流程、`t`/`isEnglish` 双语、预览 README 语言选择 |
 | §8 打包工具 | CLI、`--check`、输出目录、排除规则、打包后复验 |
-| §9 官方模块 | `modules-src/rdp-gateway/` 首个官方模块的定位；`hello-bastion`、`rdp-gateway`、`js-demo` 均使用 `js` 模式 |
+| §9 官方模块 | `modules-src/rdp-gateway/` 首个官方模块的定位；`hello-bastion`、`rdp-gateway`、`js-demo` 均使用 `js` 模式；RDP 无直连通道 |
 
 **已知契约待补项**（开发时请与宿主实现对齐，白皮书不对未定义行为做承诺）：
 
@@ -2375,7 +2447,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 11. `audit.log_command` 的 `session_id` 是 `SessionRecord.id` 还是 `sid` 字符串（当前实现两者都接受，契约应固定一种）。
 12. `events.emit` 是否自动加 `module:<id>:` 前缀（当前实现与 `ctx.emit` 一致，会加并限制 topic 字符）。
 13. 模块接口的「当前登录用户」上下文与按资产授权检查能力（SDK 目前未暴露）。
-14. js 模式的 `t` 词条范围、`request` 的错误/401 全局行为是否与宿主页面一致。
+14. js 模式的 `request` 错误/401 全局行为是否与宿主页面一致；`t` 词典由宿主维护，模块包没有自带词典字段。
 15. 模块日志接口的响应 `data` 结构（数组还是 `{lines: [...]}`）。
 16. `ctx.on(event, handler)` 的参数形式（当前实现要求传 handler，不支持当装饰器）与 `ctx.set_setting` 的返回类型/未声明 key 行为。
 17. `ctx.emit` 的 topic 限制（当前实现禁止冒号、限长 64），契约应写明。
@@ -2394,6 +2466,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 - [ ] `name`/`nav[].title`/`settings[].label` 有 `{zh, en}`；
 - [ ] `entry.web` / `nav[].entry` 都在 `web/` 下；
 - [ ] `images` 都在 `images/` 下且文件存在；
+- [ ] 需要英文安装预览时提供 `README.en.md`；中英文 README 都不含密钥；
 - [ ] 实验性标记与实际一致，确认语文本正确；
 - [ ] `permissions`/`requires` 没有笔误。
 
@@ -2413,6 +2486,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 - [ ] **`js` 模式（推荐）只用宿主注入的 antd**：没有自定义 CSS、没有渐变/Hero、没有自造页面标题；标题/面包屑/官方与实验性标签由宿主 `PageContainer` 提供；
 - [ ] js 模式 `mount/unmount` 清理定时器/事件/root，`unmount()` 可重复调用；
 - [ ] js 模式不自带 React/ReactDOM/antd，所有运行时从 `window.AutoOpsSDK` 取；
+- [ ] 所有用户可见文案都经 `sdk.t` / `tr`，变量用 `{name}` 占位；新增中文原文已补进宿主 `en-US.json`；
+- [ ] 语言切换后页面无中文漏翻（缺键会回退中文，英文界面可人工检查）；
 - [ ] 页面内跳转用 `sdk.history.push()`，不用 `window.location` 整页刷新（登录跳转除外）；
 - [ ] 401 展示可读提示或交给宿主 `request` 的全局策略，403 展示可读原因；
 - [ ] 动态文本用 `textContent`，没有 `innerHTML` 注入；

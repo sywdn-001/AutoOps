@@ -293,13 +293,26 @@ def upload_check():
 
     # installable 只由「真正装不进去」的原因决定；实验性模块是可以装的，
     # 只是安装前必须逐字确认风险提示，所以它进 warnings 而不是 issues。
+    # 中文句子给旧前端兜底，*Items 带 key/params 让前端按界面语言翻译
+    # （key 是中文模板，参数用 {name} 占位）。
     issues: list[str] = []
     warnings: list[str] = []
+    issue_items: list[dict] = []
+    warning_items: list[dict] = []
     module_id = description["id"]
     if registry.get(module_id) is not None or registry.store.exists(module_id):
         issues.append(f"模块 {module_id} 已安装")
+        issue_items.append(
+            {"key": "模块 {id} 已安装", "params": {"id": module_id}}
+        )
     if description["experimental"]:
         warnings.append("这是实验性模块，安装时需要逐字确认风险提示")
+        warning_items.append(
+            {
+                "key": "这是实验性模块，安装时需要逐字确认风险提示",
+                "params": {},
+            }
+        )
     payload = _module_payload_preview(description)
     payload.update(extras)
     # 包内截图给出可访问的 URL，预览窗口才能真的把图渲染出来。
@@ -316,17 +329,21 @@ def upload_check():
     payload["installable"] = not issues
     payload["issues"] = issues + warnings
     payload["warnings"] = warnings
+    payload["issueItems"] = issue_items
+    payload["warningItems"] = warning_items
     return api_ok(payload, "模块包校验通过")
 
 
 _README_NAMES = ("readme.md", "readme.markdown", "readme.txt")
+_README_EN_NAMES = ("readme.en.md", "readme-en.md", "readme.en_us.md")
 _README_LIMIT = 20000
 
 
 def _preview_package_info(archive: spec.ParsedArchive) -> dict:
-    """预览窗口要展示的包内信息：README 正文、体积、文件概况。
+    """预览窗口要展示的包内信息：README 正文（中/英）、体积、文件概况。
 
     只从 ZIP 中央目录与 README 文本里取，**不执行**模块代码。
+    ``README.md`` 与 ``README.en.md`` 可以同时存在，前端按界面语言挑一份。
     """
     files = [entry for entry in archive.entries if not entry.is_dir]
     folders = sorted(
@@ -338,21 +355,36 @@ def _preview_package_info(archive: spec.ParsedArchive) -> dict:
     )
     readme = ""
     readme_name = ""
+    readme_en = ""
+    readme_en_name = ""
     try:
         with archive.open_zip() as zf:
             for name in zf.namelist():
                 if name.endswith("/"):
                     continue
-                if name.rsplit("/", 1)[-1].lower() in _README_NAMES:
-                    with zf.open(name) as handle:
-                        readme = handle.read(_README_LIMIT).decode("utf-8", "replace")
-                    readme_name = name
-                    break
+                base = name.rsplit("/", 1)[-1].lower()
+                if base in _README_EN_NAMES:
+                    if not readme_en:
+                        with zf.open(name) as handle:
+                            readme_en = handle.read(_README_LIMIT).decode(
+                                "utf-8", "replace"
+                            )
+                        readme_en_name = name
+                    continue
+                if base in _README_NAMES:
+                    if not readme:
+                        with zf.open(name) as handle:
+                            readme = handle.read(_README_LIMIT).decode(
+                                "utf-8", "replace"
+                            )
+                        readme_name = name
     except Exception:  # noqa: BLE001 - README 读不出来不影响预览
         logger.warning("读取模块包 README 失败", exc_info=True)
     return {
         "readme": readme,
         "readmeName": readme_name,
+        "readmeEn": readme_en,
+        "readmeEnName": readme_en_name,
         "size": archive.total_size,
         "fileCount": len(files),
         "folders": folders,
@@ -450,7 +482,7 @@ def module_asset(module_id: str, rel: str):
     if not relative or any(part in ("", ".", "..") for part in relative.split("/")):
         abort(404)
     allowed = (
-        relative == "README.md"
+        relative in ("README.md", "README.en.md")
         or relative.startswith("web/")
         or relative.startswith("images/")
     )

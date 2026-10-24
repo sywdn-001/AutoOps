@@ -4,7 +4,7 @@
     "zh": "JS 模式示例",
     "en": "JS Mode Demo"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "AutoOps",
   "description": {
     "zh": "演示 js 模式扩展：不打包 React/antd，直接复用宿主注入的 window.AutoOpsSDK。",

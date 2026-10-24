@@ -25,7 +25,7 @@ import {
 } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { t } from '@/i18n';
+import { isEnglish, t } from '@/i18n';
 import { resolveModuleIcon } from '@/modules/icons';
 import {
   createModulePreviewToken,
@@ -710,7 +710,13 @@ const ModulePreviewPage = () => {
     );
   }
 
-  const issues = preview.issues ?? [];
+  // 后端同时下发中文句子（issues）与可翻译的 key/params（issueItems），
+  // 英文界面用后者走词典，找不到再退回中文句子。
+  const issueLines = [
+    ...(preview.issueItems ?? []).map((item) => t(item.key, item.params)),
+    ...(preview.warningItems ?? []).map((item) => t(item.key, item.params)),
+  ];
+  const issues = issueLines.length > 0 ? issueLines : (preview.issues ?? []);
   const fatal = preview.installable === false;
   const tags = [...preview.tags];
   if (
@@ -733,6 +739,14 @@ const ModulePreviewPage = () => {
 
   const previewAssetUrl = (path: string): string =>
     modulePreviewAssetUrl(effectiveToken, path);
+
+  // 英文界面优先用包内的 README.en.md，没有就退回中文 README。
+  const englishReadme = isEnglish() ? (preview.readmeEn ?? '') : '';
+  const readmeText = englishReadme || preview.readme || '';
+  const readmeFileName =
+    (englishReadme
+      ? (preview.readmeEnName ?? 'README.en.md')
+      : preview.readmeName) ?? '';
 
   const handleInstall = async () => {
     if (!canInstall) {
@@ -882,16 +896,16 @@ const ModulePreviewPage = () => {
         size="small"
         style={{ marginTop: 16 }}
         extra={
-          preview.readmeName ? (
+          readmeFileName ? (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {preview.readmeName}
+              {readmeFileName}
             </Text>
           ) : undefined
         }
       >
-        {preview.readme ? (
+        {readmeText ? (
           renderReadme(
-            preview.readme,
+            readmeText,
             [
               preview.id,
               moduleText(preview.name, preview.id),

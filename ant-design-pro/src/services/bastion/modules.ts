@@ -15,6 +15,7 @@ import type {
   ModuleNavEntry,
   ModuleNavItem,
   ModulePreview,
+  ModulePreviewIssue,
   ModuleSetting,
   ModuleText,
 } from './types';
@@ -278,8 +279,29 @@ const normalizeSettings = (value: unknown): ModuleSetting[] => {
   return settings;
 };
 
-const normalizeModule = (raw: unknown): ModuleItem => {
-  const record = asRecord(raw);
+/** 后端 `issueItems` / `warningItems`：`{key, params}`，`key` 是中文模板 */
+const normalizeIssueItems = (raw: unknown): ModulePreviewIssue[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const items: ModulePreviewIssue[] = [];
+  for (const item of raw) {
+    const record = asRecord(item);
+    const key = asString(record.key);
+    if (!key) {
+      continue;
+    }
+    const paramsRecord = asRecord(record.params);
+    const params: Record<string, string> = {};
+    for (const [name, value] of Object.entries(paramsRecord)) {
+      params[name] = String(value);
+    }
+    items.push({ key, params });
+  }
+  return items;
+};
+
+const normalizeModule = (raw: unknown): ModuleItem => {  const record = asRecord(raw);
   const id = asString(record.id) ?? '';
   const name = toModuleText(record.name, id);
   const tags = asStringArray(record.tags);
@@ -329,8 +351,12 @@ const normalizePreview = (raw: unknown): ModulePreview => {
     installable: record.installable === undefined ? true : asFlag(record.installable),
     issues: asStringArray(record.issues),
     warnings: asStringArray(record.warnings),
+    issueItems: normalizeIssueItems(record.issueItems),
+    warningItems: normalizeIssueItems(record.warningItems),
     readme: asString(record.readme) ?? '',
     readmeName: asString(record.readmeName) ?? '',
+    readmeEn: asString(record.readmeEn) ?? '',
+    readmeEnName: asString(record.readmeEnName) ?? '',
     fileCount: asNumber(record.fileCount),
     folders: asStringArray(record.folders),
     previewToken: asString(record.previewToken),

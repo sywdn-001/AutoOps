@@ -207,7 +207,7 @@ const Settings: React.FC = () => {
       groupIndex.set(key, moduleGroups.length);
       moduleGroups.push({
         key,
-        title: item.group || item.moduleId || t('模块设置'),
+        title: t(item.group || item.moduleId || '模块设置'),
         items: [item],
       });
     } else {

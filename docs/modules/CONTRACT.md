@@ -29,7 +29,8 @@ modules/                可选，Python 扩展根（存在则必须有 __init__.
 images/                 可选，演示图
 web/                    可选，静态前端资源（任意 HTML/JS/CSS）
 data/                   可选，初始数据，安装时复制到 instance/modules/<id>/data
-README.md               可选
+README.md               可选，中文功能说明（安装预览窗口展示）
+README.en.md            可选，英文功能说明；英文界面优先用它，没有则退回 README.md
 bin/                    可选，可执行文件（RDP 网关这种），包内路径 instance/modules/<id>/package/bin/
 ```
 
@@ -289,7 +290,7 @@ await bastion.util.run_blocking(fn, *a, **kw) -> Any      # 在带 app context �
 |POST|`/api/modules/<id>/enable`|`admin_required`|置 enabled 并尝试加载|
 |POST|`/api/modules/<id>/disable`|`admin_required`|置 disabled 并 teardown|
 |DELETE|`/api/modules/<id>`|`admin_required`|卸载（先 disable 再删目录）；系统不内置模块，卸载后要恢复只能重新上传包|
-|GET|`/api/modules/<id>/asset/<path:rel>`|免登录|只允许 `web/`、`images/`、`README.md`；`Cache-Control: no-cache`；用 `send_from_directory` 防穿越|
+|GET|`/api/modules/<id>/asset/<path:rel>`|免登录|只允许 `web/`、`images/`、`README.md`、`README.en.md`；`Cache-Control: no-cache`；用 `send_from_directory` 防穿越|
 |GET|`/api/modules/<id>/logs`|`setting:view`|最近 200 行模块日志（内存环形缓冲）|
 |GET|`/api/modules/preview/<token>/asset/<path:rel>`|免登录|安装前预览会话里的截图（只允许 `images/`），token 短期有效，`Cache-Control: private, max-age=600`|
 |POST|`/api/modules/preview/<token>/install`|`admin_required`|在预览窗口里直接安装：JSON `{ack}`；成功回归一对象并销毁会话|
@@ -300,9 +301,11 @@ await bastion.util.run_blocking(fn, *a, **kw) -> Any      # 在带 app context �
 |字段|说明|
 |-|-|
 |`installable`|只由**硬阻塞**（已安装、保留 id…）决定；实验性不算阻塞|
-|`issues`|`issues + warnings`，旧前端兼容用|
+|`issues`|问题项，中文句子数组；旧前端兼容用|
 |`warnings`|提示项（如"实验性模块需要逐字确认"）|
-|`readme` / `readmeName`|包内 README 正文（≤20000 字符）与路径，用于安装预览窗口|
+|`issueItems` / `warningItems`|与 `issues` / `warnings` 一一对应的可翻译版本；每项 `{key, params}`，`key` 是中文模板（如 `模块 {id} 已安装`），`params` 是占位符对象，前端用 `t(key, params)` 渲染。`issues` / `warnings` 保留中文句子，向后兼容|
+|`readme` / `readmeName`|包内中文 README 正文（≤20000 字符）与路径，用于安装预览窗口|
+|`readmeEn` / `readmeEnName`|包内英文 README（`README.en.md`）正文与路径；没有则空串。前端按界面语言挑一份（英文优先 `readmeEn`）|
 |`size` / `fileCount` / `folders`|解压后总字节数、文件数、顶层目录（`["web/","modules/"]`）|
 |`previewToken`|32 位十六进制预览会话 token；`install` / 截图 URL 都用它|
 |`images[]`|`{path, size?, url?}`；`url` 指向预览会话里的截图（最多 8 张、单张 ≤4MB）|
@@ -346,11 +349,17 @@ await bastion.util.run_blocking(fn, *a, **kw) -> Any      # 在带 app context �
 `calc(100vh - 180px)`，白底 + 8px 圆角；同源，iframe 内可直接读 `localStorage.bastion_token`。
 **不推荐**用于官方模块：自绘 HTML/CSS 很难和宿主保持一致的观感。
   * `js` 模式（**推荐**）：动态注入 `<script type="module" src=entry>`，脚本从
-`window.AutoOpsSDK` 取 `{ React, ReactDOM, antd, request, getToken, message, t, history }`，
+`window.AutoOpsSDK` 取 `{ React, ReactDOM, antd, request, getToken, message, t, isEnglish, history }`，
 然后调用 `window.AutoOpsModules[moduleId].mount(el, sdk)`（ESM 默认导出 `mount/unmount` 亦可）。
 模块内**只用 antd 组件**（`Card/Statistic/Descriptions/Table/Tag/Button/Space/Alert/…`），
 不写自定义 CSS、不写渐变/Hero/自造卡片，页面标题由宿主提供；
 `sdk.history.push('/system/settings')` 可做 SPA 跳转，`sdk.message` 弹提示。
+  * **模块 UI 必须支持中英双语**（宿主有语言切换）：所有用户可见文案写成 `sdk.t('中文原文')`，
+兜底 `const tr = typeof sdk.t === 'function' ? sdk.t : (zh) => zh;`。`t` 在中文界面原样返回，
+英文界面查宿主词典 `ant-design-pro/src/i18n/dict/en-US.json`（键就是中文原文，`{count}` 这类占位符保持）。
+带变量的句子写 `tr('共 {count} 台', { count: n })`。机器可读常量（键名、URL、代码片段、`bool`/`int`、`console` 日志、开发者异常信息）不包 `t`。
+需要按语言分支时用 `sdk.isEnglish()`（每次调用读最新语言；语言切换会整页重载，不必在 `mount` 里监听）。
+新增的中文原文要同步补进宿主词典，否则英文界面会显示中文。
   * 模块禁用/不存在 → 友好 403/404 卡片。
 * **服务层** `src/services/bastion/modules.ts` + `types.ts` 增补，必须 `unwrap()`。
 * **安装页** `src/pages/bastion/modules/index.tsx`（挂在「系统设置 → 扩展模块」）：
@@ -372,14 +381,14 @@ await bastion.util.run_blocking(fn, *a, **kw) -> Any      # 在带 app context �
   * **禁止**在 `Upload.beforeUpload` / 任何 `await` 之后 `window.open`（那时已脱离用户手势，必被拦截）。
   * 主页面**不弹**任何预览/确认 Modal。
   * **详情预览窗口**（`src/pages/bastion/modules/preview.tsx`，路由 `{ path: '/module-preview', layout: false }`，
-数据用 `localStorage['module-preview:<token>']` + URL hash 传 token）：展示功能说明（`readme`，用 antd 组件
+数据用 `localStorage['module-preview:<token>']` + URL hash 传 token）：展示功能说明（按语言选 `readmeEn`/`readme`，用 antd 组件
 渲染标题/列表/表格/引用/代码，**不引入 markdown 依赖**）、导航页面、参数设置、权限与依赖、包内目录（Tag 展示）、
 体积/文件数、截图（`images[].url`，antd `Image`）。
   * **安装动作在预览窗口里完成**：底部「安装」卡 → 实验性模块先逐字确认 → `POST /api/modules/preview/<token>/install`
 → 成功写 `localStorage['module-installed:<id>'] = Date.now()` 并提示可关闭窗口；
 主窗口监听 `window.addEventListener('storage', …)`（key 前缀 `module-installed:`）刷新列表/侧边栏。
-没有 README 时显示 Empty。
-  * i18n：所有新文案中英都要加（`src/i18n/`）。
+功能说明优先展示 `readmeEn`（英文界面且包里有 `README.en.md` 时），否则回退 `readme`；两者都没有显示 Empty。
+  * i18n：所有新文案中英都要加（`src/i18n/`）；模块自己的 UI 双语规则见 §7 的 js 模式条目。
 
 ## 8. 打包工具
 
@@ -392,13 +401,22 @@ python tools/pack_module.py <源码目录> [-o <输出目录>] [--check]
 * 源码目录 = 一个完整包目录（含 `description.json`）。
 * `--check`：只校验不打包（等价于安装期校验）。
 * 默认输出 `modules-dist/<id>-<version>.mod.ops_ext`；`-o` 可指定任意目录
-（**官方 RDP 网关模块的产物统一生成到仓库根目录**，方便直接分发）。
+（**官方三个示例模块的产物统一生成到仓库根目录** `python tools/pack_module.py modules-src/<id> -o .`，方便直接分发）。
 * 打包时排除 `__pycache__`、`.git`、`node_modules`、`*.pyc`、`.DS_Store`。
 * 打包后打印 id/version/size/条目数，并对 zip 再做一次 `spec.validate`。
 
 ## 9. 官方模块
 
-* 首个官方模块：`modules-src/rdp-gateway/`（RDP 网关，`experimental: true`，`author: "AutoOps"`）。
-* 宿主里原来 `app/api/rdp_gateway.py` 与 `/api/rdp-gateway/*` 接口、`/system/rdp-gateway` 前端页
-在**模块安装后**由模块提供；宿主不再内置（解耦目标）。
+系统**不预装任何模块**，三个官方示例都在 `modules-src/`，打包产物放在仓库根，靠上传安装：
+
+| 源码 | 版本 | 说明 |
+|-|-|-|
+|`modules-src/rdp-gateway/`|1.2.2|RDP 网关（`experimental: true`）。自带 Rust 网关进程（`bin/bastion-rdp-gateway.exe`），宿主里原来的 `app/api/rdp_gateway.py`、`/api/rdp-gateway/*`、`/system/rdp-gateway` 页都由它提供|
+|`modules-src/hello-bastion/`|1.1.1|最小可用示例：导航注入 + 模块设置 + 异步 SDK（含凭证摘要演示）|
+|`modules-src/js-demo/`|1.0.1|js 模式最小示例：只演示 SDK 基础能力|
+
+* **RDP 网关模块没有「直连」通道**：早期网页里可以把目标机地址和口令交给用户本地 mstsc 直连，那条路绕过录制与审计，
+已删除；现在只保留 `mstsc /v:<堡垒机IP>:<端口>` → 登录堡垒机账号 → 在网关会话里按编号选主机。
+模块页的目标机列表是**只读**的授权概览。`POST /api/modules/rdp-gateway/api/sessions` 仍保留，
+因为 Rust 网关进程自己要用它登记受审计会话。
 * 保留兼容：`RDP_GATEWAY_ENABLED`/`RDP_GATEWAY_PORT` 环境变量仍被模块读取。
