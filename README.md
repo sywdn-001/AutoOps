@@ -119,6 +119,7 @@
 # 1) 起后端：首次启动自动建库、生成三把密钥、创建管理员 admin / admin123
 cd bastion-backend
 python -m pip install -r requirements.txt
+Copy-Item .env.example .env      # 可选：要用 AI 运维就填 DEEPSEEK_API_KEY（Linux/macOS 用 cp）
 python run.py
 
 # 2) 起前端（另开一个终端）
@@ -376,8 +377,20 @@ AutoOps/
 | `--debug` / `--log-level` | 关 / `info` | 调试模式与日志级别 |
 | `--reset-admin` | — | 忘记管理员口令时重设（`--reset-admin` 后按提示输入） |
 
-**环境变量**：生产部署（监听地址、密钥、锁策略、超时、AI 凭据等 20+ 项）见下方
-[部署到生产 §③](#部署到生产linux) 的完整表格，变量名与默认值都取自 `bastion-backend/app/config.py`。
+**环境变量**：完整清单（**68 个键，每个都带默认值**）在 [`bastion-backend/.env.example`](bastion-backend/.env.example)，覆盖后端、RDP 扩展模块、前端代理与本地校验脚本；生产上最常用的十几项另见下方 [部署到生产 §③](#部署到生产linux) 的表格。
+
+```powershell
+cd bastion-backend
+Copy-Item .env.example .env      # Linux / macOS / Git Bash：cp .env.example .env
+notepad .env                     # 取消注释要改的行，或直接新增 KEY=VALUE
+python run.py                    # 重启生效（.env 只在启动时读一次）
+```
+
+- **只用改一项也能跑**：不建 `.env` 就是全部默认值；唯一真需要填的是 `DEEPSEEK_API_KEY`（不填时 `/api/ai/chat` 直接返回 400 `AI_NOT_CONFIGURED`，其它功能不受影响）。
+- **优先级**：真实环境变量 > `.env` > 代码默认值。命令行、systemd `EnvironmentFile`、容器 env 里设置的值不会被 `.env` 覆盖，所以生产上可以只用 systemd 管理。
+- **密钥留空最省事**：`BASTION_SECRET_KEY` / `BASTION_JWT_SECRET` / `BASTION_FERNET_KEY` / `BASTION_GATEWAY_HOST_KEY` 不填时首次启动自动生成到 `instance/`；改这几个值会让已有登录态失效、已存的资产口令解不开。
+- **别提交 `.env`**：`.gitignore` 已忽略它，`.env.example` 只是模板，保持注释状态、不含真实凭据。
+- 想确认读到了哪些：启动日志会打「已从 .env 载入 N 个变量」，`GET /api/health` 里有网关开关与端口。
 
 **前端开发代理**：`config/proxy.ts` 把 `/api/` 与 `/socket.io/`（含 WebSocket）代理到 `http://127.0.0.1:5000`，后端不在本机时用 `BASTION_API` 覆盖：
 

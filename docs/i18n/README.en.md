@@ -108,6 +108,7 @@ All you need is **Python ≥ 3.11** (3.13 in development) and **Node ≥ 20** (o
 # 1) Backend: first start creates the database, three keys and the admin admin / admin123
 cd bastion-backend
 python -m pip install -r requirements.txt
+Copy-Item .env.example .env      # optional: fill DEEPSEEK_API_KEY to enable AI Ops (cp on Linux/macOS)
 python run.py
 
 # 2) Frontend (in a second terminal)
@@ -338,7 +339,20 @@ AutoOps/
 | `--debug` / `--log-level` | off / `info` | Debug mode and log level |
 | `--reset-admin` | — | Reset the administrator password when locked out |
 
-**Environment variables**: the full production set (listen addresses, keys, lockout policy, timeouts, AI credentials — 20+ entries) is in the table under [Deploy to Production §3](#deploy-to-production-linux); names and defaults come straight from `bastion-backend/app/config.py`.
+**Environment variables**: the complete list (**68 keys, every one with its default**) lives in [`bastion-backend/.env.example`](../../bastion-backend/.env.example) and covers the backend, the RDP extension module, the frontend proxy and the local verification scripts; the dozen you are most likely to touch in production are also in the table under [Deploy to Production §3](#deploy-to-production-linux).
+
+```powershell
+cd bastion-backend
+Copy-Item .env.example .env      # Linux / macOS: cp .env.example .env
+notepad .env                     # uncomment the lines you want, or add KEY=VALUE
+python run.py                    # restart to apply (.env is read once at startup)
+```
+
+- **Changing one value is enough to run**: without a `.env` file everything stays at its default. The only value really worth filling in is `DEEPSEEK_API_KEY` — leave it empty and `/api/ai/chat` answers `400 AI_NOT_CONFIGURED` while every other feature keeps working.
+- **Precedence**: real environment variables > `.env` > code defaults. Values set through the CLI, systemd `EnvironmentFile` or container env are never overwritten by `.env`, so production can be managed purely through systemd.
+- **Let the keys generate themselves**: leave `BASTION_SECRET_KEY` / `BASTION_JWT_SECRET` / `BASTION_FERNET_KEY` / `BASTION_GATEWAY_HOST_KEY` empty and the first start writes them into `instance/`. Changing them later invalidates existing logins and makes stored asset credentials undecryptable.
+- **Never commit `.env`**: it is already in `.gitignore`; `.env.example` is a template that stays commented out and holds no real credentials.
+- To confirm what was loaded: the startup log prints the number of variables read from `.env`, and `GET /api/health` reports the gateway switch and port.
 
 **Frontend dev proxy**: `config/proxy.ts` proxies `/api/` and `/socket.io/` (WebSocket included) to `http://127.0.0.1:5000`; override with `BASTION_API` when the backend runs elsewhere:
 

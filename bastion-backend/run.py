@@ -15,7 +15,7 @@ import logging
 import sys
 
 from app import create_app
-from app.config import Config
+from app.config import Config, LOADED_DOTENV_KEYS
 from app.extensions import socketio
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -45,6 +45,13 @@ def main(argv=None) -> int:
         Config.GATEWAY_PORT = args.gateway_port
 
     app = create_app()
+
+    if LOADED_DOTENV_KEYS:
+        log.info("已从 .env 载入 %d 个环境变量（已是环境变量的键不会被覆盖）", LOADED_DOTENV_KEYS)
+    else:
+        log.info(
+            "未发现 bastion-backend/.env（模板见 .env.example）；当前全部使用环境变量与默认值"
+        )
 
     with app.app_context():
         from app.session_service import reconcile_stale_sessions
