@@ -1870,7 +1870,7 @@ python bastion-backend/tools/pack_module.py <source-dir> [-o <output-dir>] [--ch
 Run it from the repository root:
 
 ```powershell
-cd D:\Desktop\AutoOps
+cd <your project directory>
 
 # validate only, do not package
 python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
@@ -2186,7 +2186,7 @@ A fresh instance starts with **0 modules**; `hello-bastion` is the same, it must
 **Step 1: syntax/JSON validation** (no host environment required):
 
 ```powershell
-cd D:\Desktop\AutoOps
+cd <your project directory>
 python -m py_compile modules-src\hello-bastion\modules\__init__.py
 python -c "import json; json.load(open(r'modules-src/hello-bastion/description.json', encoding='utf-8')); print('json ok')"
 node --check modules-src\hello-bastion\web\index.js

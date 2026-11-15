@@ -143,7 +143,7 @@ npm run dev            # 开发模式 http://localhost:8000，/api 与 /socket.i
 
 ```powershell
 docker info --format '{{.OSType}}'          # 应为 linux；返回 windows 就先切回 Linux 容器模式
-cd D:\Desktop\AutoOps
+cd 你的项目目录
 docker build -t autoops-bastion:latest .
 ```
 

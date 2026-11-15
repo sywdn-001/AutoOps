@@ -1900,7 +1900,7 @@ python bastion-backend/tools/pack_module.py <源码目录> [-o <输出目录>] [
 在仓库根目录执行：
 
 ```powershell
-cd D:\Desktop\AutoOps
+cd 你的项目目录
 
 # 只校验，不打包
 python bastion-backend\tools\pack_module.py modules-src\hello-bastion --check
@@ -1926,7 +1926,7 @@ python bastion-backend\tools\pack_module.py modules-src\rdp-gateway -o .
 如果你的当前目录是 `bastion-backend/`，等价命令是：
 
 ```powershell
-python tools\pack_module.py ..\modules-src\hello-bastion -o D:\Desktop\AutoOps
+python tools\pack_module.py ..\modules-src\hello-bastion -o 你的项目目录
 ```
 
 产物：
@@ -2249,7 +2249,7 @@ modules-src/hello-bastion/
 **Step 1：语法/JSON 校验**（不需要宿主环境）：
 
 ```powershell
-cd D:\Desktop\AutoOps
+cd 你的项目目录
 python -m py_compile modules-src\hello-bastion\modules\__init__.py
 python -c "import json; json.load(open(r'modules-src/hello-bastion/description.json', encoding='utf-8')); print('json ok')"
 node --check modules-src\hello-bastion\web\index.js

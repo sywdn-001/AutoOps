@@ -208,7 +208,7 @@ hello-bastion-1.1.0.mod.ops_ext
 ## 本地验证（不启动宿主）
 
 ```powershell
-cd D:\Desktop\AutoOps
+cd 你的项目目录
 
 # Python 语法校验（不会 import autoops，所以不需要宿主环境）
 python -m py_compile modules-src\hello-bastion\modules\__init__.py
