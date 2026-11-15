@@ -1,0 +1,33 @@
+# --- build context trimming (docker build .) -------------------------------
+**/node_modules
+**/dist
+**/.umi
+**/.umi-production
+**/.cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# local runtime data - never bake state into the image
+bastion-backend/instance
+bastion-backend/.env
+bastion-backend/.venv
+bastion-backend/venv
+**/*.db
+**/*.sqlite3
+
+# release artifacts and local notes
+modules-dist
+*.mod.ops_ext
+.mod.ops_ext
+
+# repo meta
+.git
+.github
+.vscode
+.idea
+.verify
+docs

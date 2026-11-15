@@ -314,3 +314,245 @@ Windows-MCP's screenshots and UI automation only recognise "**the login session 
 - `pip install windows-mcp` straight to PyPI is very slow (about 18 minutes), and the wizard's default is the Tsinghua mirror.
 
 ---
+
+# Deploy with Docker (Linux containers)
+
+`Dockerfile` and `docker-compose.yml` run AutoOps as a single **Linux container**: the web UI, the Flask
+API and the SSH gateway in one process tree, all state in one volume. It runs on Docker Desktop (WSL2
+backend), a Linux server or a NAS box, and the host needs neither Python nor Node.js. This chapter is the
+container path only; the plain Linux and Windows installs are in [README.en.md](README.en.md).
+
+## Prerequisites
+
+- **Docker with the Linux container engine**: Docker Desktop with the WSL2 backend on Windows/macOS, or
+  Docker Engine on a Linux server, or the Docker app of a NAS.
+- The image is Debian-based: the build stage runs `node:22-bookworm-slim`, the runtime
+  `python:3.13-slim-bookworm`.
+- Ports **5000**, **2222** and **4489** free on the host.
+- No Python and no Node.js on the host — both live inside the image.
+- Network access from the build host to the npm registry and to PyPI; the build installs both.
+
+Check which container mode the engine is in:
+
+```bash
+docker info --format '{{.OSType}}'
+# linux   -> good
+# windows -> the engine is running Windows containers; see Troubleshooting
+```
+
+## What works and what does not in this image
+
+The image is Linux, so the parts of AutoOps that are Windows-only are not available in it. Be clear about
+that before choosing this deployment path:
+
+| Area | In this image |
+| --- | --- |
+| SSH assets, web terminal over SSH, SFTP file manager | Work normally |
+| Command policies, file policies, the four audit trails, session replay and recordings | Work normally |
+| Web UI, the users/roles/grants pages, the extension-module UI and its JS pages | Work normally |
+| WinRM targets (web terminal to a Windows host) | **Not available** — Windows-only integration, not packaged in the Linux image |
+| ComputerUse host agent (letting the AI drive a Windows desktop) | **Not available** — Windows-only integration, not packaged in the Linux image |
+| Rust RDP gateway module (`bastion-rdp-gateway.exe`) | **Not available** — that module is a Windows binary; port 4489 is reserved but stays idle |
+
+If you need WinRM, ComputerUse or the RDP gateway, run AutoOps from a native install instead (see
+[README.en.md](README.en.md)); everything else behaves the same in the container as it does there.
+
+## Build the image
+
+Run this **from the repository root** — the build context needs `Dockerfile`, `bastion-backend/`,
+`ant-design-pro/` and `docker/`:
+
+```bash
+docker build -t autoops-bastion:latest .
+```
+
+The build has two stages:
+
+| Stage | Base | What it does |
+| --- | --- | --- |
+| `frontend` | `node:22-bookworm-slim` | runs `npm ci` and `npm run build` for the web UI |
+| `runtime` | `python:3.13-slim-bookworm` | installs `bastion-backend/requirements.txt`, copies the backend, the built `dist/` and `docker/` |
+
+Node.js exists only in the first stage: the final image is Python 3.13 with the compiled UI at
+`/app/ant-design-pro/dist` and no Node.js at all.
+
+## Run the container
+
+```bash
+docker run -d --name autoops -p 5000:5000 -p 2222:2222 -p 4489:4489 \
+  -v autoops-data:/app/data autoops-bastion:latest
+```
+
+Each `-p host:container` publishes one port ([see Ports](#ports)); `-v` mounts the named volume
+`autoops-data` at `/app/data`, and Docker creates that volume on the first run if it does not exist.
+
+The entry point `/app/docker/entrypoint.sh` creates `/app/data/instance`, prints the web/API address, the
+health-check address, the gateway address and the data directory, then replaces itself with
+`python run.py --host 0.0.0.0 --port 5000 --gateway-host 0.0.0.0 --gateway-port 2222`. `BASTION_PORT` and
+`BASTION_GATEWAY_PORT` change the ports; `BASTION_CONTAINER_NO_GATEWAY=1` adds `--no-gateway`.
+
+## Run with Docker Compose
+
+`docker-compose.yml` wraps the same run command and adds `restart: unless-stopped`, the health check and
+`TZ=Asia/Shanghai`:
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+docker compose down
+```
+
+- `up -d --build` builds the image if needed, then starts the container in the background.
+- `down` stops and removes the container but **keeps** the `autoops-data` volume.
+- `down -v` also deletes the volume — database, keys, recordings and installed modules go with it.
+- The time zone is set with `TZ` in the image and in the compose file (`Asia/Shanghai`). Change it there,
+  or with `-e TZ=Europe/Berlin` on `docker run`, if your operators and audit logs are on another clock.
+
+## First login
+
+1. Open `http://localhost:5000`.
+2. Sign in as user `admin` with the password `admin123`.
+3. The UI forces a password change on that first login, so pick a new password before doing anything else.
+
+Locked yourself out? Reset the administrator password inside the container:
+
+```bash
+docker exec -w /app/bastion-backend -it autoops python run.py --reset-admin
+```
+
+## Ports
+
+| Port | Purpose |
+| --- | --- |
+| 5000 | Web UI and REST API; the health check is `GET /api/health` |
+| 2222 | SSH gateway — `ssh -p 2222 <user>@<host>`, signing in with a **bastion** account |
+| 4489 | Reserved for the optional RDP gateway module; idle in this image (see [above](#what-works-and-what-does-not-in-this-image)) |
+
+Publishing is controlled by `-p` (or the compose `ports:` list). The `EXPOSE` line in the image only
+documents the ports; it does not publish anything.
+
+## Data and backup
+
+Everything the container writes lives in the volume at `/app/data`:
+
+| Path | Contents |
+| --- | --- |
+| `instance/bastion.db` | SQLite database: users, hosts, assets, grants, policies, audit records |
+| `instance/secret.key`, `instance/fernet.key` | Session signing key and the key that encrypts asset credentials |
+| `instance/gateway_host_rsa.key` | SSH gateway host key |
+| `instance/` (rest) | Session recordings and the installed extension modules |
+
+**Backing up that volume is backing up the installation.** Stop the container and copy `/app/data` out of
+it:
+
+```bash
+docker stop autoops
+docker cp autoops:/app/data ./autoops-data-backup
+docker start autoops
+```
+
+Losing the volume is indistinguishable from deleting the installation: with no volume mounted, every new
+container starts from an empty `/app/data`, and **the data dies with the container** (`docker rm` takes the
+database, the keys and the recordings with it). Keep the volume, and keep a copy of it off the host. The
+key files matter most: copy a volume's database onto an installation with different keys and the stored
+asset credentials can never be decrypted again.
+
+## Environment variables
+
+The defaults inside the container:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BASTION_INSTANCE_DIR` | `/app/data/instance` | Data directory inside the volume |
+| `BASTION_HOST` / `BASTION_PORT` | `0.0.0.0` / `5000` | Web and API listen address and port |
+| `BASTION_GATEWAY_ENABLED` | `1` | Set to `0` to run without the SSH gateway |
+| `BASTION_GATEWAY_HOST` / `BASTION_GATEWAY_PORT` | `0.0.0.0` / `2222` | SSH gateway address and port |
+| `BASTION_SERVE_FRONTEND` / `BASTION_FRONTEND_DIST` | `1` / `/app/ant-design-pro/dist` | Serve the built UI from the image |
+| `TZ` | `Asia/Shanghai` | Time zone inside the container |
+| `AI_ENABLED` | empty (off) | Set to `1` to switch the AI assistant on |
+| `DEEPSEEK_API_KEY` | empty | Model credential; without it `/api/ai/chat` answers `400 AI_NOT_CONFIGURED` |
+| `AI_MODEL` | `deepseek-flash` | Model name |
+| `BASTION_ADMIN_USERNAME` / `BASTION_ADMIN_PASSWORD` | `admin` / `admin123` | Administrator created on first start — change it |
+
+Set them with `-e`, with an env file, or in compose:
+
+```bash
+# 1) on the command line
+docker run -d --name autoops -p 5000:5000 -p 2222:2222 -p 4489:4489 \
+  -v autoops-data:/app/data \
+  -e AI_ENABLED=1 -e DEEPSEEK_API_KEY=sk-... \
+  autoops-bastion:latest
+
+# 2) from a file: copy bastion-backend/.env.example to .env, uncomment the lines you need
+docker run -d --name autoops --env-file .env -p 5000:5000 -p 2222:2222 -p 4489:4489 \
+  -v autoops-data:/app/data autoops-bastion:latest
+```
+
+…or 3) the `environment:` block of `docker-compose.yml` (the AI values are there, commented out).
+
+- **Leave the secrets empty and they generate themselves**: `BASTION_SECRET_KEY`, `BASTION_JWT_SECRET`
+  and `BASTION_FERNET_KEY` are written into the volume on the first start. Changing them later
+  invalidates existing logins and makes stored asset credentials undecryptable.
+- **Never commit `.env`**: it is git-ignored, and `.dockerignore` also keeps `bastion-backend/.env` out of
+  the build context, so it never reaches the image.
+- Precedence is the same as outside a container: real environment variables (that is, `-e` / `--env-file` /
+  compose) beat the built-in defaults.
+
+## Health check and logs
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' autoops
+docker logs -f autoops
+curl -fsS http://localhost:5000/api/health
+# Windows PowerShell 5.1: curl is an alias of Invoke-WebRequest, so use curl.exe -fsS ...
+```
+
+- The health check is a small Python one-liner (no curl inside the image): it calls
+  `http://127.0.0.1:5000/api/health` every 30 s with a 10 s timeout, after a 60 s start-up grace period,
+  and gives up after 3 consecutive failures.
+- On a fresh volume the status is `starting` for a while: the first start creates the database, the tables
+  and the three keys. `healthy` means the API really answered `200`; `unhealthy` means it did not for the
+  last three checks.
+
+## Extension modules
+
+The image ships **no** extension modules (`*.mod.ops_ext` is excluded from the build context). Upload them
+from the repository root under *System settings → Extension modules*:
+
+| File | What it adds |
+| --- | --- |
+| `hello-bastion-1.1.1.mod.ops_ext` | The small demo module |
+| `js-demo-1.0.1.mod.ops_ext` | The JavaScript demo module |
+| `rdp-gateway-1.2.2.mod.ops_ext` | The RDP gateway — uploads and shows its pages, but its Windows binary cannot run here, so port 4489 stays idle |
+
+Uploaded modules are stored in the data volume, so they survive container restarts and upgrades.
+
+## Upgrade
+
+```bash
+docker compose build --pull && docker compose up -d
+```
+
+- `build --pull` fetches the newer base images and rebuilds the image; `up -d` recreates the container on
+  the new image.
+- The `autoops-data` volume is not touched — it is mounted again into the new container. Back it up before
+  a major upgrade anyway ([Data and backup](#data-and-backup)).
+- There is no separate migration step: the backend upgrades its database in place when the container
+  starts, so the volume can move straight from the old image to the new one.
+- With plain `docker run` rather than compose: build the new `autoops-bastion:latest`, then
+  `docker rm -f autoops` and run the same `docker run` command again with the same
+  `-v autoops-data:/app/data`.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `docker info --format '{{.OSType}}'` prints `windows` | The engine is in Windows-container mode and cannot run this image. Switch Docker Desktop back to Linux containers (tray icon), or use a Linux Docker engine. `linux` is the expected value. |
+| `docker run` reports that port 5000 is already allocated | Another service is on 5000. Publish a different host port, `-p 5001:5000`, and open `http://localhost:5001`. The container port stays 5000. |
+| The build stalls inside `npm ci` | The build has no working route to the npm registry. Fix the proxy/network for the build first; as a **fallback only**, build `dist/` on the host and put it into the build context instead of relying on the in-image build. |
+| The web page answers but the AI assistant returns `400 AI_NOT_CONFIGURED` | `DEEPSEEK_API_KEY` is empty. Set it (and `AI_ENABLED=1`) and recreate the container. |
+| Audit timestamps are hours off | Set the time zone: `-e TZ=Asia/Shanghai` on `docker run`, or `TZ` in `docker-compose.yml`, then recreate the container. |
+| `mstsc`/RDP against port 4489 fails | Expected in this image: the RDP gateway module ships a Windows binary and cannot run in the Linux container. Use a native install for it. |
+| A recreated container "lost everything" | It was started without the `-v autoops-data:/app/data` mount, or with a different volume name. Recreate it with the original volume before writing anything into the empty one. |
+
+---

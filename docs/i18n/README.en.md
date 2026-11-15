@@ -252,6 +252,49 @@ pwsh -File bastion-backend/packaging/build-local.ps1 -SkipFrontend -SmokeTest
 
 The result lands in `bastion-backend/build/dist/AutoOps-Bastion/`. `-Zip` also produces a zip named like the CI artifacts, and `-SmokeTest` starts the bundle once on port 5080 with the gateway disabled and calls `/api/health` (your running 5000/2222 services are untouched).
 
+## Docker deployment
+
+The repository also ships a **Linux container** image (`Dockerfile` plus `docker-compose.yml`): the web UI
+is compiled inside the image with Node 22 (`node:22-bookworm-slim`), and the runtime is
+`python:3.13-slim-bookworm` with the built `dist/` copied in. It runs on Docker Desktop (WSL2 backend),
+Linux servers and NAS boxes, and the host needs neither Python nor Node.js. Check the engine first:
+
+```bash
+docker info --format '{{.OSType}}'      # should print: linux
+```
+
+Build from the repository root:
+
+```bash
+docker build -t autoops-bastion:latest .
+```
+
+Run it with a **named volume** — without the volume every new container starts empty and its data dies
+with the container:
+
+```bash
+docker run -d --name autoops -p 5000:5000 -p 2222:2222 -p 4489:4489 \
+  -v autoops-data:/app/data autoops-bastion:latest
+```
+
+`http://localhost:5000` serves the UI and the API; sign in as `admin` / `admin123` (the password change
+is forced on first login). **5000** is the web UI and REST API, **2222** the SSH gateway
+(`ssh -p 2222 <user>@<host>`), **4489** is reserved for the optional RDP gateway module. With Compose:
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+docker compose down            # keeps the volume; down -v also deletes it and the data
+```
+
+Everything — SQLite database, keys, recordings, installed modules — lives in `/app/data`, so backing up
+that volume backs up the whole installation. Note what this image cannot do: the Windows-only features
+(WinRM targets, the ComputerUse host agent and the Rust RDP gateway module, whose
+`bastion-rdp-gateway.exe` is a Windows binary) are not available, so port 4489 stays idle. SSH assets,
+command/file policies, the four audit trails, session replay and the web UI all work normally. The full
+chapter (prerequisites, environment variables, health checks, extension modules, upgrade, troubleshooting)
+is in [manual.en.md · Deploy with Docker (Linux containers)](manual.en.md#deploy-with-docker-linux-containers).
+
 ## Usage
 
 **1) Open an audited terminal in the browser** — *Web terminal* → pick a host and account → *Connect*; every command and its output lands in the audit trail.

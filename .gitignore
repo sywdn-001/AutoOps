@@ -53,3 +53,6 @@ modules-dist/
 
 # 本地报错截图（用户现场反馈的临时截图），不入版本库
 报错图片/
+
+# strix sandbox run artifacts (local experiments only)
+strix_runs/

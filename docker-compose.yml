@@ -1,0 +1,40 @@
+# docker compose up -d --build
+#
+# Linux container image: works on Docker Desktop (WSL2 backend), Linux servers,
+# and NAS boxes. Data lives in the named volume `autoops-data` (/app/data).
+services:
+  bastion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autoops-bastion:latest
+    container_name: autoops-bastion
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # web UI + REST API
+      - "2222:2222"   # SSH gateway (ssh -p 2222 <user>@<host>)
+      - "4489:4489"   # reserved for the optional RDP gateway module
+    environment:
+      BASTION_INSTANCE_DIR: /app/data/instance
+      BASTION_HOST: 0.0.0.0
+      BASTION_PORT: "5000"
+      BASTION_GATEWAY_ENABLED: "1"
+      BASTION_GATEWAY_HOST: 0.0.0.0
+      BASTION_GATEWAY_PORT: "2222"
+      TZ: Asia/Shanghai
+      # Optional - enable the AI ops feature:
+      # AI_ENABLED: "1"
+      # DEEPSEEK_API_KEY: "sk-..."
+      # DEEPSEEK_BASE_URL: https://api.deepseek.com
+      # AI_MODEL: deepseek-chat
+    volumes:
+      - autoops-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  autoops-data:

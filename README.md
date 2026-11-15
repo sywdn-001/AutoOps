@@ -137,6 +137,41 @@ npm run dev            # 开发模式 http://localhost:8000，/api 与 /socket.i
 
 > 没有 Linux 机器也能跑通全链路：`python tools/demo_ssh_target.py` 会起一个**真实 SSH 协议栈**的假 Linux（`127.0.0.1:2200`，账号 `root` / `s3cret`），把它当资产加进来就能体验网页终端、SSH 网关、命令策略拦截与审计落库。生产构建用 `npm run build`，产物 `dist/` 由后端同端口直服。
 
+### Docker 部署（Linux 容器）
+
+仓库自带 Linux 容器镜像（`Dockerfile` + `docker-compose.yml`），在 Docker Desktop（WSL2 后端）、Linux 服务器、群晖等 NAS 上都能跑。构建时前端在镜像内用 Node 22 编译，本机不需要装 Python 或 Node。
+
+```powershell
+docker info --format '{{.OSType}}'          # 应为 linux；返回 windows 就先切回 Linux 容器模式
+cd D:\Desktop\AutoOps
+docker build -t autoops-bastion:latest .
+```
+
+```powershell
+docker run -d --name autoops `
+  -p 5000:5000 -p 2222:2222 -p 4489:4489 `
+  -v autoops-data:/app/data `
+  autoops-bastion:latest
+```
+
+也可以走 compose：`docker compose up -d --build` 启动，`docker compose logs -f` 看日志，`docker compose down` 停止（卷保留；`down -v` 才删数据）。
+
+| 入口 | 地址 |
+| --- | --- |
+| Web UI / REST API | `http://localhost:5000`（初始管理员 `admin` / `admin123`，首次登录强制改密） |
+| SSH 网关 | `ssh -p 2222 <堡垒机账号>@<主机>` |
+| RDP 网关 | `4489` 预留；Linux 镜像没有可用的网关程序 |
+
+- **功能边界**：WinRM 资产、ComputerUse 主机代理、Rust RDP 网关模块在 Linux 镜像里不可用；SSH 资产、命令/文件策略、四类审计、会话回放、Web UI 与扩展模块页面正常。
+- **数据持久化**：全部在卷 `autoops-data`（容器内 `/app/data/instance/`：`bastion.db`、三把密钥、录像、已装模块）。备份就备份这个卷；**不挂卷 = 删容器即丢数据**。
+- **环境变量**：`docker run -e AI_ENABLED=1 -e DEEPSEEK_API_KEY=sk-...`，或 `--env-file .env`（把 `bastion-backend/.env.example` 复制成 `.env` 后填），或 compose 的 `environment:`。密钥留空会自动生成并存在卷里，`.env` 不要提交。
+- **健康检查与日志**：`docker inspect --format '{{.State.Health.Status}}' autoops`、`docker logs -f autoops`、`curl.exe http://localhost:5000/api/health`。
+- **扩展模块**：系统不预装，登录后到「系统设置 → 扩展模块」上传仓库根目录的 `hello-bastion-1.1.1.mod.ops_ext`、`js-demo-1.0.1.mod.ops_ext`、`rdp-gateway-1.2.2.mod.ops_ext`（RDP 网关模块在 Linux 镜像里起不来）。
+- **升级**：`docker compose build --pull && docker compose up -d`，数据卷不动；跨大版本先备份卷。
+- **常见问题**：`OSType` 返回 `windows` → Docker Desktop 还停在 Windows 容器模式，切回 Linux 容器；5000 被占用 → 改映射 `-p 5001:5000`；构建卡在 `npm ci` → 检查网络/代理。
+
+完整的命令、数据备份与排障表见 [docs/使用手册.md](docs/使用手册.md#用-docker-部署linux-容器) 的「用 Docker 部署（Linux 容器）」一章。
+
 ### 编译 RDP 网关并打包成扩展模块
 
 系统**不预装任何扩展模块**（全新实例是 0 个模块），「RDP 网关」也要自己上传安装。它的网关进程是独立的 Rust 程序，所以需要先编译再打包：
@@ -442,6 +477,7 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | --- | --- | --- |
 | [docs/图文教程.md](docs/图文教程.md) | [tutorial.en.md](docs/i18n/tutorial.en.md) | 逐步配图的操作教程 |
 | [docs/使用手册.md](docs/使用手册.md) | [manual.en.md](docs/i18n/manual.en.md) | 每个页面的字段与操作说明 |
+| [docs/使用手册.md · 用 Docker 部署（Linux 容器）](docs/使用手册.md#用-docker-部署linux-容器) | — | Linux 容器镜像：前提、构建、运行、compose、数据卷与排障 |
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |
