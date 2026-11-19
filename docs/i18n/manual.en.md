@@ -556,3 +556,250 @@ docker compose build --pull && docker compose up -d
 | A recreated container "lost everything" | It was started without the `-v autoops-data:/app/data` mount, or with a different volume name. Recreate it with the original volume before writing anything into the empty one. |
 
 ---
+
+# Deploy with Docker (Windows containers)
+
+`Dockerfile.windows` and `docker-compose.windows.yml` run the same AutoOps in a **Windows container**
+(`python:3.13-windowsservercore-ltsc2025`, with the web UI built against `windows/servercore`). Choose this
+variant when you need the Windows-only features: WinRM assets, the ComputerUse host agent and the RDP
+gateway executable. SSH assets, policies, the audit trails, session replay and the web UI behave exactly as
+they do in the Linux image; the cost is a much larger image and a slower build.
+
+> **Status:** this Windows container path is still being verified on real hardware. The base images are
+> roughly 10 GB, so a complete build-and-run had not been finished when this chapter was written. Treat it
+> as the intended procedure and report anything that does not match.
+
+## Prerequisites
+
+- **A Windows host running Windows containers.** Enable the `Containers` and `Microsoft-Hyper-V` features
+  from an elevated PowerShell and reboot:
+
+  ```powershell
+  Enable-WindowsOptionalFeature -Online -FeatureName Containers,Microsoft-Hyper-V -All
+  docker info --format '{{.OSType}}'    # must print: windows
+  ```
+
+- **Windows 11 client hosts must use process isolation.** The default Hyper-V isolation fails with
+  `hcs::CreateComputeSystem ...: Invalid Signature.`, so every build and run below passes
+  `--isolation=process`, and `docker-compose.windows.yml` sets `isolation: process`.
+- **Base tag versus host build.** The image is built on `ltsc2025`; it runs on a host of the same or a
+  newer build. An older host needs `--build-arg BASE_TAG=ltsc2022`.
+- **Disk and network.** The Windows base images add up to roughly **10 GB** on the first pull.
+- No Python and no Node.js on the host: Python comes from the base image, Node 22 is downloaded inside the
+  build stage.
+
+Smoke-test the engine before starting the long build:
+
+```powershell
+docker run --rm --isolation=process mcr.m.daocloud.io/windows/nanoserver:ltsc2025 cmd /c "echo hello"
+```
+
+## What this image adds over the Linux image
+
+| Area | Linux image | Windows image |
+| --- | --- | --- |
+| WinRM targets (web terminal to a Windows host) | Not available | Works |
+| ComputerUse host agent (the AI drives a Windows desktop) | Not available | Works |
+| Rust RDP gateway module (`bastion-rdp-gateway.exe`) | Not available; port 4489 idle | Runs; port 4489 serves RDP |
+| SSH assets, web terminal over SSH, SFTP, policies, the four audit trails, session replay | Work | Work |
+| Web UI, module UI and JS pages, AI assistant | Work | Work |
+| Base-image footprint | Debian slim (`python:3.13-slim-bookworm`) | Windows base images, roughly 10 GB on the first pull |
+
+## Build the image
+
+Run this **from the repository root** — the build context needs `Dockerfile.windows`,
+`bastion-backend/`, `ant-design-pro/` and `docker/`:
+
+```powershell
+docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows .
+
+# mcr.microsoft.com slow or unreachable (common in China): mirror the Windows base image
+docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows `
+  --build-arg BASE_REGISTRY=mcr.m.daocloud.io
+
+# older host build than ltsc2025
+docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows `
+  --build-arg BASE_TAG=ltsc2022
+```
+
+The build has two stages:
+
+| Stage | Base | What it does |
+| --- | --- | --- |
+| `frontend` | `${BASE_REGISTRY}/windows/servercore:${BASE_TAG}` | downloads the Node 22 zip (`NODE_VERSION=22.20.0`, Node ships no Windows container image any more), runs `npm ci` and `npm run build` |
+| `runtime` | `${PYTHON_REPOSITORY}:3.13-windowsservercore-${BASE_TAG}` | installs `bastion-backend/requirements.txt`, copies the backend, the built `dist/` and `docker/`, creates `C:\data\instance` |
+
+Build arguments:
+
+| Argument | Default | Use it to |
+| --- | --- | --- |
+| `BASE_TAG` | `ltsc2025` | match an older host build (`ltsc2022`) |
+| `BASE_REGISTRY` | `mcr.microsoft.com` | pull the Windows base images from a mirror |
+| `PYTHON_REPOSITORY` | `python` | pull the Python base image from a mirror |
+| `NODE_VERSION` | `22.20.0` | pin another Node 22 release for the UI build |
+
+## Run the container
+
+```powershell
+docker run -d --name autoops-win --isolation=process `
+  -p 5000:5000 -p 2222:2222 -p 4489:4489 `
+  -v autoops-data:C:\data autoops-bastion:windows
+```
+
+The entry point `C:\app\docker\entrypoint.ps1` creates `C:\data\instance`, prints the web/API address, the
+health-check address, the gateway address, the data directory and the Python version, then runs
+`python run.py --host 0.0.0.0 --port 5000 --gateway-host 0.0.0.0 --gateway-port 2222`.
+`BASTION_PORT` and `BASTION_GATEWAY_PORT` change the ports, `BASTION_LOG_LEVEL` sets the log level, and
+`BASTION_CONTAINER_NO_GATEWAY=1` adds `--no-gateway`.
+
+## Run with Docker Compose
+
+`docker-compose.windows.yml` wraps the same run command and adds `isolation: process`,
+`restart: unless-stopped`, the health check and `TZ=Asia/Shanghai`:
+
+```powershell
+docker compose -f docker-compose.windows.yml up -d --build
+docker compose -f docker-compose.windows.yml logs -f
+docker compose -f docker-compose.windows.yml down
+```
+
+- `up -d --build` builds `Dockerfile.windows` if needed, then starts the container
+  `autoops-bastion-windows` in the background.
+- `down` stops and removes the container but **keeps** the `autoops-data` volume; `down -v` deletes the
+  volume and the data with it.
+- The compose file already sets `isolation: process`, so it works on a Windows 11 client host as it is.
+
+## First login
+
+1. Open `http://localhost:5000`.
+2. Sign in as user `admin` with the password `admin123`.
+3. The UI forces a password change on that first login.
+
+Locked yourself out? Reset the administrator password inside the container:
+
+```powershell
+docker exec -it autoops-win powershell -NoProfile -Command "Set-Location C:\app\bastion-backend; python run.py --reset-admin"
+```
+
+## Ports
+
+| Port | Purpose |
+| --- | --- |
+| 5000 | Web UI and REST API; the health check is `GET /api/health` |
+| 2222 | SSH gateway — `ssh -p 2222 <user>@<host>` |
+| 4489 | RDP gateway module — usable in this image, unlike the Linux one (see [Using the RDP gateway module](#using-the-rdp-gateway-module)) |
+
+Publishing is controlled by `-p` (or the compose `ports:` list); `EXPOSE` in the image only documents the
+ports.
+
+## Data and backup
+
+Everything writable lives in the volume at `C:\data`:
+
+| Path | Contents |
+| --- | --- |
+| `instance\bastion.db` | SQLite database: users, hosts, assets, grants, policies, audit records |
+| `instance\secret.key`, `instance\fernet.key` | Session signing key and the key that encrypts asset credentials |
+| `instance\gateway_host_rsa.key` | SSH gateway host key |
+| `instance\` (rest) | Session recordings and the installed extension modules |
+
+Back up the volume with `docker cp` while the container is stopped:
+
+```powershell
+docker stop autoops-win
+docker cp autoops-win:C:\data .\autoops-data-backup
+docker start autoops-win
+```
+
+As in the Linux image, **the data dies with the container** when no volume is mounted: a container started
+without `-v autoops-data:C:\data` begins with an empty `C:\data`, and `docker rm` takes the database, the
+keys and the recordings with it. Keep the volume, and keep a copy of it off the host; the key files matter
+most, because a database copied onto different keys leaves the stored asset credentials undecryptable.
+
+## Environment variables
+
+The defaults inside the container:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BASTION_INSTANCE_DIR` | `C:\data\instance` | Data directory inside the volume |
+| `BASTION_HOST` / `BASTION_PORT` | `0.0.0.0` / `5000` | Web and API listen address and port |
+| `BASTION_GATEWAY_ENABLED` | `1` | Set to `0` to turn the SSH gateway off |
+| `BASTION_GATEWAY_HOST` / `BASTION_GATEWAY_PORT` | `0.0.0.0` / `2222` | SSH gateway address and port |
+| `BASTION_SERVE_FRONTEND` / `BASTION_FRONTEND_DIST` | `1` / `C:\app\ant-design-pro\dist` | Serve the built UI from the image |
+| `BASTION_CONTAINER_NO_GATEWAY` | empty | `1` starts with `--no-gateway` |
+| `BASTION_LOG_LEVEL` | empty | Passed on as `--log-level` |
+| `TZ` | `Asia/Shanghai` | Time zone inside the container |
+| `AI_ENABLED` | empty (off) | Set to `1` to switch the AI assistant on |
+| `DEEPSEEK_API_KEY` | empty | Model credential; without it `/api/ai/chat` answers `400 AI_NOT_CONFIGURED` |
+| `AI_MODEL` | `deepseek-flash` | Model name |
+| `BASTION_ADMIN_USERNAME` / `BASTION_ADMIN_PASSWORD` | `admin` / `admin123` | Administrator created on first start |
+
+Set them with `-e`, with `--env-file .env` (copy `bastion-backend\.env.example` and uncomment what you
+need), or in the `environment:` block of `docker-compose.windows.yml`, where the AI values are already
+present but commented out.
+
+- **Leave the secrets empty and they generate themselves**: `BASTION_SECRET_KEY`, `BASTION_JWT_SECRET`
+  and `BASTION_FERNET_KEY` are written into the volume on the first start. Changing them later invalidates
+  existing logins and makes the stored asset credentials undecryptable.
+- **Never commit `.env`**: it is git-ignored, and `.dockerignore` keeps `bastion-backend/.env` out of the
+  build context, so it never reaches the image.
+
+## Health check and logs
+
+```powershell
+docker inspect --format '{{.State.Health.Status}}' autoops-win
+docker logs -f autoops-win
+curl.exe -fsS http://localhost:5000/api/health
+```
+
+- The health check is PowerShell (`Invoke-WebRequest` against `http://127.0.0.1:5000/api/health`) every
+  30 s with a 10 s timeout, a **90 s** start-up grace period and 3 retries. The longer grace period covers
+  the slower first start of the Windows image.
+- `starting` on a fresh volume is normal: the first start creates the database, the tables and the three
+  keys. `healthy` means the API answered `200`.
+
+## Using the RDP gateway module
+
+This is the image where the RDP gateway makes sense — the module ships a Windows executable that the Linux
+image cannot run.
+
+1. Upload `rdp-gateway-1.2.2.mod.ops_ext` from the repository root under *System settings → Extension
+   modules*. The image ships no module.
+2. The installed module runs `bin\bastion-rdp-gateway.exe` inside the container and listens on **4489**;
+   both the `docker run` example and `docker-compose.windows.yml` publish that port. If you changed the
+   host port, point the client at the one you published.
+3. Connect the RDP client to `localhost:4489` (or `<host>:4489`) and pick the target machine in the RDP
+   gateway page; the connection is audited like any other session.
+
+If port 4489 is reachable but no RDP server answers, check that the module is installed and enabled — the
+port is published by the container whether or not the module is running.
+
+## Upgrade
+
+```powershell
+docker compose -f docker-compose.windows.yml build --pull && docker compose -f docker-compose.windows.yml up -d
+```
+
+- `build --pull` refetches the Windows base images and rebuilds; `up -d` recreates the container on the new
+  image.
+- The `autoops-data` volume is not touched. Back it up before a major upgrade ([Data and
+  backup](#data-and-backup)).
+- There is no separate migration step: the backend upgrades its database in place at start-up.
+- With plain `docker run` instead of compose: rebuild `autoops-bastion:windows`, then `docker rm -f
+  autoops-win` and repeat the same `docker run` command with the same `-v autoops-data:C:\data`.
+- If the new base tag no longer matches the host, rebuild with `--build-arg BASE_TAG=ltsc2022` as before.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `hcs::CreateComputeSystem ...: Invalid Signature.` | The default Hyper-V isolation on a Windows 11 client host. Add `--isolation=process` to `docker build` and `docker run`; compose needs `isolation: process` (it is already set in `docker-compose.windows.yml`). |
+| The first pull crawls or times out on `mcr.microsoft.com` | Mirror the base images: `--build-arg BASE_REGISTRY=mcr.m.daocloud.io`, and `--build-arg PYTHON_REPOSITORY=<mirror>/python` if the Python image is affected too. |
+| The container fails to start with a version-mismatch error | The base image tag is newer than the host build. Rebuild with `--build-arg BASE_TAG=ltsc2022` and run that image; `docker version` shows the host build. |
+| `docker run` reports that port 5000 (or 2222, 4489) is already allocated | Publish another host port, `-p 5001:5000`, and open `http://localhost:5001`; the container port does not change. |
+| `docker info --format '{{.OSType}}'` prints `linux` | The engine is in Linux-container mode. Switch Docker Desktop back to Windows containers before building or running this image. |
+| The build fails while downloading `node-v22.20.0-win-x64.zip` | The build host cannot reach `nodejs.org`. Fix the proxy/network, or pre-build `dist/` on the host and place it in the build context as a fallback. |
+| Health status stays `starting` for a long time | The Windows health check has a 90 s grace period; if it turns `unhealthy`, read `docker logs -f autoops-win`. |
+
+---

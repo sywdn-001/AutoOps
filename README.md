@@ -172,6 +172,21 @@ docker run -d --name autoops `
 
 完整的命令、数据备份与排障表见 [docs/使用手册.md](docs/使用手册.md#用-docker-部署linux-容器) 的「用 Docker 部署（Linux 容器）」一章。
 
+### Docker 部署（Windows 容器，完整功能）
+
+需要 WinRM 资产、ComputerUse 主机代理或 Rust RDP 网关时用这个变体（`Dockerfile.windows` + `docker-compose.windows.yml`），Windows 专属能力全部保留。前提：宿主已启用 **Windows 容器**（`docker info --format '{{.OSType}}'` 返回 `windows`），Windows 11 客户端**必须用 process 隔离**（默认 Hyper-V 会报 `hcs::CreateComputeSystem ...: Invalid Signature.`）；基础镜像合计约 **10GB**，要能稳定下载。
+
+```powershell
+docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows . `
+  --build-arg BASE_REGISTRY=mcr.m.daocloud.io `
+  --build-arg PYTHON_REPOSITORY=docker.m.daocloud.io/library/python
+docker run -d --name autoops-win --isolation=process `
+  -p 5000:5000 -p 2222:2222 -p 4489:4489 `
+  -v autoops-data:C:\data autoops-bastion:windows
+```
+
+也可以 `docker compose -f docker-compose.windows.yml up -d --build`；宿主 build 旧时把 `BASE_TAG` 改成 `ltsc2022` 重建。完整说明与排障见 [docs/使用手册.md](docs/使用手册.md#用-docker-部署windows-容器) 的「用 Docker 部署（Windows 容器）」一章。
+
 ### 编译 RDP 网关并打包成扩展模块
 
 系统**不预装任何扩展模块**（全新实例是 0 个模块），「RDP 网关」也要自己上传安装。它的网关进程是独立的 Rust 程序，所以需要先编译再打包：
@@ -478,6 +493,7 @@ cd ../ant-design-pro && npx biome check && npx tsc --noEmit && npx vitest run
 | [docs/图文教程.md](docs/图文教程.md) | [tutorial.en.md](docs/i18n/tutorial.en.md) | 逐步配图的操作教程 |
 | [docs/使用手册.md](docs/使用手册.md) | [manual.en.md](docs/i18n/manual.en.md) | 每个页面的字段与操作说明 |
 | [docs/使用手册.md · 用 Docker 部署（Linux 容器）](docs/使用手册.md#用-docker-部署linux-容器) | — | Linux 容器镜像：前提、构建、运行、compose、数据卷与排障 |
+| [docs/使用手册.md · 用 Docker 部署（Windows 容器）](docs/使用手册.md#用-docker-部署windows-容器) | — | Windows 容器镜像：process 隔离、镜像源、数据卷与 RDP 网关 |
 | [docs/审计与安全.md](docs/审计与安全.md) | — | 审计数据流、哈希链、凭据与密钥处理 |
 | [docs/需求对照.md](docs/需求对照.md) | — | 需求逐条对应到实现与验证 |
 | [docs/验证记录.md](docs/验证记录.md) | — | 门禁与真机联调的实测记录（含截图取证） |

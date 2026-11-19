@@ -23,6 +23,13 @@ bastion-backend/venv
 modules-dist
 *.mod.ops_ext
 .mod.ops_ext
+工作记忆
+报错图片
+strix_runs
+*.log
+
+# Rust build artifacts (the gateway binary itself is packaged separately)
+bastion-rdp-gateway/target
 
 # repo meta
 .git

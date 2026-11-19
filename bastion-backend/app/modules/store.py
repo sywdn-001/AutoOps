@@ -93,12 +93,24 @@ def remove_tree(path: Path) -> None:
     shutil.rmtree(path, onerror=_onerror)
 
 
+def _copy_tree(source: Path, dest: Path) -> None:
+    """退路：把 ``source`` 的内容复制到 ``dest`` 再删除源目录。
+
+    Windows 容器里把数据目录挂成命名卷（``-v name:C:\\data``）时，卷上的
+    ``os.replace``/``os.rename`` 会稳定报 ``WinError 3``（找不到路径），
+    即使源文件确实存在。复制 + 删除虽然慢一点，但不会让模块装不上。
+    """
+    shutil.copytree(source, dest)
+    remove_tree(source)
+
+
 def replace_tree(source: Path, dest: Path) -> None:
     """把临时目录整体改名到最终位置，占用时退避重试。
 
     模块包里可能带几十 MB 的可执行文件（如内置 ``rdp-gateway`` 的
     14MB 网关），刚写完的那一瞬间常被杀软、索引服务或资源管理器的
     写入通知短暂占用；此时 ``os.replace`` 会失败，稍等即可成功。
+    某些文件系统（Windows 容器命名卷）根本不允许改名，这时退回复制。
     """
     delay = _REPLACE_BACKOFF
     for attempt in range(1, _REPLACE_ATTEMPTS + 1):
@@ -107,6 +119,13 @@ def replace_tree(source: Path, dest: Path) -> None:
             return
         except OSError as exc:
             winerror = getattr(exc, "winerror", None)
+            if winerror == 3 or isinstance(exc, FileNotFoundError):
+                # 命名卷上改名完全不可用，重试也一样，直接复制。
+                logger.warning(
+                    "模块目录改名不可用（winerror=%s），改用复制：%s", winerror, exc
+                )
+                _copy_tree(source, dest)
+                return
             last = attempt == _REPLACE_ATTEMPTS
             if winerror not in _REPLACE_WINERRORS or last:
                 raise
@@ -127,7 +146,14 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
         with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-        os.replace(temp_path, path)
+        try:
+            os.replace(temp_path, path)
+        except OSError as exc:
+            # 命名卷上改名不可用（WinError 3），退化为原地写入。
+            logger.warning("state 文件改名不可用，改为原地写入：%s", exc)
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
     finally:
         if temp_path.exists():
             try:

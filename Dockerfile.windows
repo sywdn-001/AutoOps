@@ -1,0 +1,119 @@
+# escape=`
+#
+# AutoOps Bastion - Windows container image (Windows Server 2025 / ltsc2025).
+#
+# Build from the repository root. On Windows 11 client hosts process isolation is
+# required, otherwise HCS fails with "Invalid Signature":
+#   docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows .
+#
+# If mcr.microsoft.com is slow or blocked, point the Windows base image at a
+# mirror:  --build-arg BASE_REGISTRY=mcr.m.daocloud.io
+#
+# Only the Windows base image is pulled from a registry; Node and Python come
+# from nodejs.org / python.org, so Docker Hub access is not required.
+#
+# The host must be able to run Windows containers:
+#   Enable-WindowsOptionalFeature -Online -FeatureName $("Microsoft-Hyper-V","Containers") -All
+#   (elevated PowerShell, then reboot)
+#
+# Unlike the Linux image, this one keeps the Windows-only features working:
+# WinRM assets, the ComputerUse host agent and the RDP gateway executable.
+
+ARG BASE_TAG=ltsc2025
+ARG BASE_REGISTRY=mcr.microsoft.com
+ARG PYTHON_VERSION=3.13.9
+
+# ---------- stage 1: build the frontend with Node ----------
+FROM ${BASE_REGISTRY}/windows/servercore:${BASE_TAG} AS frontend
+
+SHELL ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `
+    "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';"]
+
+ARG NODE_VERSION=22.20.0
+
+# Node ships no Windows container image any more, so fetch the official zip and
+# put it on PATH for the build only.
+# NOTE: only single quotes are used in RUN steps here. The legacy (non-BuildKit)
+# builder is required to honour --isolation=process, and it strips the double
+# quotes of a RUN line before handing it to `powershell -Command`.
+RUN $url = 'https://nodejs.org/dist/v' + $env:NODE_VERSION + '/node-v' + $env:NODE_VERSION + '-win-x64.zip'; `
+    New-Item -ItemType Directory -Force C:\node | Out-Null; `
+    Invoke-WebRequest -UseBasicParsing $url -OutFile C:\node.zip; `
+    Expand-Archive C:\node.zip -DestinationPath C:\node -Force; `
+    Remove-Item C:\node.zip -Force; `
+    $dir = (Get-ChildItem C:\node -Directory | Select-Object -First 1).FullName; `
+    Move-Item $dir C:\nodejs -Force; `
+    & C:\nodejs\node.exe --version; `
+    & C:\nodejs\npm.cmd --version
+
+# WindowsPowerShell\v1.0 must stay on PATH: the SHELL instruction runs
+# `powershell` by bare name and that is the only directory holding it.
+ENV PATH="C:\nodejs;C:\Windows\System32\WindowsPowerShell\v1.0;C:\Windows\system32;C:\Windows"
+
+WORKDIR C:\fe
+COPY ant-design-pro\package.json ant-design-pro\package-lock.json .\
+RUN npm ci --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { npm install --no-audit --no-fund }
+
+COPY ant-design-pro\ .\
+RUN npm run build; `
+    if (-not (Test-Path C:\fe\dist\index.html)) { throw 'frontend build produced no dist/index.html' }
+
+# ---------- stage 2: runtime ----------
+# Python is installed from the official python.org installer instead of the
+# `python:*-windowsservercore` image: Docker Hub is unreachable on some networks
+# while the Windows base image and python.org are fine, and this keeps the image
+# roughly 4 GB smaller.
+FROM ${BASE_REGISTRY}/windows/servercore:${BASE_TAG}
+
+SHELL ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `
+    "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';"]
+
+ARG PYTHON_VERSION
+
+RUN $url = 'https://www.python.org/ftp/python/' + $env:PYTHON_VERSION + '/python-' + $env:PYTHON_VERSION + '-amd64.exe'; `
+    Invoke-WebRequest -UseBasicParsing $url -OutFile C:\python-setup.exe; `
+    $parts = $env:PYTHON_VERSION.Split('.'); `
+    $target = 'C:\Python' + $parts[0] + $parts[1]; `
+    Start-Process C:\python-setup.exe -Wait -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_test=0','Include_launcher=0',('TargetDir=' + $target); `
+    Remove-Item C:\python-setup.exe -Force; `
+    $py = (Get-ChildItem 'C:\Python*\python.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName; `
+    if (-not $py) { throw 'python installer did not produce python.exe' }; `
+    & $py --version; `
+    & $py -m pip --version
+
+# Keep in sync with ARG PYTHON_VERSION (3.13 -> C:\Python313).
+
+ENV PATH="C:\Python313;C:\Python313\Scripts;C:\Windows\System32\WindowsPowerShell\v1.0;C:\Windows\system32;C:\Windows"
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONIOENCODING=utf-8
+ENV TZ=Asia/Shanghai
+
+WORKDIR C:\app
+COPY bastion-backend\requirements.txt C:\app\bastion-backend\requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip; `
+    python -m pip install --no-cache-dir -r C:\app\bastion-backend\requirements.txt
+
+COPY bastion-backend\ C:\app\bastion-backend\
+COPY --from=frontend C:\fe\dist C:\app\ant-design-pro\dist
+COPY docker\ C:\app\docker\
+
+RUN New-Item -ItemType Directory -Force C:\data\instance | Out-Null
+
+# Container defaults: everything writable lives under C:\data so a single
+# volume (or bind mount) persists the database, the keys, recordings and modules.
+ENV BASTION_INSTANCE_DIR=C:\data\instance `
+    BASTION_HOST=0.0.0.0 `
+    BASTION_PORT=5000 `
+    BASTION_GATEWAY_ENABLED=1 `
+    BASTION_GATEWAY_HOST=0.0.0.0 `
+    BASTION_GATEWAY_PORT=2222 `
+    BASTION_SERVE_FRONTEND=1 `
+    BASTION_FRONTEND_DIST=C:\app\ant-design-pro\dist
+
+EXPOSE 5000 2222 4489
+VOLUME C:\data
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 `
+    CMD powershell -NoProfile -Command "try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5000/api/health -TimeoutSec 5).StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
+
+ENTRYPOINT ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\app\\docker\\entrypoint.ps1"]

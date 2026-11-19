@@ -259,6 +259,45 @@ def test_replace_tree_gives_up_on_other_errors(tmp_path, monkeypatch):
         store_module.replace_tree(source, tmp_path / "demo")
 
 
+def test_replace_tree_falls_back_to_copy_on_named_volume(tmp_path, monkeypatch):
+    """Windows 容器命名卷上改名恒报 WinError 3，必须退化成复制而不是装不上。"""
+    from app.modules import store as store_module
+
+    source = tmp_path / ".installing-demo"
+    (source / "package" / "web").mkdir(parents=True)
+    (source / "package" / "web" / "index.js").write_text("console.log(1)", encoding="utf-8")
+    (source / "state.json").write_text("{}", encoding="utf-8")
+    dest = tmp_path / "demo"
+
+    def no_rename(_src, dst):
+        raise FileNotFoundError(2, "The system cannot find the path specified", str(dst))
+
+    monkeypatch.setattr(store_module.os, "replace", no_rename)
+
+    store_module.replace_tree(source, dest)
+
+    assert (dest / "package" / "web" / "index.js").is_file()
+    assert (dest / "state.json").is_file()
+    assert not source.exists()
+
+
+def test_write_json_atomic_falls_back_to_in_place(tmp_path, monkeypatch):
+    """改名不可用时 state 文件要能原地写成功，且不留下 .tmp 残渣。"""
+    from app.modules import store as store_module
+
+    target = tmp_path / "modules" / "demo" / "state.json"
+
+    def no_rename(_src, dst):
+        raise FileNotFoundError(2, "The system cannot find the path specified", str(dst))
+
+    monkeypatch.setattr(store_module.os, "replace", no_rename)
+
+    store_module._write_json_atomic(target, {"id": "demo", "enabled": True})
+
+    assert json.loads(target.read_text(encoding="utf-8"))["id"] == "demo"
+    assert [p.name for p in target.parent.iterdir()] == ["state.json"]
+
+
 def test_install_rollback_when_registration_fails(
     mod_client, mod_admin_headers, mod_app, monkeypatch
 ):

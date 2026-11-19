@@ -1,0 +1,41 @@
+# AutoOps Bastion - Windows container variant.
+#
+#   docker compose -f docker-compose.windows.yml up -d --build
+#
+# Process isolation is mandatory on Windows 11 client hosts: the default
+# Hyper-V isolation fails with "hcs::CreateComputeSystem ... Invalid Signature".
+# If the Windows base image does not match the host build, rebuild with
+#   docker build --isolation=process --build-arg BASE_TAG=ltsc2022 -f Dockerfile.windows -t autoops-bastion:windows .
+services:
+  bastion:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows
+      args:
+        BASE_TAG: ltsc2025
+    image: autoops-bastion:windows
+    container_name: autoops-bastion-windows
+    isolation: process
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "2222:2222"
+      - "4489:4489"
+    environment:
+      TZ: Asia/Shanghai
+      # AI assistant (optional):
+      # AI_ENABLED: "1"
+      # DEEPSEEK_API_KEY: ""
+      # BASTION_CONTAINER_NO_GATEWAY: "1"
+      # BASTION_LOG_LEVEL: INFO
+    volumes:
+      - autoops-data:C:\data
+    healthcheck:
+      test: ["CMD", "powershell", "-NoProfile", "-Command", "try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5000/api/health -TimeoutSec 5).StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  autoops-data:

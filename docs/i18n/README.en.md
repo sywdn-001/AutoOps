@@ -295,6 +295,23 @@ command/file policies, the four audit trails, session replay and the web UI all 
 chapter (prerequisites, environment variables, health checks, extension modules, upgrade, troubleshooting)
 is in [manual.en.md · Deploy with Docker (Linux containers)](manual.en.md#deploy-with-docker-linux-containers).
 
+## Docker deployment (Windows containers, full feature set)
+
+The Linux image cannot run WinRM targets, the ComputerUse host agent or the RDP gateway;
+`Dockerfile.windows` keeps them. It needs a Windows host with Windows containers enabled
+(`docker info --format '{{.OSType}}'` prints `windows`); on **Windows 11 client hosts** every build and
+run needs `--isolation=process`, because the default Hyper-V isolation fails with `Invalid Signature`.
+
+```powershell
+docker build --isolation=process -f Dockerfile.windows -t autoops-bastion:windows .   # + --build-arg BASE_REGISTRY=mcr.m.daocloud.io when mcr.microsoft.com is slow
+docker run -d --name autoops-win --isolation=process -p 5000:5000 -p 2222:2222 -p 4489:4489 -v autoops-data:C:\data autoops-bastion:windows
+docker compose -f docker-compose.windows.yml up -d --build
+```
+
+The first pull is roughly 10 GB of base images; `--build-arg BASE_TAG=ltsc2022` is the fallback when
+`ltsc2025` does not match the host. Data in `C:\data`, first login `admin`/`admin123`, full chapter:
+[manual.en.md · Deploy with Docker (Windows containers)](manual.en.md#deploy-with-docker-windows-containers).
+
 ## Usage
 
 **1) Open an audited terminal in the browser** — *Web terminal* → pick a host and account → *Connect*; every command and its output lands in the audit trail.
@@ -444,6 +461,7 @@ screenshot.
 | --- | --- | --- |
 | [tutorial.en.md](tutorial.en.md) | [图文教程](../%E5%9B%BE%E6%96%87%E6%95%99%E7%A8%8B.md) | Illustrated step-by-step walkthrough |
 | [manual.en.md](manual.en.md) | [使用手册](../%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md) | Field-by-field, page-by-page guide |
+| [manual.en.md · Deploy with Docker (Windows containers)](manual.en.md#deploy-with-docker-windows-containers) | [使用手册](../%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md) | The Windows-container image: WinRM assets, the ComputerUse host agent and the RDP gateway inside one container |
 | — | [审计与安全](../%E5%AE%A1%E8%AE%A1%E4%B8%8E%E5%AE%89%E5%85%A8.md) | Audit pipeline, hash chain, credential and key handling |
 | — | [需求对照](../%E9%9C%80%E6%B1%82%E5%AF%B9%E7%85%A7.md) | Requirements mapped to implementation and evidence |
 | — | [验证记录](../%E9%AA%8C%E8%AF%81%E8%AE%B0%E5%BD%95.md) | Gate and real-machine verification log, with screenshots |
